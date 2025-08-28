@@ -1,0 +1,241 @@
+"""
+Main Dash application with multi-page routing.
+
+Research-validated implementation using Dash 2.17+ patterns with
+Bootstrap theme integration and proper page container setup.
+"""
+
+import os
+import logging
+from pathlib import Path
+
+import dash
+from dash import html, dcc
+import dash_bootstrap_components as dbc
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize Dash app with research-validated configuration
+app = dash.Dash(
+    __name__,
+    use_pages=True,  # Enable multi-page routing (Dash 2.17+)
+    external_stylesheets=[
+        dbc.themes.BOOTSTRAP,  # Research-validated Bootstrap theme
+        dbc.icons.FONT_AWESOME  # Icons for better UX
+    ],
+    suppress_callback_exceptions=True,  # Allow dynamic callbacks
+    title="Garmin Dashboard",
+    update_title=None  # Don't update title on page changes
+)
+
+# Configure app server for production
+server = app.server
+server.config.update({
+    'SECRET_KEY': os.environ.get('SECRET_KEY', 'dev-key-change-in-production'),
+})
+
+# Main application layout with navigation and page container
+app.layout = dbc.Container([
+    # Navigation bar with research-validated Bootstrap components
+    dbc.NavBar([
+        dbc.Row([
+            # Brand/Logo section
+            dbc.Col([
+                dbc.NavbarBrand([
+                    html.I(className="fas fa-running me-2"),  # Running icon
+                    "Garmin Dashboard"
+                ], href="/", className="text-white fw-bold")
+            ], width="auto"),
+            
+            # Navigation links
+            dbc.Col([
+                dbc.Nav([
+                    dbc.NavLink([
+                        html.I(className="fas fa-calendar me-1"),
+                        "Activities"
+                    ], href="/", active="exact", className="text-white"),
+                    dbc.NavLink([
+                        html.I(className="fas fa-chart-line me-1"),
+                        "Statistics"
+                    ], href="/stats", active="exact", className="text-white"),
+                    dbc.NavLink([
+                        html.I(className="fas fa-cog me-1"),
+                        "Settings"
+                    ], href="/settings", active="exact", className="text-white"),
+                ], navbar=True, className="ms-auto")
+            ])
+        ], align="center", className="w-100", justify="between")
+    ], 
+    color="dark", 
+    dark=True, 
+    className="mb-4",
+    sticky="top"  # Keep navigation visible on scroll
+    ),
+    
+    # Client-side data store for session management
+    dcc.Store(id="session-store", storage_type="session"),
+    dcc.Store(id="activity-filters", storage_type="session", data={
+        'start_date': None,
+        'end_date': None,
+        'sport': 'all',
+        'search_term': ''
+    }),
+    
+    # Location component for URL routing
+    dcc.Location(id="url", refresh=False),
+    
+    # Main content area - this is where pages will be rendered
+    dash.page_container,
+    
+    # Footer
+    html.Footer([
+        dbc.Container([
+            html.Hr(className="my-4"),
+            dbc.Row([
+                dbc.Col([
+                    html.P([
+                        "🏃 Garmin Dashboard - Built with ",
+                        html.A("Dash", href="https://dash.plotly.com/", 
+                               target="_blank", className="text-decoration-none"),
+                        " & ",
+                        html.A("Bootstrap", href="https://getbootstrap.com/", 
+                               target="_blank", className="text-decoration-none")
+                    ], className="text-muted small mb-0")
+                ], width=6),
+                dbc.Col([
+                    html.P([
+                        html.Span("Data stays local 🔒", className="text-success"),
+                    ], className="text-muted small mb-0 text-end")
+                ], width=6)
+            ])
+        ])
+    ])
+    
+], fluid=True, className="px-0")
+
+# Global callback for URL-based page updates (if needed)
+@app.callback(
+    dash.dependencies.Output("session-store", "data"),
+    [dash.dependencies.Input("url", "pathname")],
+    [dash.dependencies.State("session-store", "data")]
+)
+def update_session_data(pathname, session_data):
+    """
+    Update session data based on URL changes.
+    
+    This callback maintains application state across page navigation.
+    """
+    if session_data is None:
+        session_data = {}
+    
+    # Update current page in session
+    session_data['current_page'] = pathname
+    session_data['last_visit'] = dash.callback_context.triggered_id
+    
+    return session_data
+
+# Error handling for page not found
+def page_not_found():
+    """Return 404 page layout."""
+    return dbc.Container([
+        dbc.Row([
+            dbc.Col([
+                html.Div([
+                    html.H1("404", className="display-1 text-muted"),
+                    html.H2("Page Not Found", className="mb-3"),
+                    html.P("The page you're looking for doesn't exist.", 
+                          className="text-muted mb-4"),
+                    dbc.Button([
+                        html.I(className="fas fa-home me-2"),
+                        "Go Home"
+                    ], href="/", color="primary")
+                ], className="text-center")
+            ], width=6, className="mx-auto")
+        ], className="min-vh-50 d-flex align-items-center")
+    ])
+
+# Add custom CSS for enhanced styling
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            /* Custom CSS for Garmin Dashboard */
+            .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table {
+                border-collapse: separate;
+                border-spacing: 0;
+            }
+            
+            .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+                background-color: #f8f9fa;
+                border-bottom: 2px solid #dee2e6;
+                font-weight: 600;
+            }
+            
+            .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover {
+                background-color: rgba(0,123,255,0.05);
+                cursor: pointer;
+            }
+            
+            /* Loading animations */
+            .loading-spinner {
+                display: inline-block;
+                width: 20px;
+                height: 20px;
+                border: 3px solid rgba(0,123,255,0.3);
+                border-radius: 50%;
+                border-top-color: #007bff;
+                animation: spin 1s ease-in-out infinite;
+            }
+            
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+            
+            /* Responsive map container */
+            .map-container {
+                position: relative;
+                height: 400px;
+                width: 100%;
+                margin-bottom: 1rem;
+            }
+            
+            /* Chart container */
+            .chart-container {
+                margin-bottom: 2rem;
+            }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
+
+if __name__ == "__main__":
+    # Development server configuration
+    debug_mode = os.environ.get('DASH_DEBUG', 'True').lower() == 'true'
+    port = int(os.environ.get('PORT', 8050))
+    host = os.environ.get('HOST', '127.0.0.1')
+    
+    logger.info(f"Starting Garmin Dashboard on {host}:{port}")
+    logger.info(f"Debug mode: {debug_mode}")
+    
+    app.run_server(
+        debug=debug_mode,
+        host=host,
+        port=port,
+        dev_tools_ui=debug_mode,
+        dev_tools_hot_reload=debug_mode
+    )

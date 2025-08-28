@@ -1,0 +1,218 @@
+9name: Release
+
+on:
+  push:
+    branches:
+      - master
+      - alpha
+      - beta
+      - next
+    tags:
+      - '*'
+  pull_request:
+    branches:
+      - master
+      - main
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+
+
+      
+
+permissions:
+  contents: read
+
+jobs:
+  # Linting Jobs
+
+  python-format-check:
+    name: Python Format Check
+    if: github.event.inputs.skip_tests != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-test.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+            
+      - name: Install Dependencies
+        run: |
+          make venv
+          make bootstrap
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+          
+      - name: Run Black Format Check
+        run: make black-check
+
+  flake-check:
+    name: Python Linting (Flake8)
+    if: github.event.inputs.skip_tests != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-test.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+            
+      - name: Install Dependencies
+        run: |
+          make venv
+          make bootstrap
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+          
+      - name: Run Flake8
+        run: make flake
+
+
+  tests:
+    name: Tests and Coverage
+    if: github.event.inputs.skip_tests != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Set Up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py${{ matrix.python-version }}-pip-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-py${{ matrix.python-version }}-pip-
+            
+      - name: Install Dependencies
+        run: |
+          make venv
+          make bootstrap
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+          
+      - name: Create necessary directories
+        run: |
+          mkdir -p artifacts images
+          
+      - name: Run Tests with Coverage
+        run: make pytest
+          
+      - name: Generate Coverage Badge
+        if: matrix.python-version == '3.11'
+        run: |
+          coverage report --format=total > coverage_total.txt
+          COVERAGE=$(cat coverage_total.txt)
+          echo "Coverage: ${COVERAGE}%"
+          
+          # Check if coverage meets threshold
+          COVERAGE_INT=${COVERAGE%.*}
+          if [ "${COVERAGE_INT}" -lt 20 ]; then
+            echo "⚠️  Coverage is ${COVERAGE}% - below recommended 80%"
+          elif [ "${COVERAGE_INT}" -lt 90 ]; then
+            echo "✅ Coverage is ${COVERAGE}% - meets minimum threshold"
+          else
+            echo "🎉 Coverage is ${COVERAGE}% - excellent!"
+          fi
+          
+      - name: Upload Coverage Reports
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage.xml
+            htmlcov/
+          retention-days: 30
+
+
+
+
+  # Release Job
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [python-format-check, flake-check, tests]
+    if: >
+      (github.event_name == 'push' &&
+       !contains(github.event.head_commit.message, '[skip ci]')) ||
+      (github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write  # To push tags
+      issues: write
+      pull-requests: write
+      id-token: write
+    outputs:
+      git_short_sha: ${{ steps.capture_tag.outputs.git_short_sha }}
+      release_tag: ${{ steps.capture_tag.outputs.release_tag }}
+      image_tag: ${{ steps.capture_tag.outputs.image_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install Semantic Release and Plugins
+        run: |
+          npm install -g semantic-release@21.0.2 @semantic-release/gitlab @semantic-release/exec @semantic-release/changelog @semantic-release/release-notes-generator @semantic-release/commit-analyzer @semantic-release/git
+
+      - name: Fetch all tags
+        run: git fetch --tags
+
+      - name: Run Semantic Release
+        id: semantic_release
+        run: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+
+      - name: Capture New Tag and Set Image Tag
+        id: capture_tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            RELEASE_TAG=${GITHUB_REF#refs/tags/}
+            IMAGE_TAG=${RELEASE_TAG}
+          else
+            RELEASE_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
+            GIT_SHORT_SHA=$(git rev-parse --short HEAD)
+            IMAGE_TAG=latest-${GIT_SHORT_SHA}
+          fi
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
+          echo "GIT_SHORT_SHA=${GIT_SHORT_SHA:-}" >> $GITHUB_ENV
+          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+          echo "git_short_sha=${GIT_SHORT_SHA:-}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
