@@ -39,7 +39,7 @@ server.config.update({
 # Main application layout with navigation and page container
 app.layout = dbc.Container([
     # Navigation bar with research-validated Bootstrap components
-    dbc.NavBar([
+    dbc.Navbar([
         dbc.Row([
             # Brand/Logo section
             dbc.Col([
@@ -232,10 +232,8 @@ if __name__ == "__main__":
     logger.info(f"Starting Garmin Dashboard on {host}:{port}")
     logger.info(f"Debug mode: {debug_mode}")
     
-    app.run_server(
+    app.run(
         debug=debug_mode,
         host=host,
-        port=port,
-        dev_tools_ui=debug_mode,
-        dev_tools_hot_reload=debug_mode
+        port=port
     )
