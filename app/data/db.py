@@ -6,6 +6,7 @@ with proper connection handling and performance optimization.
 """
 
 import logging
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional, TYPE_CHECKING
@@ -40,7 +41,10 @@ class DatabaseConfig:
         Args:
             database_url: SQLAlchemy database URL. Defaults to SQLite file.
         """
-        self.database_url = database_url or "sqlite:///garmin_dashboard.db"
+        # Use provided URL, then environment variable, then default
+        self.database_url = database_url or os.getenv("DATABASE_URL") or "sqlite:///garmin_dashboard.db"
+
+        logger.info(f"Database URL: {self.database_url}")
         self._engine: Optional[Engine] = None
         self._session_factory: Optional[sessionmaker] = None
         self._scoped_session: Optional[scoped_session] = None

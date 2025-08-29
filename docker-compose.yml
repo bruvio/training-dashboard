@@ -25,7 +25,7 @@ services:
       - ./data:/data
       - ./activities:/app/activities:ro
     environment:
-      - DATABASE_URL=sqlite:///data/garmin_dashboard.db
+      - DATABASE_URL=sqlite:////data/garmin_dashboard.db
       - DASH_DEBUG=${DASH_DEBUG:-False}
       - HOST=0.0.0.0
       - PORT=8050
@@ -56,7 +56,7 @@ services:
       - ./data:/data
       - ./activities:/app/activities:ro
     environment:
-      - DATABASE_URL=sqlite:///data/garmin_dashboard.db
+      - DATABASE_URL=sqlite:////data/garmin_dashboard.db
       - PYTHONPATH=/app
     command: python -m cli.gd_import import-activities /app/activities --verbose
     depends_on:
@@ -82,7 +82,7 @@ services:
       - ./data:/data
       - ./activities:/app/activities:ro
     environment:
-      - DATABASE_URL=sqlite:///data/garmin_dashboard.db
+      - DATABASE_URL=sqlite:////data/garmin_dashboard.db
       - DASH_DEBUG=True
       - HOST=0.0.0.0
       - PORT=8050

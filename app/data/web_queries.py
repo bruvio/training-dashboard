@@ -8,7 +8,7 @@ including session management and query optimization.
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
-from sqlalchemy import func, and_, or_, desc
+from sqlalchemy import func, and_, or_, desc, text
 from sqlalchemy.orm import Session
 
 from .db import session_scope
@@ -189,19 +189,50 @@ def get_activity_summary_stats(
             search_pattern = f"%{search_term}%"
             query = query.filter(or_(Activity.name.ilike(search_pattern), Activity.description.ilike(search_pattern)))
 
-        # Get aggregated stats
-        stats = (
-            session.query(
-                func.count(Activity.id).label("total_activities"),
-                func.sum(Activity.distance_m).label("distance_m"),
-                func.sum(Activity.elapsed_time_s).label("total_time_s"),
-                func.avg(Activity.avg_hr).label("avg_hr"),
-                func.avg(Activity.avg_power_w).label("avg_power"),
-                func.sum(Activity.elevation_gain_m).label("total_elevation_m"),
-            )
-            .filter(query.whereclause)
-            .first()
+        # Create aggregation query with same filters
+        agg_query = session.query(
+            func.count(Activity.id).label("total_activities"),
+            func.sum(Activity.distance_m).label("distance_m"),
+            func.sum(Activity.elapsed_time_s).label("total_time_s"),
+            func.avg(Activity.avg_hr).label("avg_hr"),
+            func.avg(Activity.avg_power_w).label("avg_power"),
+            func.sum(Activity.elevation_gain_m).label("total_elevation_m"),
         )
+
+        # Apply same filters as the main query
+        if start_date:
+            agg_query = agg_query.filter(Activity.start_time_utc >= start_date)
+        if end_date:
+            end_datetime = datetime.combine(end_date, datetime.max.time())
+            agg_query = agg_query.filter(Activity.start_time_utc <= end_datetime)
+
+        if sport and sport != "all":
+            sport_mapping = {
+                "running": ["running", "treadmill_running", "trail_running"],
+                "cycling": ["cycling", "road_biking", "mountain_biking"],
+                "swimming": ["swimming", "open_water_swimming"],
+                "hiking": ["hiking", "walking"],
+                "strength": ["strength_training", "generic"],
+                "cardio": ["cardio", "elliptical", "fitness_equipment"],
+                "skiing": ["downhill_skiing", "cross_country_skiing", "snowboarding"],
+                "other": [],
+            }
+
+            if sport in sport_mapping and sport_mapping[sport]:
+                agg_query = agg_query.filter(Activity.sport.in_(sport_mapping[sport]))
+            elif sport == "other":
+                all_mapped_sports = []
+                for sports_list in sport_mapping.values():
+                    all_mapped_sports.extend(sports_list)
+                agg_query = agg_query.filter(~Activity.sport.in_(all_mapped_sports))
+
+        if search_term:
+            search_pattern = f"%{search_term}%"
+            agg_query = agg_query.filter(
+                or_(Activity.name.ilike(search_pattern), Activity.description.ilike(search_pattern))
+            )
+
+        stats = agg_query.first()
 
         # Format results with proper NULL handling
         total_activities = stats.total_activities or 0
@@ -342,7 +373,7 @@ def check_database_connection() -> bool:
     """
     try:
         with session_scope() as session:
-            session.execute("SELECT 1")
+            session.execute(text("SELECT 1"))
             return True
     except Exception:
         return False
