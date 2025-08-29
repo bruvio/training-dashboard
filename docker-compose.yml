@@ -1,7 +1,16 @@
 # Docker Compose configuration for Garmin Dashboard
-# Research-validated deployment with volume persistence and service definitions
+# Fixed version with proper volume mounting and directory creation
 
 services:
+  # Data initialization service - creates directories first
+  data-init:
+    image: busybox
+    command: ['sh', '-c', 'mkdir -p /data/activities && chown 1000:1000 /data && echo "Data directories initialized"']
+    volumes:
+      - ./data:/data
+    networks:
+      - garmin-network
+
   # Main web application
   garmin-dashboard:
     build: 
@@ -12,23 +21,19 @@ services:
     ports:
       - "${DASHBOARD_PORT:-8050}:8050"
     volumes:
-      # Persistent data storage
-      - garmin-data:/data
-      # Activity files directory (mount your Garmin export folder here)
-      - ${ACTIVITIES_DIR:-./activities}:/app/activities:ro
-      # Optional: Mount config directory
-      - ${CONFIG_DIR:-./config}:/app/config:ro
+      # Fixed volume mounting with proper directory creation
+      - ./data:/data
+      - ./activities:/app/activities:ro
     environment:
-      # Database configuration
       - DATABASE_URL=sqlite:///data/garmin_dashboard.db
-      # Application settings
       - DASH_DEBUG=${DASH_DEBUG:-False}
       - HOST=0.0.0.0
       - PORT=8050
-      # Optional: Custom settings
       - PYTHONPATH=/app
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
+    depends_on:
+      - data-init
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8050/"]
@@ -38,10 +43,6 @@ services:
       start_period: 40s
     networks:
       - garmin-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.garmin-dashboard.rule=Host(`garmin-dashboard.local`)"
-      - "traefik.http.services.garmin-dashboard.loadbalancer.server.port=8050"
 
   # CLI importer service (runs once, then exits)
   garmin-importer:
@@ -51,15 +52,15 @@ services:
       target: production
     container_name: garmin-dashboard-importer
     volumes:
-      # Same data volume as web app
-      - garmin-data:/data
-      # Activity files for import
-      - ${ACTIVITIES_DIR:-./activities}:/app/activities:ro
+      # Fixed volume mounting
+      - ./data:/data
+      - ./activities:/app/activities:ro
     environment:
       - DATABASE_URL=sqlite:///data/garmin_dashboard.db
       - PYTHONPATH=/app
-    command: python -m cli.gd_import /app/activities --verbose
+    command: python -m cli.gd_import import-activities /app/activities --verbose
     depends_on:
+      - data-init
       - garmin-dashboard
     profiles:
       - tools
@@ -78,8 +79,8 @@ services:
     volumes:
       # Mount source code for development
       - .:/app
-      - garmin-data:/data
-      - ${ACTIVITIES_DIR:-./activities}:/app/activities:ro
+      - ./data:/data
+      - ./activities:/app/activities:ro
     environment:
       - DATABASE_URL=sqlite:///data/garmin_dashboard.db
       - DASH_DEBUG=True
@@ -87,6 +88,8 @@ services:
       - PORT=8050
       - PYTHONPATH=/app
     command: python -m app.dash_app
+    depends_on:
+      - data-init
     profiles:
       - dev
     networks:
@@ -109,24 +112,15 @@ services:
     networks:
       - garmin-network
 
-# Named volumes for persistent data
-volumes:
-  garmin-data:
-    driver: local
-    driver_opts:
-      type: none
-      device: ${DATA_DIR:-./data}
-      o: bind
-
 # Network for service communication
 networks:
   garmin-network:
     driver: bridge
 
-# Configuration examples in comments:
+# Usage examples:
 #
-# Production deployment:
-# ACTIVITIES_DIR=/path/to/garmin/activities DATA_DIR=/path/to/data docker-compose up -d
+# Create directories and start:
+# mkdir -p data activities && docker-compose up -d
 #
 # Development mode:
 # docker-compose --profile dev up
@@ -139,6 +133,3 @@ networks:
 #
 # View logs:
 # docker-compose logs -f garmin-dashboard
-#
-# Scale for load testing:
-# docker-compose up -d --scale garmin-dashboard=3

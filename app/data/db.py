@@ -22,6 +22,7 @@ else:
         from sqlalchemy.engine import Engine
     except ImportError:
         from sqlalchemy import engine
+
         Engine = engine.Engine
 
 from .models import Base
@@ -31,11 +32,11 @@ logger = logging.getLogger(__name__)
 
 class DatabaseConfig:
     """Database configuration and connection management."""
-    
+
     def __init__(self, database_url: Optional[str] = None):
         """
         Initialize database configuration.
-        
+
         Args:
             database_url: SQLAlchemy database URL. Defaults to SQLite file.
         """
@@ -43,13 +44,13 @@ class DatabaseConfig:
         self._engine: Optional[Engine] = None
         self._session_factory: Optional[sessionmaker] = None
         self._scoped_session: Optional[scoped_session] = None
-    
+
     @property
     def engine(self):
         """Get or create SQLAlchemy engine with optimized settings."""
         if self._engine is None:
             connect_args = {}
-            
+
             # SQLite-specific optimizations
             if self.database_url.startswith("sqlite"):
                 connect_args = {
@@ -59,7 +60,7 @@ class DatabaseConfig:
                 pool_class = StaticPool
             else:
                 pool_class = None
-            
+
             self._engine = create_engine(
                 self.database_url,
                 connect_args=connect_args,
@@ -67,7 +68,7 @@ class DatabaseConfig:
                 echo=False,  # Set to True for SQL debugging
                 future=True,  # Use SQLAlchemy 2.0 style
             )
-            
+
             # Set SQLite-specific pragmas for performance
             if self.database_url.startswith("sqlite"):
                 with self._engine.connect() as conn:
@@ -76,50 +77,46 @@ class DatabaseConfig:
                     conn.execute(text("PRAGMA cache_size=10000"))
                     conn.execute(text("PRAGMA temp_store=MEMORY"))
                     conn.commit()
-        
+
         return self._engine
-    
+
     @property
     def session_factory(self) -> sessionmaker:
         """Get session factory for creating database sessions."""
         if self._session_factory is None:
             self._session_factory = sessionmaker(
-                bind=self.engine,
-                expire_on_commit=False,
-                autoflush=True,
-                autocommit=False,
-                future=True
+                bind=self.engine, expire_on_commit=False, autoflush=True, autocommit=False, future=True
             )
         return self._session_factory
-    
+
     @property
     def scoped_session_factory(self) -> scoped_session:
         """Get scoped session factory for web applications."""
         if self._scoped_session is None:
             self._scoped_session = scoped_session(self.session_factory)
         return self._scoped_session
-    
+
     def create_all_tables(self):
         """Create all database tables and indexes."""
         logger.info("Creating database tables...")
         Base.metadata.create_all(self.engine)
         logger.info("Database tables created successfully.")
-    
+
     def drop_all_tables(self):
         """Drop all database tables (use with caution!)."""
         logger.warning("Dropping all database tables...")
         Base.metadata.drop_all(self.engine)
         logger.info("All tables dropped.")
-    
+
     def get_session(self) -> Session:
         """Create a new database session."""
         return self.session_factory()
-    
+
     @contextmanager
     def session_scope(self) -> Generator[Session, None, None]:
         """
         Provide a transactional scope for database operations.
-        
+
         Usage:
             with db_config.session_scope() as session:
                 activity = Activity(...)
@@ -135,23 +132,23 @@ class DatabaseConfig:
             raise
         finally:
             session.close()
-    
+
     def close_all_sessions(self):
         """Close all active sessions (useful for cleanup)."""
         if self._scoped_session:
             self._scoped_session.remove()
-    
+
     def get_database_info(self) -> dict:
         """Get database information for debugging/monitoring."""
         with self.session_scope() as session:
             # Get table counts
             from .models import Activity, Sample, RoutePoint, Lap
-            
+
             activity_count = session.query(Activity).count()
             sample_count = session.query(Sample).count()
             route_point_count = session.query(RoutePoint).count()
             lap_count = session.query(Lap).count()
-            
+
             return {
                 "database_url": self.database_url,
                 "activities": activity_count,
@@ -176,10 +173,10 @@ def get_db_config() -> DatabaseConfig:
 def init_database(database_url: Optional[str] = None) -> DatabaseConfig:
     """
     Initialize the database with optional custom URL.
-    
+
     Args:
         database_url: Custom database URL (optional)
-    
+
     Returns:
         DatabaseConfig instance
     """

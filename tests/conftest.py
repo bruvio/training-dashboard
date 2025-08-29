@@ -22,13 +22,13 @@ def temp_database():
     # Create temporary directory
     temp_dir = Path(tempfile.mkdtemp())
     db_path = temp_dir / "test_garmin_dashboard.db"
-    
+
     # Initialize database
     db_url = f"sqlite:///{db_path}"
     db_config = init_database(db_url)
-    
+
     yield db_config
-    
+
     # Cleanup
     shutil.rmtree(temp_dir)
 
@@ -37,9 +37,9 @@ def temp_database():
 def db_session(temp_database):
     """Create database session for individual tests."""
     session = temp_database.get_session()
-    
+
     yield session
-    
+
     # Cleanup - rollback any uncommitted changes
     session.rollback()
     session.close()
@@ -50,7 +50,7 @@ def sample_activities(db_session):
     """Create sample activities for testing."""
     activities = []
     base_time = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
-    
+
     # Create diverse test activities
     activity_data = [
         {
@@ -60,16 +60,16 @@ def sample_activities(db_session):
             "elapsed_time_s": 3600,
             "avg_hr": 150,
             "avg_power_w": None,
-            "elevation_gain_m": 100.0
+            "elevation_gain_m": 100.0,
         },
         {
-            "external_id": "garmin_002", 
+            "external_id": "garmin_002",
             "sport": "cycling",
             "distance_m": 50000.0,
             "elapsed_time_s": 7200,
             "avg_hr": 140,
             "avg_power_w": 200.0,
-            "elevation_gain_m": 500.0
+            "elevation_gain_m": 500.0,
         },
         {
             "external_id": "garmin_003",
@@ -78,7 +78,7 @@ def sample_activities(db_session):
             "elapsed_time_s": 2400,
             "avg_hr": 130,
             "avg_power_w": None,
-            "elevation_gain_m": 0.0
+            "elevation_gain_m": 0.0,
         },
         {
             "external_id": "garmin_004",
@@ -87,10 +87,10 @@ def sample_activities(db_session):
             "elapsed_time_s": 18000,
             "avg_hr": 120,
             "avg_power_w": None,
-            "elevation_gain_m": 800.0
-        }
+            "elevation_gain_m": 800.0,
+        },
     ]
-    
+
     for i, data in enumerate(activity_data):
         activity = Activity(
             external_id=data["external_id"],
@@ -103,14 +103,14 @@ def sample_activities(db_session):
             avg_hr=data["avg_hr"],
             avg_power_w=data["avg_power_w"],
             elevation_gain_m=data["elevation_gain_m"],
-            calories=500 + i * 100
+            calories=500 + i * 100,
         )
-        
+
         db_session.add(activity)
         activities.append(activity)
-    
+
     db_session.commit()
-    
+
     return activities
 
 
@@ -125,39 +125,39 @@ def activity_with_samples(db_session):
         sport="cycling",
         start_time_utc=datetime(2024, 1, 20, 8, 0, 0, tzinfo=timezone.utc),
         elapsed_time_s=5400,  # 1.5 hours
-        distance_m=45000.0,   # 45km
+        distance_m=45000.0,  # 45km
         avg_hr=155,
         max_hr=185,
         avg_power_w=220.0,
         max_power_w=350.0,
         elevation_gain_m=600.0,
-        calories=800
+        calories=800,
     )
-    
+
     db_session.add(activity)
     db_session.flush()  # Get activity ID
-    
+
     # Create samples (simulate GPS tracking every 30 seconds)
     samples = []
     route_points = []
-    
+
     base_lat = 52.5200  # Berlin coordinates
     base_lon = 13.4050
     base_alt = 100.0
-    
+
     for i in range(180):  # 180 samples = 90 minutes of data
         elapsed_s = i * 30
-        
+
         # Simulate realistic GPS drift
         lat = base_lat + (i * 0.0001) + (0.00005 * (i % 7))  # Some variation
         lon = base_lon + (i * 0.0002) + (0.00003 * (i % 5))
         alt = base_alt + (i * 0.5) - (0.3 * (i % 11))  # Elevation changes
-        
+
         # Simulate realistic sensor data
         hr = 140 + (15 * (i / 180)) + (10 * ((i % 20) / 20))  # Gradual increase with variation
         power = 200 + (50 * ((i % 30) / 30)) - (25 * ((i % 15) / 15))  # Power variation
         speed = 12.0 + (2.0 * ((i % 40) / 40)) - (1.0 * ((i % 25) / 25))  # Speed variation
-        
+
         sample = Sample(
             activity_id=activity.id,
             timestamp=activity.start_time_utc + timedelta(seconds=elapsed_s),
@@ -169,68 +169,59 @@ def activity_with_samples(db_session):
             power_w=power,
             cadence_rpm=85 + (i % 10),
             speed_mps=speed,
-            temperature_c=15.0 + (i * 0.01)  # Gradual temperature change
+            temperature_c=15.0 + (i * 0.01),  # Gradual temperature change
         )
-        
+
         samples.append(sample)
         db_session.add(sample)
-        
+
         # Create route points (simplified)
         if i % 5 == 0:  # Every 5th sample becomes a route point
             route_point = RoutePoint(
-                activity_id=activity.id,
-                sequence=len(route_points),
-                latitude=lat,
-                longitude=lon,
-                altitude_m=alt
+                activity_id=activity.id, sequence=len(route_points), latitude=lat, longitude=lon, altitude_m=alt
             )
             route_points.append(route_point)
             db_session.add(route_point)
-    
+
     # Create some laps
     lap_1 = Lap(
         activity_id=activity.id,
         lap_index=0,
         start_time_utc=activity.start_time_utc,
         elapsed_time_s=2700,  # 45 minutes
-        distance_m=22500.0,   # 22.5km
+        distance_m=22500.0,  # 22.5km
         avg_hr=145,
         max_hr=165,
         avg_power_w=210.0,
-        max_power_w=280.0
+        max_power_w=280.0,
     )
-    
+
     lap_2 = Lap(
         activity_id=activity.id,
         lap_index=1,
         start_time_utc=activity.start_time_utc + timedelta(seconds=2700),
         elapsed_time_s=2700,  # Another 45 minutes
-        distance_m=22500.0,   # 22.5km
+        distance_m=22500.0,  # 22.5km
         avg_hr=165,
         max_hr=185,
         avg_power_w=230.0,
-        max_power_w=350.0
+        max_power_w=350.0,
     )
-    
+
     db_session.add(lap_1)
     db_session.add(lap_2)
-    
+
     db_session.commit()
-    
-    return {
-        'activity': activity,
-        'samples': samples,
-        'route_points': route_points,
-        'laps': [lap_1, lap_2]
-    }
+
+    return {"activity": activity, "samples": samples, "route_points": route_points, "laps": [lap_1, lap_2]}
 
 
 @pytest.fixture
 def mock_file_parsers():
     """Mock file parsing libraries for testing without external dependencies."""
-    with patch('ingest.parser.FITPARSE_AVAILABLE', True), \
-         patch('ingest.parser.TCXPARSER_AVAILABLE', True), \
-         patch('ingest.parser.GPXPY_AVAILABLE', True):
+    with patch("ingest.parser.FITPARSE_AVAILABLE", True), patch("ingest.parser.TCXPARSER_AVAILABLE", True), patch(
+        "ingest.parser.GPXPY_AVAILABLE", True
+    ):
         yield
 
 
@@ -239,11 +230,11 @@ def sample_fit_file():
     """Create temporary FIT file for testing."""
     with tempfile.NamedTemporaryFile(suffix=".fit", delete=False) as tmp_file:
         # Write some dummy binary data
-        tmp_file.write(b'\x0e\x10\x43\x08\x28\x00\x00\x00.FIT')  # FIT file header
+        tmp_file.write(b"\x0e\x10\x43\x08\x28\x00\x00\x00.FIT")  # FIT file header
         tmp_file_path = Path(tmp_file.name)
-    
+
     yield tmp_file_path
-    
+
     # Cleanup
     tmp_file_path.unlink()
 
@@ -262,13 +253,13 @@ def sample_tcx_file():
         </Activity>
     </Activities>
 </TrainingCenterDatabase>"""
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix=".tcx", delete=False, encoding='utf-8') as tmp_file:
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tcx", delete=False, encoding="utf-8") as tmp_file:
         tmp_file.write(tcx_content)
         tmp_file_path = Path(tmp_file.name)
-    
+
     yield tmp_file_path
-    
+
     # Cleanup
     tmp_file_path.unlink()
 
@@ -292,13 +283,13 @@ def sample_gpx_file():
         </trkseg>
     </trk>
 </gpx>"""
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix=".gpx", delete=False, encoding='utf-8') as tmp_file:
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".gpx", delete=False, encoding="utf-8") as tmp_file:
         tmp_file.write(gpx_content)
         tmp_file_path = Path(tmp_file.name)
-    
+
     yield tmp_file_path
-    
+
     # Cleanup
     tmp_file_path.unlink()
 
@@ -308,13 +299,14 @@ def reset_global_database():
     """Reset global database state between tests."""
     # Import here to avoid circular imports
     from app.data.db import _db_config
-    
+
     # Reset global database config to avoid test interference
     import app.data.db
+
     original_config = app.data.db._db_config
-    
+
     yield
-    
+
     # Restore original config
     app.data.db._db_config = original_config
 
@@ -325,9 +317,9 @@ pytest_markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "parser: marks tests related to file parsing",
-    "database: marks tests related to database operations", 
+    "database: marks tests related to database operations",
     "web: marks tests related to web query functions",
-    "models: marks tests related to SQLAlchemy models"
+    "models: marks tests related to SQLAlchemy models",
 ]
 
 
@@ -352,7 +344,7 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.web)
             item.add_marker(pytest.mark.database)
             item.add_marker(pytest.mark.integration)
-        
+
         # Mark tests with fixtures as potentially slow
         if hasattr(item, "fixturenames"):
             if "activity_with_samples" in item.fixturenames:
