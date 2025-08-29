@@ -324,9 +324,7 @@ def layout():
                                                 "name": "📏 Distance",
                                                 "id": "distance_km",
                                                 "type": "numeric",
-                                                "format": dash_table.Format(
-                                                    precision=2, scheme=dash_table.Scheme.fixed
-                                                ),
+                                                "format": {"specifier": ".2f"},
                                             },
                                             {"name": "⏱️ Duration", "id": "duration_str"},
                                             {"name": "❤️ Avg HR", "id": "avg_hr", "type": "numeric"},

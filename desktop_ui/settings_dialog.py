@@ -199,13 +199,15 @@ class SettingsDialog(QDialog):
             """
             QDialog {
                 background-color: #f8f9fa;
+                font-family: system-ui, -apple-system, sans-serif;
             }
             
             QTabWidget::pane {
-                border: 1px solid #dee2e6;
+                border: 2px solid #dee2e6;
                 background-color: white;
-                border-radius: 6px;
-                margin-top: 10px;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding: 10px;
             }
             
             QTabWidget::tab-bar {
@@ -214,52 +216,60 @@ class SettingsDialog(QDialog):
             
             QTabBar::tab {
                 background-color: #e9ecef;
-                border: 1px solid #dee2e6;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
+                border: 2px solid #dee2e6;
+                padding: 10px 18px;
+                margin-right: 3px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                font-weight: bold;
+                font-size: 13px;
             }
             
             QTabBar::tab:selected {
                 background-color: white;
-                border-bottom: 1px solid white;
+                border-bottom: 2px solid white;
+                color: #0078d4;
             }
             
             QTabBar::tab:hover:!selected {
                 background-color: #f8f9fa;
+                border-color: #0078d4;
             }
             
             QGroupBox {
                 border: none;
                 padding-top: 15px;
+                font-weight: normal;
             }
             
             QLabel {
-                font-size: 13px;
+                font-size: 14px;
+                color: #495057;
             }
             
             QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-                padding: 6px 8px;
-                border: 1px solid #ced4da;
-                border-radius: 4px;
-                font-size: 13px;
+                padding: 8px 12px;
+                border: 2px solid #ced4da;
+                border-radius: 6px;
+                font-size: 14px;
                 background-color: white;
             }
             
             QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
                 border-color: #0078d4;
                 outline: none;
+                background-color: #f8f9fa;
             }
             
             QPushButton {
                 background-color: #0078d4;
                 color: white;
                 border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
+                padding: 10px 20px;
+                border-radius: 6px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 13px;
+                min-width: 80px;
             }
             
             QPushButton:hover {
@@ -271,11 +281,12 @@ class SettingsDialog(QDialog):
             }
             
             QPushButton#restore_defaults_button {
-                background-color: #6c757d;
+                background-color: #ffc107;
+                color: #212529;
             }
             
             QPushButton#restore_defaults_button:hover {
-                background-color: #5a6268;
+                background-color: #e0a800;
             }
             
             QPushButton#clear_credentials_button {
@@ -295,7 +306,9 @@ class SettingsDialog(QDialog):
             }
             
             QCheckBox {
-                font-size: 13px;
+                font-size: 14px;
+                color: #495057;
+                spacing: 8px;
             }
             
             QCheckBox::indicator {
@@ -304,15 +317,45 @@ class SettingsDialog(QDialog):
             }
             
             QCheckBox::indicator:unchecked {
-                border: 1px solid #ced4da;
+                border: 2px solid #ced4da;
                 border-radius: 3px;
                 background-color: white;
             }
             
             QCheckBox::indicator:checked {
-                border: 1px solid #0078d4;
+                border: 2px solid #0078d4;
                 border-radius: 3px;
                 background-color: #0078d4;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIuNSA1TDQgNi41TDcuNSAzIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=);
+            }
+            
+            QSpinBox::up-button, QDoubleSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: 2px solid #ced4da;
+                border-top-right-radius: 6px;
+                background-color: #f8f9fa;
+            }
+            
+            QSpinBox::down-button, QDoubleSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 20px;
+                border-left: 2px solid #ced4da;
+                border-bottom-right-radius: 6px;
+                background-color: #f8f9fa;
+            }
+            
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            
+            QComboBox::down-arrow {
+                width: 12px;
+                height: 12px;
+                background-color: #6c757d;
             }
         """
         )

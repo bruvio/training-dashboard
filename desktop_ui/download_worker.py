@@ -17,12 +17,14 @@ from garmin_client.client import GarminConnectClient
 class DownloadWorker(QThread):
     """Background worker for downloading Garmin activities."""
 
-    # Signals for communication with main thread
-    progress_updated = pyqtSignal(int, int)  # (current, total)
-    activity_downloaded = pyqtSignal(int, str, bool)  # (activity_id, filename, success)
+    # Enhanced signals for communication with main thread
+    progress_updated = pyqtSignal(int, int, float)  # (current, total, percentage)
+    activity_downloaded = pyqtSignal(int, str, bool, str)  # (activity_id, filename, success, details)
     download_completed = pyqtSignal(dict)  # final results summary
-    error_occurred = pyqtSignal(str)  # error message
-    status_updated = pyqtSignal(str)  # status message
+    error_occurred = pyqtSignal(str, str)  # (error_message, activity_context)
+    status_updated = pyqtSignal(str, str)  # (status_message, detail_message)
+    download_started = pyqtSignal(int, str)  # (activity_id, activity_name)
+    rate_limit_wait = pyqtSignal(float)  # seconds remaining
 
     def __init__(
         self,
@@ -73,42 +75,57 @@ class DownloadWorker(QThread):
                         time.sleep(0.1)
 
                 try:
-                    # Update status
-                    self.status_updated.emit(f"Downloading activity {activity_id}...")
+                    # Enhanced status updates
+                    activity_name = f"activity_{activity_id}"
+                    self.download_started.emit(activity_id, activity_name)
+                    self.status_updated.emit(
+                        f"Downloading activity {activity_id}...",
+                        f"Progress: {i+1}/{len(self.activity_ids)} ({((i+1)/len(self.activity_ids)*100):.1f}%)",
+                    )
 
-                    # Download the activity
+                    # Download the activity with progress tracking
                     downloaded_path = self.client.download_activity(activity_id, self.format_type, self.output_dir)
 
-                    # Update results
+                    # Update results with enhanced details
                     if downloaded_path:
                         self.successful_downloads += 1
                         self.download_results[activity_id] = str(downloaded_path)
-                        self.activity_downloaded.emit(activity_id, downloaded_path.name, True)
+                        file_size = downloaded_path.stat().st_size if downloaded_path.exists() else 0
+                        details = f"Downloaded {file_size:,} bytes" if file_size > 0 else "Downloaded successfully"
+                        self.activity_downloaded.emit(activity_id, downloaded_path.name, True, details)
                     else:
                         self.failed_downloads += 1
                         self.download_results[activity_id] = None
-                        self.activity_downloaded.emit(activity_id, "", False)
+                        self.activity_downloaded.emit(activity_id, "", False, "Download failed - no file returned")
                         self.error_messages.append(f"Failed to download activity {activity_id}")
 
                     self.completed_downloads += 1
-                    self.progress_updated.emit(self.completed_downloads, self.total_downloads)
+                    progress_percent = (self.completed_downloads / self.total_downloads) * 100
+                    self.progress_updated.emit(self.completed_downloads, self.total_downloads, progress_percent)
 
                 except Exception as e:
                     self.failed_downloads += 1
                     self.download_results[activity_id] = None
                     error_msg = f"Error downloading activity {activity_id}: {str(e)}"
                     self.error_messages.append(error_msg)
-                    self.error_occurred.emit(error_msg)
-                    self.activity_downloaded.emit(activity_id, "", False)
+                    self.error_occurred.emit(error_msg, f"Activity ID: {activity_id}")
+                    self.activity_downloaded.emit(activity_id, "", False, f"Error: {str(e)}")
 
                     self.completed_downloads += 1
-                    self.progress_updated.emit(self.completed_downloads, self.total_downloads)
+                    progress_percent = (self.completed_downloads / self.total_downloads) * 100
+                    self.progress_updated.emit(self.completed_downloads, self.total_downloads, progress_percent)
 
-                # Rate limiting delay (unless this is the last item)
+                # Enhanced rate limiting with countdown
                 if i < len(self.activity_ids) - 1 and self.rate_limit_delay > 0:
                     with QMutexLocker(self._mutex):
                         if not self._should_stop:
-                            time.sleep(self.rate_limit_delay)
+                            # Emit countdown updates for rate limiting
+                            remaining_delay = self.rate_limit_delay
+                            while remaining_delay > 0 and not self._should_stop:
+                                self.rate_limit_wait.emit(remaining_delay)
+                                sleep_time = min(0.1, remaining_delay)
+                                time.sleep(sleep_time)
+                                remaining_delay -= sleep_time
 
             # Emit completion signal
             results_summary = {
@@ -121,24 +138,32 @@ class DownloadWorker(QThread):
 
             self.download_completed.emit(results_summary)
 
+            # Enhanced completion messages
             if self.successful_downloads > 0:
+                success_rate = (self.successful_downloads / self.total_downloads) * 100
                 self.status_updated.emit(
-                    f"Download complete: {self.successful_downloads}/{self.total_downloads} successful"
+                    f"Download complete: {self.successful_downloads}/{self.total_downloads} successful",
+                    f"Success rate: {success_rate:.1f}%",
                 )
             else:
-                self.status_updated.emit("Download failed: No activities downloaded successfully")
+                self.status_updated.emit(
+                    "Download failed: No activities downloaded successfully",
+                    f"All {self.total_downloads} downloads failed",
+                )
 
         except Exception as e:
             error_msg = f"Download worker error: {str(e)}"
-            self.error_occurred.emit(error_msg)
-            self.status_updated.emit("Download failed due to unexpected error")
+            self.error_occurred.emit(error_msg, "Worker thread exception")
+            self.status_updated.emit("Download failed due to unexpected error", f"Exception: {type(e).__name__}")
 
     def stop_download(self):
-        """Request the download to stop."""
+        """Request the download to stop with enhanced feedback."""
         with QMutexLocker(self._mutex):
             self._should_stop = True
 
-        self.status_updated.emit("Stopping download...")
+        self.status_updated.emit(
+            "Stopping download...", f"Completed: {self.completed_downloads}/{self.total_downloads}"
+        )
 
     def pause_download(self):
         """Pause the download."""
@@ -165,13 +190,22 @@ class DownloadWorker(QThread):
         return self.completed_downloads, self.total_downloads
 
     def get_stats(self) -> Dict:
-        """Get current download statistics."""
+        """Get comprehensive download statistics."""
+        progress_percent = (self.completed_downloads / self.total_downloads * 100) if self.total_downloads > 0 else 0
+        success_rate = (
+            (self.successful_downloads / self.completed_downloads * 100) if self.completed_downloads > 0 else 0
+        )
+
         return {
             "total": self.total_downloads,
             "completed": self.completed_downloads,
             "successful": self.successful_downloads,
             "failed": self.failed_downloads,
             "remaining": self.total_downloads - self.completed_downloads,
+            "progress_percent": progress_percent,
+            "success_rate": success_rate,
+            "is_paused": self._paused,
+            "is_stopping": self._should_stop,
         }
 
 

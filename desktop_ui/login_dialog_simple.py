@@ -111,44 +111,110 @@ class SimpleLoginDialog(QDialog):
         self.setStyleSheet(
             """
             QLineEdit {
-                padding: 5px;
-                border: 1px solid gray;
-                border-radius: 3px;
+                padding: 10px;
+                border: 2px solid #ced4da;
+                border-radius: 6px;
+                font-size: 14px;
+                background-color: white;
+            }
+            
+            QLineEdit:focus {
+                border-color: #0078d4;
+                outline: none;
+                background-color: #f8f9fa;
+            }
+            
+            QLineEdit:invalid {
+                border-color: #dc3545;
+                background-color: #fff5f5;
             }
             
             QPushButton {
-                padding: 5px 15px;
-                border: 1px solid gray;
-                border-radius: 3px;
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 13px;
             }
             
-            QPushButton:default {
-                background-color: lightblue;
+            QPushButton:hover {
+                background-color: #5a6268;
             }
             
             QPushButton:pressed {
-                background-color: lightgray;
+                background-color: #495057;
+            }
+            
+            QPushButton:default {
+                background-color: #0078d4;
+            }
+            
+            QPushButton:default:hover {
+                background-color: #106ebe;
+            }
+            
+            QPushButton:default:pressed {
+                background-color: #005a9e;
+            }
+            
+            QPushButton:disabled {
+                background-color: #e9ecef;
+                color: #6c757d;
             }
         """
         )
 
     def validate_inputs(self):
-        """Validate input fields and enable/disable login button."""
+        """Validate input fields with enhanced feedback."""
         email = self.email_edit.text().strip()
         password = self.password_edit.text()
 
-        # Basic email validation
-        has_email = "@" in email and "." in email and len(email) > 5
-        has_password = len(password) > 0
-
-        self.login_button.setEnabled(has_email and has_password)
-
-        # Clear status when user types
-        if self.status_label.text():
+        # Clear previous error messages when user types
+        if self.status_label.text() and not self.status_label.text().startswith("Error:"):
             self.status_label.setText("")
+            self.status_label.setStyleSheet("")
+
+        # Enhanced email validation
+        has_valid_email = self._is_valid_email(email)
+        has_password = len(password) >= 6  # Minimum password length
+
+        self.login_button.setEnabled(has_valid_email and has_password)
+
+        # Provide real-time feedback
+        if email and not has_valid_email:
+            self.status_label.setText("Please enter a valid email address")
+            self.status_label.setStyleSheet("color: #dc3545;")
+        elif password and len(password) < 6:
+            self.status_label.setText("Password must be at least 6 characters")
+            self.status_label.setStyleSheet("color: #dc3545;")
+        elif has_valid_email and has_password:
+            self.status_label.setText("Ready to login")
+            self.status_label.setStyleSheet("color: #28a745;")
+
+    def _is_valid_email(self, email: str) -> bool:
+        """Enhanced email validation."""
+        if not email or len(email) < 5:
+            return False
+
+        # Check for @ and . in correct positions
+        if "@" not in email or "." not in email:
+            return False
+
+        at_pos = email.find("@")
+        dot_pos = email.rfind(".")
+
+        # Basic structure: something@domain.tld
+        return (
+            at_pos > 0  # @ not at start
+            and dot_pos > at_pos + 1  # . after @ with at least 1 char
+            and len(email) > dot_pos + 1  # something after final .
+            and email.count("@") == 1
+        )  # exactly one @
 
     def attempt_login(self):
-        """Attempt login with provided credentials."""
+        """Attempt login with comprehensive validation."""
         if not self.login_button.isEnabled():
             return
 
@@ -157,16 +223,30 @@ class SimpleLoginDialog(QDialog):
         self.password = self.password_edit.text()
         self.remember_credentials = self.remember_checkbox.isChecked()
 
-        # Basic validation
+        # Clear any previous error messages
+        self.status_label.setText("")
+        self.status_label.setStyleSheet("")
+
+        # Comprehensive validation
         if not self.email or not self.password:
-            QMessageBox.warning(self, "Invalid Input", "Please enter both email and password.")
+            self.show_validation_error("Please enter both email and password.")
             return
 
-        # Email format validation
-        if "@" not in self.email or "." not in self.email:
-            QMessageBox.warning(self, "Invalid Email", "Please enter a valid email address.")
+        if not self._is_valid_email(self.email):
+            self.show_validation_error("Please enter a valid email address.")
             self.email_edit.setFocus()
+            self.email_edit.selectAll()
             return
+
+        if len(self.password) < 6:
+            self.show_validation_error("Password must be at least 6 characters long.")
+            self.password_edit.setFocus()
+            self.password_edit.selectAll()
+            return
+
+        # Visual feedback for login attempt
+        self.status_label.setText("Attempting login...")
+        self.status_label.setStyleSheet("color: #0078d4;")
 
         # Accept the dialog (parent will handle authentication)
         self.accept()
@@ -187,9 +267,27 @@ class SimpleLoginDialog(QDialog):
         self.validate_inputs()
 
     def show_error(self, message: str):
-        """Show error message."""
+        """Show error message with improved formatting."""
         self.status_label.setText(f"Error: {message}")
-        QMessageBox.critical(self, "Login Error", message)
+        self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
+
+        # Show detailed error dialog
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Critical)
+        msg_box.setWindowTitle("Login Failed")
+        msg_box.setText("Authentication Error")
+        msg_box.setInformativeText(message)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.exec()
+
+        # Focus password field for retry
+        self.password_edit.clear()
+        self.password_edit.setFocus()
+
+    def show_validation_error(self, message: str):
+        """Show validation error without dialog popup."""
+        self.status_label.setText(f"Error: {message}")
+        self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
 
 
 # For testing

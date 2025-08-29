@@ -87,53 +87,116 @@ class MFADialog(QDialog):
         self.setStyleSheet(
             """
             QLineEdit {
-                padding: 8px;
-                border: 1px solid gray;
-                border-radius: 3px;
-                font-size: 16px;
+                padding: 12px;
+                border: 2px solid #ced4da;
+                border-radius: 6px;
+                font-size: 18px;
                 font-family: monospace;
                 text-align: center;
+                font-weight: bold;
+                letter-spacing: 2px;
+            }
+            
+            QLineEdit:focus {
+                border-color: #0078d4;
+                outline: none;
+                background-color: #f8f9fa;
+            }
+            
+            QLineEdit:invalid {
+                border-color: #dc3545;
+                background-color: #fff5f5;
             }
             
             QPushButton {
-                padding: 8px 15px;
-                border: 1px solid gray;
-                border-radius: 3px;
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
             }
             
-            QPushButton:default {
-                background-color: lightblue;
+            QPushButton:hover {
+                background-color: #5a6268;
             }
             
             QPushButton:pressed {
-                background-color: lightgray;
+                background-color: #495057;
+            }
+            
+            QPushButton:default {
+                background-color: #0078d4;
+            }
+            
+            QPushButton:default:hover {
+                background-color: #106ebe;
+            }
+            
+            QPushButton:default:pressed {
+                background-color: #005a9e;
+            }
+            
+            QPushButton:disabled {
+                background-color: #e9ecef;
+                color: #6c757d;
             }
         """
         )
 
     def validate_input(self):
-        """Validate MFA code input."""
+        """Validate MFA code input with enhanced feedback."""
         code = self.mfa_edit.text().strip()
 
-        # Enable submit button only for 6-digit codes
+        # Clear previous status messages
+        if self.status_label.text() and not self.status_label.text().startswith("Error:"):
+            self.status_label.setText("")
+            self.status_label.setStyleSheet("")
+
+        # Validate code format
         is_valid = len(code) == 6 and code.isdigit()
         self.submit_button.setEnabled(is_valid)
 
-        # Clear status when user types
-        if self.status_label.text():
-            self.status_label.setText("")
+        # Provide real-time feedback
+        if code:
+            if len(code) < 6:
+                if not code.isdigit():
+                    self.status_label.setText(f"Code must contain only digits ({len(code)}/6)")
+                    self.status_label.setStyleSheet("color: #dc3545;")
+                else:
+                    self.status_label.setText(f"Enter {6 - len(code)} more digits")
+                    self.status_label.setStyleSheet("color: #6c757d;")
+            elif len(code) == 6 and not code.isdigit():
+                self.status_label.setText("Code must contain only digits")
+                self.status_label.setStyleSheet("color: #dc3545;")
+            elif is_valid:
+                self.status_label.setText("Ready to submit")
+                self.status_label.setStyleSheet("color: #28a745;")
 
     def submit_code(self):
-        """Submit the MFA code."""
+        """Submit the MFA code with enhanced validation."""
         if not self.submit_button.isEnabled():
             return
 
         code = self.mfa_edit.text().strip()
 
-        # Basic validation
-        if len(code) != 6 or not code.isdigit():
-            QMessageBox.warning(self, "Invalid Code", "Please enter a 6-digit numeric code.")
-            self.mfa_edit.setFocus()
+        # Comprehensive validation
+        if not code:
+            self.show_validation_error("Please enter your MFA code.")
+            return
+
+        if len(code) != 6:
+            self.show_validation_error(f"Code must be exactly 6 digits (entered {len(code)}).")
+            return
+
+        if not code.isdigit():
+            self.show_validation_error("Code must contain only numbers (0-9).")
+            return
+
+        # Additional format checks
+        if code == "000000" or code == "123456" or len(set(code)) == 1:
+            self.show_validation_error("Please enter a valid authentication code.")
             return
 
         self.mfa_code = code
@@ -144,10 +207,29 @@ class MFADialog(QDialog):
         return self.mfa_code
 
     def show_error(self, message: str):
-        """Show error message."""
+        """Show error message with improved styling."""
         self.status_label.setText(f"Error: {message}")
-        self.status_label.setStyleSheet("color: red;")
-        QMessageBox.critical(self, "MFA Error", message)
+        self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
+
+        # Show message box with better formatting
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Critical)
+        msg_box.setWindowTitle("Authentication Error")
+        msg_box.setText("MFA verification failed")
+        msg_box.setInformativeText(message)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.exec()
+
+        # Clear the input and focus for retry
+        self.mfa_edit.clear()
+        self.mfa_edit.setFocus()
+
+    def show_validation_error(self, message: str):
+        """Show validation error without dialog popup."""
+        self.status_label.setText(f"Error: {message}")
+        self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
+        self.mfa_edit.selectAll()
+        self.mfa_edit.setFocus()
 
 
 # For testing

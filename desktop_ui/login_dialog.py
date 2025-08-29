@@ -135,6 +135,7 @@ class LoginDialog(QDialog):
             """
             QDialog {
                 background-color: #f8f9fa;
+                font-family: system-ui, -apple-system, sans-serif;
             }
             
             QGroupBox {
@@ -154,16 +155,22 @@ class LoginDialog(QDialog):
             }
             
             QLineEdit {
-                padding: 8px 12px;
+                padding: 10px 12px;
                 border: 2px solid #ced4da;
                 border-radius: 6px;
-                font-size: 13px;
+                font-size: 14px;
                 background-color: white;
             }
             
             QLineEdit:focus {
                 border-color: #0078d4;
                 outline: none;
+                background-color: #f8f9fa;
+            }
+            
+            QLineEdit:invalid {
+                border-color: #dc3545;
+                background-color: #fff5f5;
             }
             
             QPushButton {
@@ -239,22 +246,59 @@ class LoginDialog(QDialog):
         self.cancel_button.setObjectName("cancel_button")
 
     def validate_inputs(self):
-        """Validate input fields and enable/disable login button."""
+        """Validate input fields with enhanced feedback."""
         email = self.email_edit.text().strip()
         password = self.password_edit.text()
 
-        # Basic email validation
-        has_email = "@" in email and "." in email and len(email) > 5
-        has_password = len(password) > 0
-
-        self.login_button.setEnabled(has_email and has_password)
-
-        # Clear status when user types
-        if self.status_label.text() and not self.progress_bar.isVisible():
+        # Clear previous error messages when user types
+        if (
+            self.status_label.text()
+            and not self.progress_bar.isVisible()
+            and not self.status_label.text().startswith("Error:")
+        ):
             self.status_label.setText("")
+            self.status_label.setStyleSheet("color: #666666;")
+
+        # Enhanced validation
+        has_valid_email = self._is_valid_email(email)
+        has_password = len(password) >= 6  # Minimum password length
+
+        self.login_button.setEnabled(has_valid_email and has_password)
+
+        # Provide real-time feedback
+        if not self.progress_bar.isVisible():
+            if email and not has_valid_email:
+                self.status_label.setText("Please enter a valid email address")
+                self.status_label.setStyleSheet("color: #dc3545;")
+            elif password and len(password) < 6:
+                self.status_label.setText("Password must be at least 6 characters")
+                self.status_label.setStyleSheet("color: #dc3545;")
+            elif has_valid_email and has_password:
+                self.status_label.setText("Ready to login")
+                self.status_label.setStyleSheet("color: #28a745;")
+
+    def _is_valid_email(self, email: str) -> bool:
+        """Enhanced email validation."""
+        if not email or len(email) < 5:
+            return False
+
+        # Check for @ and . in correct positions
+        if "@" not in email or "." not in email:
+            return False
+
+        at_pos = email.find("@")
+        dot_pos = email.rfind(".")
+
+        # Basic structure: something@domain.tld
+        return (
+            at_pos > 0  # @ not at start
+            and dot_pos > at_pos + 1  # . after @ with at least 1 char
+            and len(email) > dot_pos + 1  # something after final .
+            and email.count("@") == 1
+        )  # exactly one @
 
     def attempt_login(self):
-        """Attempt login with provided credentials."""
+        """Attempt login with comprehensive validation."""
         if not self.login_button.isEnabled():
             return
 
@@ -263,15 +307,21 @@ class LoginDialog(QDialog):
         self.password = self.password_edit.text()
         self.remember_credentials = self.remember_checkbox.isChecked()
 
-        # Basic validation
+        # Comprehensive validation
         if not self.email or not self.password:
-            QMessageBox.warning(self, "Invalid Input", "Please enter both email and password.")
+            self.show_validation_error("Please enter both email and password.")
             return
 
-        # Email format validation
-        if "@" not in self.email or "." not in self.email:
-            QMessageBox.warning(self, "Invalid Email", "Please enter a valid email address.")
+        if not self._is_valid_email(self.email):
+            self.show_validation_error("Please enter a valid email address.")
             self.email_edit.setFocus()
+            self.email_edit.selectAll()
+            return
+
+        if len(self.password) < 6:
+            self.show_validation_error("Password must be at least 6 characters long.")
+            self.password_edit.setFocus()
+            self.password_edit.selectAll()
             return
 
         # Show progress and disable inputs
@@ -353,16 +403,32 @@ class LoginDialog(QDialog):
 
     def show_error(self, message: str):
         """
-        Show error message.
+        Show error message with improved formatting.
 
         Args:
             message: Error message to display
         """
         self.hide_login_progress()
         self.status_label.setText(f"Error: {message}")
-        self.status_label.setStyleSheet("color: #dc3545;")
+        self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
 
-        QMessageBox.critical(self, "Login Error", message)
+        # Show detailed error dialog
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Critical)
+        msg_box.setWindowTitle("Login Failed")
+        msg_box.setText("Authentication Error")
+        msg_box.setInformativeText(message)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.exec()
+
+        # Focus password field for retry
+        self.password_edit.clear()
+        self.password_edit.setFocus()
+
+    def show_validation_error(self, message: str):
+        """Show validation error without dialog popup."""
+        self.status_label.setText(f"Error: {message}")
+        self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
 
 
 # Standalone testing

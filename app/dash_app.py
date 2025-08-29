@@ -98,7 +98,7 @@ app.layout = dbc.Container(
             sticky="top",  # Keep navigation visible on scroll
         ),
         # Client-side data store for session management
-        dcc.Store(id="session-store", storage_type="session"),
+        dcc.Store(id="session-store", storage_type="session", data={}),
         dcc.Store(
             id="activity-filters",
             storage_type="session",

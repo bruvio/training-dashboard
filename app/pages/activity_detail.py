@@ -45,9 +45,9 @@ def layout(activity_id: str = None, **kwargs):
     return dbc.Container(
         [
             # Store components for data management
-            dcc.Store(id="activity-detail-store"),
-            dcc.Store(id="activity-samples-store"),
-            dcc.Store(id="route-bounds-store"),
+            dcc.Store(id="activity-detail-store", data={}),
+            dcc.Store(id="activity-samples-store", data=[]),
+            dcc.Store(id="route-bounds-store", data={}),
             # Loading states
             dcc.Loading(
                 id="loading-activity-detail",
@@ -292,7 +292,7 @@ def load_activity_data(pathname: str):
 @callback(Output("activity-header", "children"), [Input("activity-detail-store", "data")])
 def update_activity_header(activity_data: Optional[Dict[str, Any]]):
     """Update the activity header with basic information."""
-    if not activity_data:
+    if not activity_data or not isinstance(activity_data, dict):
         return html.Div()
 
     # Format start time
@@ -365,7 +365,7 @@ def update_activity_header(activity_data: Optional[Dict[str, Any]]):
 @callback(Output("activity-summary", "children"), [Input("activity-detail-store", "data")])
 def update_activity_summary(activity_data: Optional[Dict[str, Any]]):
     """Update the activity summary statistics."""
-    if not activity_data:
+    if not activity_data or not isinstance(activity_data, dict):
         return html.Div()
 
     summary_cards = []
@@ -442,7 +442,7 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
 
     Research-validated dash-leaflet integration with GPS route visualization.
     """
-    if not samples_data:
+    if not samples_data or not isinstance(samples_data, list):
         return [], [0, 0], 2, "No GPS data available for this activity"
 
     # Extract GPS coordinates from samples
@@ -498,7 +498,7 @@ def update_activity_charts(samples_data: Optional[List[Dict]], activity_data: Op
     Implements downsampling, proper axis labels, and unified hover mode
     as specified in the enhanced PRP.
     """
-    if not samples_data:
+    if not samples_data or not isinstance(samples_data, list):
         return create_empty_chart_figure()
 
     # Convert to DataFrame for easier processing
@@ -638,7 +638,7 @@ def update_activity_charts(samples_data: Optional[List[Dict]], activity_data: Op
         height=600,
         showlegend=False,
         title={
-            "text": f"Activity Data - {activity_data.get('name', 'Unknown') if activity_data else 'Unknown'}",
+            "text": f"Activity Data - {activity_data.get('name', 'Unknown') if activity_data and activity_data.get('name') else 'Unknown'}",
             "x": 0.5,
             "xanchor": "center",
         },
