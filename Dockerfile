@@ -42,6 +42,7 @@ COPY app/ ./app/
 COPY ingest/ ./ingest/
 COPY cli/ ./cli/
 COPY pages/ ./pages/
+COPY garmin_client/ ./garmin_client/
 COPY run_tests.py .
 
 # Create data directories with proper permissions

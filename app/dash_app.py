@@ -44,6 +44,58 @@ server.config.update(
     }
 )
 
+# Import page modules immediately after app creation to register callbacks
+try:
+    import sys
+    
+    # Add both possible paths to ensure imports work
+    if '/app' not in sys.path:
+        sys.path.insert(0, '/app')
+    if '/app/app' not in sys.path:
+        sys.path.insert(0, '/app/app')
+    
+    # Import pages to register their callbacks with the app
+    sys.path.insert(0, '/app')  # Ensure /app is first for pages import
+    from pages import calendar
+    from pages import activity_detail
+    from pages import garmin_login
+    
+    # Register callbacks for garmin_login page
+    garmin_login.register_callbacks(app)
+    logger.info("✅ All page modules imported successfully - callbacks registered")
+    
+except ImportError as e:
+    logger.error(f"❌ Failed to import page modules: {e}")
+    # Fallback: try absolute imports
+    try:
+        import sys
+        sys.path.insert(0, '/app')
+        
+        # Try importing directly from /app/pages
+        import importlib.util
+        
+        # Load calendar module
+        calendar_spec = importlib.util.spec_from_file_location("calendar", "/app/pages/calendar.py")
+        calendar = importlib.util.module_from_spec(calendar_spec)
+        calendar_spec.loader.exec_module(calendar)
+        
+        # Load activity_detail module  
+        activity_spec = importlib.util.spec_from_file_location("activity_detail", "/app/pages/activity_detail.py")
+        activity_detail = importlib.util.module_from_spec(activity_spec)
+        activity_spec.loader.exec_module(activity_detail)
+        
+        # Load garmin_login module
+        garmin_spec = importlib.util.spec_from_file_location("garmin_login", "/app/pages/garmin_login.py")
+        garmin_login = importlib.util.module_from_spec(garmin_spec)
+        garmin_spec.loader.exec_module(garmin_login)
+        
+        # Register callbacks for garmin_login page
+        garmin_login.register_callbacks(app)
+        logger.info("✅ Page modules imported via importlib - callbacks registered")
+        
+    except Exception as e2:
+        logger.error(f"❌ Complete failure to import page modules: {e2}")
+
 
 # Main application layout with navigation and page container
 app.layout = dbc.Container(
@@ -336,33 +388,7 @@ app.index_string = """
 </html>
 """
 
-# Import pages to ensure callbacks are registered
-try:
-    # Use absolute imports and sys.path approach
-    import sys
-    import os
-    sys.path.append('/app')
-    
-    from pages import calendar
-    from pages import activity_detail
-    
-    # Try different approaches for garmin_login
-    try:
-        from pages import garmin_login
-        logger.info("Successfully imported garmin_login using 'from pages import'")
-    except ImportError:
-        try:
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("garmin_login", "/app/pages/garmin_login.py")
-            garmin_login = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(garmin_login)
-            logger.info("Successfully imported garmin_login using importlib")
-        except Exception as e2:
-            logger.error(f"Failed to import garmin_login with both methods: {e2}")
-            
-    logger.info("Page modules imported successfully")
-except ImportError as e:
-    logger.warning(f"Failed to import page modules: {e}")
+# Page modules are imported above right after app creation
 
 if __name__ == "__main__":
     # Development server configuration
