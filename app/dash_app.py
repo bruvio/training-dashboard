@@ -10,8 +10,12 @@ import logging
 from pathlib import Path
 
 import dash
-from dash import html, dcc
+from dash import html, dcc, Input, Output
 import dash_bootstrap_components as dbc
+
+import os
+import logging
+from pathlib import Path
 
 # Import pages will be done after app configuration
 
@@ -39,6 +43,7 @@ server.config.update(
         "SECRET_KEY": os.environ.get("SECRET_KEY", "dev-key-change-in-production"),
     }
 )
+
 
 # Main application layout with navigation and page container
 app.layout = dbc.Container(
@@ -166,32 +171,18 @@ app.layout = dbc.Container(
 
 # URL routing callback
 @app.callback(
-    dash.dependencies.Output("page-content", "children"),
-    [dash.dependencies.Input("url", "pathname")]
+    Output("page-content", "children"),
+    Input("url", "pathname")
 )
 def display_page(pathname):
-    """Route URLs to appropriate page content."""
-    if pathname == "/" or pathname is None:
-        # Calendar/activity list page
-        from pages.calendar import layout as calendar_layout
-        return calendar_layout()
-    elif pathname.startswith("/activity/"):
-        # Activity detail page
-        try:
-            activity_id = pathname.split("/activity/")[1]
-            from pages.activity_detail import layout as activity_layout
-            return activity_layout(activity_id)
-        except (IndexError, ValueError):
-            return page_not_found()
-    else:
-        return page_not_found()
+    """Manual routing for pages."""
+    from app.pages import calendar  # Import here to avoid circular imports
 
-# Session data callback (simplified)
-@app.callback(
-    dash.dependencies.Output("session-store", "data"),
-    [dash.dependencies.Input("url", "pathname")],
-    [dash.dependencies.State("session-store", "data")],
-)
+    if pathname in ["/", "/calendar"]:
+        return calendar.layout()
+    return html.Div([html.H2("404 - Page not found")])
+
+
 def update_session_data(pathname, session_data):
     """Update session data based on URL changes."""
     if session_data is None:
