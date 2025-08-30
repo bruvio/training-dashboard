@@ -12,7 +12,7 @@ from sqlalchemy import func, and_, or_, desc, text
 from sqlalchemy.orm import Session
 
 from .db import session_scope
-from .models import Activity, Sample
+from .models import Activity, Sample, Lap
 
 
 def get_activities_for_date_range(
@@ -360,6 +360,63 @@ def get_activity_samples(activity_id: int) -> Optional[pd.DataFrame]:
             df["speed_kmh"] = df["speed_mps"] * 3.6
 
         return df
+
+
+def get_activity_laps(activity_id: int) -> List[Dict[str, Any]]:
+    """
+    Get lap data for activity charts and analysis.
+
+    Research-validated pattern for lap marker visualization
+    with proper data formatting for chart integration.
+
+    Args:
+        activity_id: Activity database ID
+
+    Returns:
+        List of lap dictionaries with timing and metrics
+    """
+    with session_scope() as session:
+        # Check if activity exists
+        activity = session.query(Activity).filter(Activity.id == activity_id).first()
+        if not activity:
+            return []
+
+        # Get laps ordered by lap index
+        laps = session.query(Lap).filter(Lap.activity_id == activity_id).order_by(Lap.lap_index).all()
+
+        if not laps:
+            return []
+
+        # Convert to list of dictionaries
+        result = []
+        cumulative_time = 0
+        cumulative_distance = 0
+
+        for lap in laps:
+            lap_data = {
+                "lap_index": lap.lap_index,
+                "start_time_s": cumulative_time,
+                "elapsed_time_s": lap.elapsed_time_s or 0,
+                "distance_m": lap.distance_m or 0,
+                "avg_speed_mps": lap.avg_speed_mps,
+                "avg_hr": lap.avg_hr,
+                "max_hr": lap.max_hr,
+                "avg_power_w": lap.avg_power_w,
+                "max_power_w": lap.max_power_w,
+                "avg_cadence_rpm": lap.avg_cadence_rpm,
+                "moving_time_s": lap.moving_time_s,
+            }
+
+            # Calculate end time
+            lap_data["end_time_s"] = cumulative_time + (lap.elapsed_time_s or 0)
+
+            result.append(lap_data)
+
+            # Update cumulative values for next lap
+            cumulative_time += lap.elapsed_time_s or 0
+            cumulative_distance += lap.distance_m or 0
+
+        return result
 
 
 def check_database_connection() -> bool:

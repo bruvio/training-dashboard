@@ -21,6 +21,7 @@ rich>=13.0.0
 # Data processing
 pandas>=2.0.0
 numpy>=1.24.0
+scipy>=1.11.0
 
 # Garmin Connect integration
 garminconnect>=0.2.27

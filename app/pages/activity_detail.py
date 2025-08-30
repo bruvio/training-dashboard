@@ -17,6 +17,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
+from scipy import ndimage
+from scipy.signal import savgol_filter
 
 from app.data.web_queries import get_activity_by_id, get_activity_samples, check_database_connection
 from app.data.queries import RoutePointQueries
@@ -47,6 +49,7 @@ def layout(activity_id: str = None, **kwargs):
             # Store components for data management
             dcc.Store(id="activity-detail-store", data={}),
             dcc.Store(id="activity-samples-store", data=[]),
+            dcc.Store(id="activity-laps-store", data=[]),
             dcc.Store(id="route-bounds-store", data={}),
             # Loading states
             dcc.Loading(
@@ -156,11 +159,97 @@ def layout(activity_id: str = None, **kwargs):
                                         [
                                             dbc.CardHeader(
                                                 [
-                                                    html.H5(
-                                                        [html.I(className="fas fa-chart-line me-2"), "Activity Charts"],
-                                                        className="mb-0",
+                                                    dbc.Row(
+                                                        [
+                                                            dbc.Col(
+                                                                [
+                                                                    html.H5(
+                                                                        [
+                                                                            html.I(className="fas fa-chart-line me-2"),
+                                                                            "Activity Charts",
+                                                                        ],
+                                                                        className="mb-0",
+                                                                    ),
+                                                                    dbc.Badge(
+                                                                        "Interactive", color="info", className="ms-2"
+                                                                    ),
+                                                                ],
+                                                                width="auto",
+                                                            ),
+                                                            dbc.Col(
+                                                                [
+                                                                    dbc.Row(
+                                                                        [
+                                                                            dbc.Col(
+                                                                                [
+                                                                                    dbc.Label(
+                                                                                        "Chart Type:",
+                                                                                        size="sm",
+                                                                                        className="me-2",
+                                                                                    ),
+                                                                                    dbc.Select(
+                                                                                        id="chart-type-selector",
+                                                                                        options=[
+                                                                                            {
+                                                                                                "label": "Multi-subplot (Default)",
+                                                                                                "value": "subplots",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Single Chart - Dual Y-axis",
+                                                                                                "value": "dual_y",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Overlay - Single Y-axis",
+                                                                                                "value": "overlay",
+                                                                                            },
+                                                                                        ],
+                                                                                        value="subplots",
+                                                                                        size="sm",
+                                                                                    ),
+                                                                                ],
+                                                                                width=6,
+                                                                            ),
+                                                                            dbc.Col(
+                                                                                [
+                                                                                    dbc.Label(
+                                                                                        "Smoothing:",
+                                                                                        size="sm",
+                                                                                        className="me-2",
+                                                                                    ),
+                                                                                    dbc.Select(
+                                                                                        id="smoothing-selector",
+                                                                                        options=[
+                                                                                            {
+                                                                                                "label": "None",
+                                                                                                "value": "none",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Light",
+                                                                                                "value": "light",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Medium",
+                                                                                                "value": "medium",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Heavy",
+                                                                                                "value": "heavy",
+                                                                                            },
+                                                                                        ],
+                                                                                        value="none",
+                                                                                        size="sm",
+                                                                                    ),
+                                                                                ],
+                                                                                width=6,
+                                                                            ),
+                                                                        ]
+                                                                    )
+                                                                ],
+                                                                className="ms-auto",
+                                                            ),
+                                                        ],
+                                                        className="align-items-center",
                                                     ),
-                                                    dbc.Badge("Synchronized", color="info", className="ms-2"),
                                                 ]
                                             ),
                                             dbc.CardBody(
@@ -225,6 +314,7 @@ def create_error_layout(error_message: str):
     [
         Output("activity-detail-store", "data"),
         Output("activity-samples-store", "data"),
+        Output("activity-laps-store", "data"),
         Output("route-bounds-store", "data"),
         Output("error-state", "children"),
         Output("error-state", "style"),
@@ -242,22 +332,22 @@ def load_activity_data(pathname: str):
     try:
         # Extract activity ID from URL
         if not pathname or not pathname.startswith("/activity/"):
-            return None, None, None, create_error_layout("Invalid activity URL"), {"display": "block"}
+            return None, None, None, None, create_error_layout("Invalid activity URL"), {"display": "block"}
 
         activity_id_str = pathname.replace("/activity/", "")
         try:
             activity_id = int(activity_id_str)
         except ValueError:
-            return None, None, None, create_error_layout("Invalid activity ID"), {"display": "block"}
+            return None, None, None, None, create_error_layout("Invalid activity ID"), {"display": "block"}
 
         # Check database connection
         if not check_database_connection():
-            return None, None, None, create_error_layout("Database connection failed"), {"display": "block"}
+            return None, None, None, None, create_error_layout("Database connection failed"), {"display": "block"}
 
         # Load activity details
         activity = get_activity_by_id(activity_id)
         if not activity:
-            return None, None, None, create_error_layout("Activity not found"), {"display": "block"}
+            return None, None, None, None, create_error_layout("Activity not found"), {"display": "block"}
 
         # Load sample data
         samples_df = get_activity_samples(activity_id)
@@ -281,11 +371,16 @@ def load_activity_data(pathname: str):
                     "center_lon": sum(lons) / len(lons),
                 }
 
-        return activity, samples_data, route_bounds, None, {"display": "none"}
+        # Load lap data for visualization
+        from ..data.web_queries import get_activity_laps
+
+        laps_data = get_activity_laps(activity_id)
+
+        return activity, samples_data, laps_data, route_bounds, None, {"display": "none"}
 
     except Exception as e:
         error_msg = f"Unexpected error loading activity: {str(e)}"
-        return None, None, None, create_error_layout(error_msg), {"display": "block"}
+        return None, None, None, None, create_error_layout(error_msg), {"display": "block"}
 
 
 # Callback for activity header
@@ -489,14 +584,26 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
 # Callback for activity charts
 @callback(
     Output("activity-charts", "figure"),
-    [Input("activity-samples-store", "data"), Input("activity-detail-store", "data")],
+    [
+        Input("activity-samples-store", "data"),
+        Input("activity-detail-store", "data"),
+        Input("activity-laps-store", "data"),
+        Input("chart-type-selector", "value"),
+        Input("smoothing-selector", "value"),
+    ],
 )
-def update_activity_charts(samples_data: Optional[List[Dict]], activity_data: Optional[Dict]):
+def update_activity_charts(
+    samples_data: Optional[List[Dict]],
+    activity_data: Optional[Dict],
+    laps_data: Optional[List[Dict]] = None,
+    chart_type: str = "subplots",
+    smoothing: str = "none",
+):
     """
-    Create synchronized multi-subplot charts with research-validated patterns.
+    Create fitplotter-style interactive charts with multiple view modes.
 
-    Implements downsampling, proper axis labels, and unified hover mode
-    as specified in the enhanced PRP.
+    Implements chart type selection, data smoothing, and enhanced interactivity
+    inspired by the fitplotter library.
     """
     if not samples_data or not isinstance(samples_data, list):
         return create_empty_chart_figure()
@@ -507,12 +614,12 @@ def update_activity_charts(samples_data: Optional[List[Dict]], activity_data: Op
     if df.empty:
         return create_empty_chart_figure()
 
-    # Apply downsampling for performance (research recommendation)
+    # Apply intelligent downsampling for performance
     if len(df) > 5000:
-        downsample_factor = len(df) // 2000
+        downsample_factor = len(df) // 2500
         df = df.iloc[:: max(downsample_factor, 1)]
 
-    # Prepare time axis (convert seconds to minutes for readability)
+    # Prepare time axis
     if "elapsed_time_s" in df.columns:
         df["elapsed_time_min"] = df["elapsed_time_s"] / 60
         x_axis = df["elapsed_time_min"]
@@ -521,145 +628,277 @@ def update_activity_charts(samples_data: Optional[List[Dict]], activity_data: Op
         x_axis = df.index
         x_title = "Sample Index"
 
-    # Create subplots with research-validated configuration
-    subplot_titles = []
-    subplot_count = 0
+    # Determine available data types
+    data_types = []
+    if "speed_mps" in df.columns and df["speed_mps"].notna().any():
+        data_types.append(("pace", "Pace", "min/km", "blue"))
+    if "heart_rate_bpm" in df.columns and df["heart_rate_bpm"].notna().any():
+        data_types.append(("heart_rate", "Heart Rate", "bpm", "red"))
+    if "power_w" in df.columns and df["power_w"].notna().any():
+        data_types.append(("power", "Power", "W", "green"))
+    if "altitude_m" in df.columns and df["altitude_m"].notna().any():
+        data_types.append(("elevation", "Elevation", "m", "brown"))
+    if "cadence_rpm" in df.columns and df["cadence_rpm"].notna().any():
+        data_types.append(("cadence", "Cadence", "rpm", "orange"))
 
-    # Determine which subplots to include based on available data
-    has_pace = "speed_mps" in df.columns and df["speed_mps"].notna().any()
-    has_hr = "heart_rate_bpm" in df.columns and df["heart_rate_bpm"].notna().any()
-    has_power = "power_w" in df.columns and df["power_w"].notna().any()
-    has_elevation = "altitude_m" in df.columns and df["altitude_m"].notna().any()
-
-    if has_pace:
-        subplot_titles.append("Pace (min/km)")
-        subplot_count += 1
-    if has_hr:
-        subplot_titles.append("Heart Rate (bpm)")
-        subplot_count += 1
-    if has_power:
-        subplot_titles.append("Power (W)")
-        subplot_count += 1
-    if has_elevation:
-        subplot_titles.append("Elevation (m)")
-        subplot_count += 1
-
-    if subplot_count == 0:
+    if not data_types:
         return create_empty_chart_figure("No chart data available")
 
-    # Create subplots
+    # Prepare data with smoothing
+    prepared_data = prepare_chart_data(df, data_types, smoothing)
+
+    # Create charts based on selected type
+    if chart_type == "subplots":
+        return create_subplot_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
+    elif chart_type == "dual_y":
+        return create_dual_y_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
+    elif chart_type == "overlay":
+        return create_overlay_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
+    else:
+        return create_subplot_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
+
+
+def prepare_chart_data(df: pd.DataFrame, data_types: list, smoothing: str = "none"):
+    """Prepare and smooth chart data based on selected smoothing level."""
+    prepared_data = {}
+
+    for data_key, display_name, unit, color in data_types:
+        if data_key == "pace" and "speed_mps" in df.columns:
+            # Convert speed to pace (min/km), handling zero speeds
+            speed_kmh = df["speed_mps"] * 3.6
+            pace_data = np.where(speed_kmh > 0.1, 60 / speed_kmh, np.nan)
+            # Cap pace at reasonable max (15 min/km)
+            pace_data = np.where(pace_data > 15, 15, pace_data)
+            prepared_data[data_key] = pace_data
+        elif data_key == "heart_rate" and "heart_rate_bpm" in df.columns:
+            prepared_data[data_key] = df["heart_rate_bpm"].values
+        elif data_key == "power" and "power_w" in df.columns:
+            prepared_data[data_key] = df["power_w"].values
+        elif data_key == "elevation" and "altitude_m" in df.columns:
+            prepared_data[data_key] = df["altitude_m"].values
+        elif data_key == "cadence" and "cadence_rpm" in df.columns:
+            prepared_data[data_key] = df["cadence_rpm"].values
+
+    # Apply smoothing if requested
+    if smoothing != "none":
+        window_sizes = {"light": 5, "medium": 15, "heavy": 31}
+        window = window_sizes.get(smoothing, 5)
+
+        for key, data in prepared_data.items():
+            if len(data) > window and not np.all(np.isnan(data)):
+                try:
+                    # Use Savitzky-Golay filter for better smoothing
+                    if len(data) > window:
+                        smooth_data = savgol_filter(data, min(window, len(data) // 3 * 2 - 1), 3, mode="nearest")
+                        prepared_data[key] = smooth_data
+                except:
+                    # Fallback to simple moving average
+                    prepared_data[key] = ndimage.uniform_filter1d(data, size=window, mode="nearest")
+
+    return prepared_data
+
+
+def add_lap_markers(fig, x_axis, laps_data: Optional[List[Dict]] = None, subplot_row: int = None):
+    """Add lap markers to chart figure."""
+    if not laps_data:
+        return
+
+    for i, lap in enumerate(laps_data):
+        start_time_min = lap.get("start_time_s", 0) / 60
+        end_time_min = lap.get("end_time_s", 0) / 60
+
+        # Add vertical line at lap start
+        fig.add_vline(
+            x=start_time_min,
+            line=dict(color="rgba(255, 0, 0, 0.6)", width=1, dash="dash"),
+            annotation_text=f"L{lap.get('lap_index', i)}",
+            annotation_position="top",
+            annotation_font_size=10,
+            row=subplot_row,
+            col=1 if subplot_row else None,
+        )
+
+
+def create_subplot_chart(
+    x_axis,
+    x_title: str,
+    prepared_data: dict,
+    data_types: list,
+    activity_data: dict,
+    laps_data: Optional[List[Dict]] = None,
+):
+    """Create multi-subplot chart layout similar to fitplotter."""
+    n_charts = len(data_types)
     fig = make_subplots(
-        rows=subplot_count,
+        rows=n_charts,
         cols=1,
         shared_xaxes=True,
-        subplot_titles=subplot_titles,
-        vertical_spacing=0.02,
-        specs=[[{"secondary_y": False}]] * subplot_count,
+        vertical_spacing=0.08,
+        subplot_titles=[f"{display_name} ({unit})" for _, display_name, unit, _ in data_types],
     )
 
-    current_row = 1
+    for i, (data_key, display_name, unit, color) in enumerate(data_types, 1):
+        if data_key in prepared_data:
+            y_data = prepared_data[data_key]
+            valid_mask = ~np.isnan(y_data)
 
-    # Add pace subplot
-    if has_pace:
-        # Convert speed to pace (research-validated formula)
-        pace_data = []
-        for speed in df["speed_mps"]:
-            if speed and speed > 0:
-                pace_min_per_km = (1000 / speed) / 60  # Convert to minutes per km
-                pace_data.append(pace_min_per_km)
-            else:
-                pace_data.append(None)
+            fig.add_trace(
+                go.Scatter(
+                    x=x_axis[valid_mask],
+                    y=y_data[valid_mask],
+                    mode="lines",
+                    name=display_name,
+                    line=dict(color=color, width=2),
+                    hovertemplate=f"<b>{display_name}</b><br>Time: %{{x:.1f}} min<br>{display_name}: %{{y:.1f}} {unit}<extra></extra>",
+                    showlegend=False,
+                ),
+                row=i,
+                col=1,
+            )
 
-        fig.add_trace(
-            go.Scatter(
-                x=x_axis,
-                y=pace_data,
-                mode="lines",
-                name="Pace",
-                line=dict(color="blue", width=2),
-                hovertemplate="Time: %{x:.1f} min<br>Pace: %{y:.2f} min/km<extra></extra>",
-            ),
-            row=current_row,
-            col=1,
-        )
-        current_row += 1
+            # Update y-axis for this subplot
+            fig.update_yaxes(title_text=unit, row=i, col=1)
 
-    # Add heart rate subplot
-    if has_hr:
-        fig.add_trace(
-            go.Scatter(
-                x=x_axis,
-                y=df["heart_rate_bpm"],
-                mode="lines",
-                name="Heart Rate",
-                line=dict(color="red", width=2),
-                hovertemplate="Time: %{x:.1f} min<br>HR: %{y} bpm<extra></extra>",
-            ),
-            row=current_row,
-            col=1,
-        )
-        current_row += 1
+    # Add lap markers to each subplot
+    for i in range(1, n_charts + 1):
+        add_lap_markers(fig, x_axis, laps_data, subplot_row=i)
 
-    # Add power subplot
-    if has_power:
-        fig.add_trace(
-            go.Scatter(
-                x=x_axis,
-                y=df["power_w"],
-                mode="lines",
-                name="Power",
-                line=dict(color="green", width=2),
-                hovertemplate="Time: %{x:.1f} min<br>Power: %{y} W<extra></extra>",
-            ),
-            row=current_row,
-            col=1,
-        )
-        current_row += 1
-
-    # Add elevation subplot with area fill
-    if has_elevation:
-        fig.add_trace(
-            go.Scatter(
-                x=x_axis,
-                y=df["altitude_m"],
-                mode="lines",
-                fill="tonexty",
-                name="Elevation",
-                line=dict(color="brown", width=2),
-                hovertemplate="Time: %{x:.1f} min<br>Elevation: %{y} m<extra></extra>",
-            ),
-            row=current_row,
-            col=1,
-        )
-
-    # Update layout with research-validated synchronized hover
+    # Update layout
+    fig.update_xaxes(title_text=x_title, row=n_charts, col=1)
     fig.update_layout(
-        hovermode="x unified",
-        height=600,
+        height=150 * n_charts + 100,
         showlegend=False,
-        title={
-            "text": f"Activity Data - {activity_data.get('name', 'Unknown') if activity_data and activity_data.get('name') else 'Unknown'}",
-            "x": 0.5,
-            "xanchor": "center",
-        },
+        title_text=activity_data.get("name", "Activity Charts") if activity_data else "Activity Charts",
+        hovermode="x unified",
     )
 
-    # Format x-axis
-    fig.update_xaxes(title_text=x_title, row=subplot_count, col=1)
+    return fig
 
-    # Format y-axes with appropriate titles
-    row = 1
-    if has_pace:
-        fig.update_yaxes(title_text="min/km", row=row, col=1)
-        row += 1
-    if has_hr:
-        fig.update_yaxes(title_text="bpm", row=row, col=1)
-        row += 1
-    if has_power:
-        fig.update_yaxes(title_text="Watts", row=row, col=1)
-        row += 1
-    if has_elevation:
-        fig.update_yaxes(title_text="meters", row=row, col=1)
+
+def create_dual_y_chart(
+    x_axis,
+    x_title: str,
+    prepared_data: dict,
+    data_types: list,
+    activity_data: dict,
+    laps_data: Optional[List[Dict]] = None,
+):
+    """Create dual y-axis chart with primary and secondary metrics."""
+    fig = go.Figure()
+
+    # Primary axis (first available metric)
+    primary_data = None
+    secondary_data = []
+
+    for i, (data_key, display_name, unit, color) in enumerate(data_types):
+        if data_key in prepared_data:
+            y_data = prepared_data[data_key]
+            valid_mask = ~np.isnan(y_data)
+
+            if i == 0:  # First metric goes on primary y-axis
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_axis[valid_mask],
+                        y=y_data[valid_mask],
+                        mode="lines",
+                        name=f"{display_name} ({unit})",
+                        line=dict(color=color, width=2),
+                        hovertemplate=f"<b>{display_name}</b><br>Time: %{{x:.1f}} min<br>{display_name}: %{{y:.1f}} {unit}<extra></extra>",
+                        yaxis="y",
+                    )
+                )
+                primary_data = (display_name, unit, color)
+            else:  # Other metrics go on secondary y-axis
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_axis[valid_mask],
+                        y=y_data[valid_mask],
+                        mode="lines",
+                        name=f"{display_name} ({unit})",
+                        line=dict(color=color, width=2, dash="dot"),
+                        hovertemplate=f"<b>{display_name}</b><br>Time: %{{x:.1f}} min<br>{display_name}: %{{y:.1f}} {unit}<extra></extra>",
+                        yaxis="y2",
+                    )
+                )
+                secondary_data.append((display_name, unit, color))
+
+    # Add lap markers
+    add_lap_markers(fig, x_axis, laps_data)
+
+    # Update layout with dual y-axes
+    fig.update_layout(
+        title_text=activity_data.get("name", "Activity Chart") if activity_data else "Activity Chart",
+        xaxis_title=x_title,
+        yaxis=dict(
+            title=f"{primary_data[1]}" if primary_data else "Primary Metric",
+            side="left",
+            color=primary_data[2] if primary_data else "blue",
+        ),
+        yaxis2=dict(
+            title=f"{secondary_data[0][1]}" if secondary_data else "Secondary Metric",
+            side="right",
+            overlaying="y",
+            color=secondary_data[0][2] if secondary_data else "red",
+        ),
+        height=500,
+        hovermode="x unified",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+    )
+
+    return fig
+
+
+def create_overlay_chart(
+    x_axis,
+    x_title: str,
+    prepared_data: dict,
+    data_types: list,
+    activity_data: dict,
+    laps_data: Optional[List[Dict]] = None,
+):
+    """Create overlay chart with normalized data on single y-axis."""
+    fig = go.Figure()
+
+    # Normalize all data to 0-100 scale for overlay visualization
+    for data_key, display_name, unit, color in data_types:
+        if data_key in prepared_data:
+            y_data = prepared_data[data_key]
+            valid_mask = ~np.isnan(y_data)
+
+            if valid_mask.sum() > 0:
+                # Normalize to 0-100 scale
+                valid_data = y_data[valid_mask]
+                data_min, data_max = np.min(valid_data), np.max(valid_data)
+                if data_max > data_min:
+                    normalized_data = ((valid_data - data_min) / (data_max - data_min)) * 100
+                else:
+                    normalized_data = np.full_like(valid_data, 50)
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_axis[valid_mask],
+                        y=normalized_data,
+                        mode="lines",
+                        name=f"{display_name}",
+                        line=dict(color=color, width=2),
+                        hovertemplate=f"<b>{display_name}</b><br>Time: %{{x:.1f}} min<br>Normalized: %{{y:.1f}}%<br>Actual: %{{customdata:.1f}} {unit}<extra></extra>",
+                        customdata=valid_data,
+                    )
+                )
+
+    # Add lap markers
+    add_lap_markers(fig, x_axis, laps_data)
+
+    fig.update_layout(
+        title_text=(
+            activity_data.get("name", "Activity Chart (Normalized)") if activity_data else "Activity Chart (Normalized)"
+        ),
+        xaxis_title=x_title,
+        yaxis_title="Normalized Value (%)",
+        height=500,
+        hovermode="x unified",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+    )
 
     return fig
 
