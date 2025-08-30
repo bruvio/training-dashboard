@@ -17,7 +17,7 @@ from garmin_client.client import GarminConnectClient
 
 def test_mfa_gui():
     """Test the GUI MFA flow."""
-    app = QApplication(sys.argv)
+    QApplication(sys.argv)
 
     try:
         print("🖥️  Testing GUI MFA Authentication Flow")

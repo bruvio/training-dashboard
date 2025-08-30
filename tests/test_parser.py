@@ -12,7 +12,7 @@ from unittest.mock import patch, mock_open, MagicMock
 import tempfile
 import hashlib
 
-from ingest.parser import ActivityParser, ParserError, FileNotSupportedError, CorruptFileError, calculate_file_hash
+from ingest.parser import ActivityParser, FileNotSupportedError, CorruptFileError
 from app.data.models import ActivityData, SampleData
 
 

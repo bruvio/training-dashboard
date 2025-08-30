@@ -28,8 +28,7 @@ from rich.table import Table
 # Import our modules
 from app.data.db import init_database, session_scope, get_db_config
 from app.data.models import Activity, Sample, RoutePoint, Lap, ImportResult
-from app.data.queries import ActivityQueries
-from ingest.parser import ActivityParser, ParserError, FileNotSupportedError, CorruptFileError, calculate_file_hash
+from ingest.parser import ActivityParser, FileNotSupportedError, CorruptFileError, calculate_file_hash
 
 # Initialize Rich console
 console = Console()

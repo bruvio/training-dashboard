@@ -272,7 +272,6 @@ class BulkDownloadManager:
 if __name__ == "__main__":
     import sys
     from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QProgressBar, QLabel
-    from PyQt6.QtCore import QTimer
 
     class TestWindow(QMainWindow):
         def __init__(self):

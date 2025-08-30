@@ -7,10 +7,10 @@ sorting, and performance considerations.
 
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any, Tuple
-from sqlalchemy import select, func, and_, or_, desc, asc
+from sqlalchemy import select, func, or_, desc
 from sqlalchemy.orm import Session, selectinload
 
-from .models import Activity, Sample, RoutePoint, Lap
+from .models import Activity, Sample, RoutePoint
 
 
 class ActivityQueries:

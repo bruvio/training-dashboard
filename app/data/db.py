@@ -8,7 +8,6 @@ with proper connection handling and performance optimization.
 import logging
 import os
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Generator, Optional, TYPE_CHECKING
 
 from sqlalchemy import create_engine, text

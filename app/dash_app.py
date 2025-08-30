@@ -7,15 +7,13 @@ Bootstrap theme integration and proper page container setup.
 
 import os
 import logging
-from pathlib import Path
 
 import dash
-from dash import html, dcc, Input, Output, callback
+from dash import html, dcc, Input, Output
 import dash_bootstrap_components as dbc
 
 import os
 import logging
-from pathlib import Path
 
 # Import pages will be done after app configuration
 
@@ -36,7 +34,7 @@ app = dash.Dash(
     update_title=None,  # Don't update title on page changes
 )
 
-# Configure app server for production  
+# Configure app server for production
 server = app.server
 server.config.update(
     {
@@ -47,52 +45,53 @@ server.config.update(
 # Import page modules immediately after app creation to register callbacks
 try:
     import sys
-    
+
     # Add both possible paths to ensure imports work
-    if '/app' not in sys.path:
-        sys.path.insert(0, '/app')
-    if '/app/app' not in sys.path:
-        sys.path.insert(0, '/app/app')
-    
+    if "/app" not in sys.path:
+        sys.path.insert(0, "/app")
+    if "/app/app" not in sys.path:
+        sys.path.insert(0, "/app/app")
+
     # Import pages to register their callbacks with the app
-    sys.path.insert(0, '/app')  # Ensure /app is first for pages import
+    sys.path.insert(0, "/app")  # Ensure /app is first for pages import
     from pages import calendar
     from pages import activity_detail
     from pages import garmin_login
-    
+
     # Register callbacks for garmin_login page
     garmin_login.register_callbacks(app)
     logger.info("✅ All page modules imported successfully - callbacks registered")
-    
+
 except ImportError as e:
     logger.error(f"❌ Failed to import page modules: {e}")
     # Fallback: try absolute imports
     try:
         import sys
-        sys.path.insert(0, '/app')
-        
+
+        sys.path.insert(0, "/app")
+
         # Try importing directly from /app/pages
         import importlib.util
-        
+
         # Load calendar module
         calendar_spec = importlib.util.spec_from_file_location("calendar", "/app/pages/calendar.py")
         calendar = importlib.util.module_from_spec(calendar_spec)
         calendar_spec.loader.exec_module(calendar)
-        
-        # Load activity_detail module  
+
+        # Load activity_detail module
         activity_spec = importlib.util.spec_from_file_location("activity_detail", "/app/pages/activity_detail.py")
         activity_detail = importlib.util.module_from_spec(activity_spec)
         activity_spec.loader.exec_module(activity_detail)
-        
+
         # Load garmin_login module
         garmin_spec = importlib.util.spec_from_file_location("garmin_login", "/app/pages/garmin_login.py")
         garmin_login = importlib.util.module_from_spec(garmin_spec)
         garmin_spec.loader.exec_module(garmin_login)
-        
+
         # Register callbacks for garmin_login page
         garmin_login.register_callbacks(app)
         logger.info("✅ Page modules imported via importlib - callbacks registered")
-        
+
     except Exception as e2:
         logger.error(f"❌ Complete failure to import page modules: {e2}")
 
@@ -227,31 +226,31 @@ app.layout = dbc.Container(
     className="px-0",
 )
 
+
 # URL routing callback
-@app.callback(
-    Output("page-content", "children"),
-    Input("url", "pathname")
-)
+@app.callback(Output("page-content", "children"), Input("url", "pathname"))
 def display_page(pathname):
     """Manual routing for pages."""
     logger.info(f"Routing to pathname: {pathname}")
-    
+
     if pathname == "/" or pathname is None:
         # Calendar/activity list page
         try:
             from pages.calendar import layout as calendar_layout
+
             logger.info("Loading calendar page")
             return calendar_layout()
         except Exception as e:
             logger.error(f"Error loading calendar: {e}")
             return html.Div([html.H2(f"Error loading calendar: {str(e)}")])
-            
+
     elif pathname.startswith("/activity/"):
         # Activity detail page
         try:
             activity_id = pathname.split("/activity/")[1]
             logger.info(f"Loading activity detail for ID: {activity_id}")
             from pages.activity_detail import layout as activity_layout
+
             return activity_layout(activity_id)
         except (IndexError, ValueError) as e:
             logger.error(f"Invalid activity ID: {e}")
@@ -259,12 +258,13 @@ def display_page(pathname):
         except Exception as e:
             logger.error(f"Error loading activity detail: {e}")
             return html.Div([html.H2(f"Error loading activity: {str(e)}")])
-            
+
     elif pathname == "/garmin":
         # Garmin Connect login/sync page
         try:
             logger.info("Loading Garmin Connect page")
             import importlib.util
+
             spec = importlib.util.spec_from_file_location("garmin_login", "/app/pages/garmin_login.py")
             garmin_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(garmin_module)
@@ -272,14 +272,13 @@ def display_page(pathname):
         except Exception as e:
             logger.error(f"Error loading Garmin page: {e}")
             import traceback
+
             logger.error(traceback.format_exc())
             return html.Div([html.H2(f"Error loading Garmin Connect: {str(e)}")])
-            
+
     else:
         logger.info(f"Unknown pathname: {pathname}")
         return html.Div([html.H2("404 - Page not found")])
-
-
 
 
 def update_session_data(pathname, session_data):

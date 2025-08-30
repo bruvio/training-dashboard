@@ -6,7 +6,7 @@ Research-validated PyQt6 implementation following PRP specifications.
 """
 
 import sys
-from typing import Tuple, Optional
+from typing import Tuple
 
 from PyQt6.QtWidgets import (
     QDialog,
@@ -21,8 +21,8 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QGroupBox,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QIcon, QPixmap, QFont
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont
 
 
 class LoginDialog(QDialog):

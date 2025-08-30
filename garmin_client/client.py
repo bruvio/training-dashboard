@@ -5,9 +5,7 @@ Enhanced Garmin Connect client with encryption, error handling, and secure crede
 Research-validated implementation following PRP specifications.
 """
 
-import os
 import json
-import asyncio
 import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Union

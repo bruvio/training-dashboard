@@ -12,8 +12,8 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 
-from app.data.db import DatabaseConfig, init_database
-from app.data.models import Base, Activity, Sample, RoutePoint, Lap
+from app.data.db import init_database
+from app.data.models import Activity, Sample, RoutePoint, Lap
 
 
 @pytest.fixture(scope="session")
@@ -298,7 +298,6 @@ def sample_gpx_file():
 def reset_global_database():
     """Reset global database state between tests."""
     # Import here to avoid circular imports
-    from app.data.db import _db_config
 
     # Reset global database config to avoid test interference
     import app.data.db

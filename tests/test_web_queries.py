@@ -27,7 +27,6 @@ class TestWebQueries:
     @pytest.fixture
     def db_session(self):
         """Create in-memory database with test data."""
-        from app.data.models import Base
 
         db_config = DatabaseConfig("sqlite:///:memory:")
         db_config.create_all_tables()
@@ -327,7 +326,6 @@ class TestWebQueries:
 
     def test_duration_formatting_edge_cases(self):
         """Test duration formatting with edge cases."""
-        from app.data.web_queries import get_activities_for_date_range
 
         # Mock activity with various duration values
         class MockActivity:
@@ -382,7 +380,6 @@ class TestWebQueriesIntegration:
 
     def test_sport_mapping_completeness(self):
         """Test that sport mapping covers expected cases."""
-        from app.data.web_queries import get_activities_for_date_range
 
         # Test the sport mapping logic
         sport_mapping = {

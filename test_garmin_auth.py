@@ -3,7 +3,6 @@
 Simple test script for Garmin Connect authentication with MFA handling.
 """
 
-import os
 import sys
 import getpass
 from pathlib import Path

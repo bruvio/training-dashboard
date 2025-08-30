@@ -6,9 +6,7 @@ Simplified version optimized for macOS compatibility with minimal styling.
 
 import sys
 import webbrowser
-from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import List, Dict, Optional
 
 from PyQt6.QtWidgets import (
     QApplication,
@@ -18,7 +16,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QCalendarWidget,
     QTableWidget,
     QTableWidgetItem,
     QProgressBar,
@@ -30,7 +27,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDateEdit,
 )
-from PyQt6.QtCore import Qt, QDate, QSettings, QSize, QTimer
+from PyQt6.QtCore import Qt, QDate, QSettings, QSize
 from PyQt6.QtGui import QFont
 
 from garmin_client.client import GarminConnectClient

@@ -5,14 +5,13 @@ Research-validated implementation with dash-leaflet maps and synchronized
 Plotly charts following enhanced PRP specifications.
 """
 
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 import dash
-from dash import html, dcc, callback, Input, Output, State, ctx
+from dash import html, dcc, callback, Input, Output
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
-import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
@@ -21,8 +20,6 @@ from scipy import ndimage
 from scipy.signal import savgol_filter
 
 from app.data.web_queries import get_activity_by_id, get_activity_samples, check_database_connection
-from app.data.queries import RoutePointQueries
-from app.data.db import session_scope
 
 # Register this page with dynamic routing (Dash 2.17+ pattern)
 dash.register_page(
@@ -705,7 +702,7 @@ def add_lap_markers(fig, x_axis, laps_data: Optional[List[Dict]] = None, subplot
 
     for i, lap in enumerate(laps_data):
         start_time_min = lap.get("start_time_s", 0) / 60
-        end_time_min = lap.get("end_time_s", 0) / 60
+        lap.get("end_time_s", 0) / 60
 
         # Add vertical line at lap start
         fig.add_vline(

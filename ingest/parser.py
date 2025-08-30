@@ -7,9 +7,8 @@ with comprehensive error handling and data normalization.
 
 import logging
 import hashlib
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Optional
 
 # File format parsers (research-validated)
 try:
@@ -44,19 +43,13 @@ logger = logging.getLogger(__name__)
 class ParserError(Exception):
     """Base exception for parsing errors."""
 
-    pass
-
 
 class FileNotSupportedError(ParserError):
     """Raised when file format is not supported."""
 
-    pass
-
 
 class CorruptFileError(ParserError):
     """Raised when file is corrupt or unreadable."""
-
-    pass
 
 
 class ActivityParser:

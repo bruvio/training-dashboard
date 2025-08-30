@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import String, DateTime, Float, Integer, Text, Index, ForeignKey, Column
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy.ext.declarative import declared_attr
 
 # Support for both SQLAlchemy 1.4+ and 2.0+
 try:
@@ -18,8 +17,6 @@ try:
 
     class Base(DeclarativeBase):
         """Base class for all database models."""
-
-        pass
 
 except ImportError:
     # Fallback to SQLAlchemy 1.4 style

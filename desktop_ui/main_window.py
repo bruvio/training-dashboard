@@ -11,7 +11,7 @@ import webbrowser
 import subprocess
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 from PyQt6.QtWidgets import (
     QApplication,
@@ -26,16 +26,14 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QProgressBar,
     QStatusBar,
-    QMenuBar,
     QCheckBox,
     QHeaderView,
     QSplitter,
     QGroupBox,
     QMessageBox,
-    QSystemTrayIcon,
 )
 from PyQt6.QtCore import Qt, QDate, QSettings, QSize, QTimer
-from PyQt6.QtGui import QIcon, QAction, QFont
+from PyQt6.QtGui import QAction, QFont
 
 from garmin_client.client import GarminConnectClient
 from .login_dialog import LoginDialog
@@ -495,7 +493,7 @@ class GarminDashboardApp(QMainWindow):
 
         if dialog.exec() == LoginDialog.DialogCode.Accepted:
             email, password = dialog.get_credentials()
-            remember = dialog.should_remember_credentials()
+            dialog.should_remember_credentials()
 
             # Show progress
             self.login_status_label.setText("Authenticating...")

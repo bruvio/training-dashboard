@@ -5,11 +5,10 @@ Research-validated patterns for integrating SQLAlchemy with Dash callbacks,
 including session management and query optimization.
 """
 
-from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any, Tuple
+from datetime import datetime, date
+from typing import Optional, List, Dict, Any
 import pandas as pd
-from sqlalchemy import func, and_, or_, desc, text
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_, desc, text
 
 from .db import session_scope
 from .models import Activity, Sample, Lap
