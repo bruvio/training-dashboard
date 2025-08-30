@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 
 import dash
-from dash import html, dcc, Input, Output
+from dash import html, dcc, Input, Output, callback
 import dash_bootstrap_components as dbc
 
 import os
@@ -113,6 +113,9 @@ app.layout = dbc.Container(
         ),
         # Location component for URL routing
         dcc.Location(id="url", refresh=False),
+        # Test callback functionality
+        html.Div(id="test-div", children="Initial content"),
+        dcc.Interval(id="test-interval", interval=1000, n_intervals=0, max_intervals=1),
         # Main content area - this is where pages will be rendered
         html.Div(id="page-content"),
         # Footer
@@ -176,11 +179,45 @@ app.layout = dbc.Container(
 )
 def display_page(pathname):
     """Manual routing for pages."""
-    from app.pages import calendar  # Import here to avoid circular imports
+    logger.info(f"Routing to pathname: {pathname}")
+    
+    if pathname == "/" or pathname is None:
+        # Calendar/activity list page
+        try:
+            from pages.calendar import layout as calendar_layout
+            logger.info("Loading calendar page")
+            return calendar_layout()
+        except Exception as e:
+            logger.error(f"Error loading calendar: {e}")
+            return html.Div([html.H2(f"Error loading calendar: {str(e)}")])
+            
+    elif pathname.startswith("/activity/"):
+        # Activity detail page
+        try:
+            activity_id = pathname.split("/activity/")[1]
+            logger.info(f"Loading activity detail for ID: {activity_id}")
+            from pages.activity_detail import layout as activity_layout
+            return activity_layout(activity_id)
+        except (IndexError, ValueError) as e:
+            logger.error(f"Invalid activity ID: {e}")
+            return html.Div([html.H2("404 - Invalid activity ID")])
+        except Exception as e:
+            logger.error(f"Error loading activity detail: {e}")
+            return html.Div([html.H2(f"Error loading activity: {str(e)}")])
+    else:
+        logger.info(f"Unknown pathname: {pathname}")
+        return html.Div([html.H2("404 - Page not found")])
 
-    if pathname in ["/", "/calendar"]:
-        return calendar.layout()
-    return html.Div([html.H2("404 - Page not found")])
+
+# Test callback to verify callbacks work
+@app.callback(
+    Output("test-div", "children"),
+    Input("test-interval", "n_intervals")
+)
+def test_callback(n_intervals):
+    """Test callback to verify callback system works."""
+    logger.info(f"Test callback triggered with n_intervals: {n_intervals}")
+    return f"Callbacks are working! Triggered {n_intervals} times."
 
 
 def update_session_data(pathname, session_data):
@@ -289,7 +326,12 @@ app.index_string = """
 </html>
 """
 
-# Pages are imported dynamically in routing callbacks - no need to import here
+# Import pages to ensure callbacks are registered
+try:
+    from pages import calendar, activity_detail
+    logger.info("Page modules imported successfully")
+except ImportError as e:
+    logger.warning(f"Failed to import page modules: {e}")
 
 if __name__ == "__main__":
     # Development server configuration
