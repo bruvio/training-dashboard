@@ -258,8 +258,12 @@ def register_callbacks(app):
             # Initialize client
             client = GarminConnectClient()
 
-            # Attempt authentication
-            success = client.authenticate(email, password)
+            # Attempt authentication with MFA callback
+            def web_mfa_callback():
+                # Return None to trigger MFA_REQUIRED response
+                return None
+            
+            success = client.authenticate(email, password, mfa_callback=web_mfa_callback)
             
             if success == "MFA_REQUIRED":
                 # MFA required - show MFA input dialog
@@ -398,9 +402,11 @@ def register_callbacks(app):
             email = store_data["email"]
             password = store_data["password"]
             
-            # For now, we'll need to modify the client to handle MFA codes
-            # This is a placeholder - the garminconnect library would need MFA support
-            success = client.authenticate(email, password)
+            # Create MFA callback that returns the provided code
+            def web_mfa_callback():
+                return mfa_code
+            
+            success = client.authenticate(email, password, mfa_callback=web_mfa_callback)
             
             if success:
                 success_content = [

@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import pandas as pd
 
 from app.data.db import session_scope
-from app.data.models import Activity, Sample
+from app.data.models import Activity, Sample, Lap
 
 # This page uses manual routing - no registration needed
 
@@ -213,6 +213,143 @@ def update_activity_header(store_data):
 
     except Exception as e:
         return dbc.Alert(f"Error loading activity: {str(e)}", color="danger")
+
+
+@callback(Output("activity-summary", "children"), Input("activity-data-store", "data"))
+def update_activity_summary(store_data):
+    """Update activity summary with key metrics and available data types."""
+    if not store_data or "activity_id" not in store_data:
+        return dbc.Alert("No activity data", color="warning")
+
+    activity_id = store_data["activity_id"]
+
+    try:
+        with session_scope() as session:
+            activity = session.query(Activity).filter_by(id=activity_id).first()
+            
+            if not activity:
+                return dbc.Alert(f"Activity {activity_id} not found", color="danger")
+
+            # Get sample data to check what metrics are available
+            samples = session.query(Sample).filter_by(activity_id=activity_id).limit(10).all()
+            
+            # Determine available metrics
+            available_metrics = set()
+            if samples:
+                for sample in samples[:5]:  # Check first 5 samples
+                    for attr in ['heart_rate', 'speed_mps', 'altitude_m', 'power_w', 'cadence_rpm', 'temperature_c']:
+                        if getattr(sample, attr) is not None:
+                            available_metrics.add(attr)
+            
+            # Check for GPS data
+            has_gps = any(sample.latitude and sample.longitude for sample in samples[:5]) if samples else False
+            
+            # Create summary cards
+            summary_cards = []
+            
+            # Distance card
+            if activity.distance_m and activity.distance_m > 0:
+                distance_km = activity.distance_m / 1000
+                summary_cards.append(
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H4(f"{distance_km:.2f} km", className="text-primary mb-0"),
+                                html.P("Distance", className="text-muted mb-0")
+                            ], className="text-center")
+                        ])
+                    ], width=2)
+                )
+            
+            # Duration card
+            if activity.elapsed_time_s:
+                hours = int(activity.elapsed_time_s // 3600)
+                minutes = int((activity.elapsed_time_s % 3600) // 60)
+                seconds = int(activity.elapsed_time_s % 60)
+                duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
+                summary_cards.append(
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H4(duration_str, className="text-success mb-0"),
+                                html.P("Duration", className="text-muted mb-0")
+                            ], className="text-center")
+                        ])
+                    ], width=2)
+                )
+            
+            # Pace card (for running activities)
+            if activity.avg_pace_s_per_km and activity.sport == 'running':
+                pace_min = int(activity.avg_pace_s_per_km // 60)
+                pace_sec = int(activity.avg_pace_s_per_km % 60)
+                pace_str = f"{pace_min}:{pace_sec:02d}"
+                summary_cards.append(
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H4(f"{pace_str}/km", className="text-info mb-0"),
+                                html.P("Avg Pace", className="text-muted mb-0")
+                            ], className="text-center")
+                        ])
+                    ], width=2)
+                )
+            
+            # Speed card (for non-running activities)
+            if activity.avg_speed_mps and activity.sport != 'running':
+                speed_kmh = activity.avg_speed_mps * 3.6
+                summary_cards.append(
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H4(f"{speed_kmh:.1f} km/h", className="text-info mb-0"),
+                                html.P("Avg Speed", className="text-muted mb-0")
+                            ], className="text-center")
+                        ])
+                    ], width=2)
+                )
+            
+            # Heart Rate card
+            if activity.avg_hr:
+                summary_cards.append(
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H4(f"{activity.avg_hr} bpm", className="text-danger mb-0"),
+                                html.P("Avg Heart Rate", className="text-muted mb-0")
+                            ], className="text-center")
+                        ])
+                    ], width=2)
+                )
+            
+            # Available data types card
+            metric_labels = {
+                'heart_rate': 'HR',
+                'speed_mps': 'Speed',
+                'altitude_m': 'Elevation',
+                'power_w': 'Power',
+                'cadence_rpm': 'Cadence',
+                'temperature_c': 'Temperature'
+            }
+            available_labels = [metric_labels.get(metric, metric) for metric in available_metrics]
+            if has_gps:
+                available_labels.append('GPS')
+                
+            data_types_str = ', '.join(available_labels) if available_labels else 'Heart Rate only'
+            summary_cards.append(
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H6("Available Data", className="text-muted mb-1"),
+                            html.P(data_types_str, className="mb-0 small")
+                        ], className="text-center")
+                    ])
+                ], width=4)
+            )
+
+            return dbc.Row(summary_cards)
+
+    except Exception as e:
+        return dbc.Alert(f"Error loading summary: {str(e)}", color="danger")
 
 
 @callback(
@@ -453,3 +590,91 @@ def update_activity_map(store_data):
 
     except Exception as e:
         return dbc.Alert(f"Error loading map: {str(e)}", color="danger")
+
+
+@callback(Output("activity-laps", "children"), Input("activity-data-store", "data"))
+def update_activity_laps(store_data):
+    """Update activity lap splits table."""
+    if not store_data or "activity_id" not in store_data:
+        return dbc.Alert("No activity data", color="warning")
+
+    activity_id = store_data["activity_id"]
+
+    try:
+        with session_scope() as session:
+            # Get lap data
+            laps = session.query(Lap).filter_by(activity_id=activity_id).order_by(Lap.lap_index).all()
+
+            if not laps:
+                return dbc.Alert("No lap data available for this activity", color="info")
+
+            # Create lap splits table
+            table_header = [
+                html.Thead([
+                    html.Tr([
+                        html.Th("Lap", style={"width": "10%"}),
+                        html.Th("Distance", style={"width": "15%"}),
+                        html.Th("Time", style={"width": "15%"}),
+                        html.Th("Avg HR", style={"width": "15%"}),
+                        html.Th("Max HR", style={"width": "15%"}),
+                        html.Th("Avg Power", style={"width": "15%"}),
+                        html.Th("Avg Speed", style={"width": "15%"}),
+                    ])
+                ])
+            ]
+
+            table_rows = []
+            for lap in laps:
+                # Format lap time
+                if lap.elapsed_time_s:
+                    minutes = int(lap.elapsed_time_s // 60)
+                    seconds = int(lap.elapsed_time_s % 60)
+                    time_str = f"{minutes}:{seconds:02d}"
+                else:
+                    time_str = "N/A"
+
+                # Format distance
+                distance_str = f"{lap.distance_m/1000:.2f} km" if lap.distance_m else "N/A"
+
+                # Format speed/pace
+                if lap.avg_speed_mps:
+                    # Get activity to check sport type
+                    activity = session.query(Activity).filter_by(id=activity_id).first()
+                    if activity and activity.sport == 'running':
+                        # Show pace for running
+                        pace_s_per_km = 1000 / lap.avg_speed_mps
+                        pace_min = int(pace_s_per_km // 60)
+                        pace_sec = int(pace_s_per_km % 60)
+                        speed_str = f"{pace_min}:{pace_sec:02d}/km"
+                    else:
+                        # Show speed for other activities
+                        speed_kmh = lap.avg_speed_mps * 3.6
+                        speed_str = f"{speed_kmh:.1f} km/h"
+                else:
+                    speed_str = "N/A"
+
+                table_rows.append(
+                    html.Tr([
+                        html.Td(f"{lap.lap_index + 1}"),
+                        html.Td(distance_str),
+                        html.Td(time_str),
+                        html.Td(f"{lap.avg_hr}" if lap.avg_hr else "N/A"),
+                        html.Td(f"{lap.max_hr}" if lap.max_hr else "N/A"),
+                        html.Td(f"{lap.avg_power_w:.0f}W" if lap.avg_power_w else "N/A"),
+                        html.Td(speed_str),
+                    ])
+                )
+
+            table_body = [html.Tbody(table_rows)]
+
+            return dbc.Table(
+                table_header + table_body,
+                bordered=True,
+                hover=True,
+                responsive=True,
+                striped=True,
+                className="mb-0"
+            )
+
+    except Exception as e:
+        return dbc.Alert(f"Error loading lap splits: {str(e)}", color="danger")

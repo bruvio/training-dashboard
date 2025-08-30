@@ -13,7 +13,8 @@ from datetime import datetime, date, timedelta
 
 try:
     from garminconnect import Garmin
-
+    import garth
+    from garth.exc import GarthException
     GARMIN_CONNECT_AVAILABLE = True
 except ImportError:
     GARMIN_CONNECT_AVAILABLE = False
@@ -128,9 +129,9 @@ class GarminConnectClient:
             self.credentials_file.unlink()
             logger.info("Credentials cleared")
 
-    def authenticate(self, email: str = None, password: str = None, mfa_callback=None) -> bool:
+    def authenticate(self, email: str = None, password: str = None, mfa_callback=None) -> Union[bool, str]:
         """
-        Authenticate with Garmin Connect with MFA support.
+        Authenticate with Garmin Connect using modern garth-based approach with MFA support.
 
         Args:
             email: Garmin Connect email (optional if stored)
@@ -138,7 +139,7 @@ class GarminConnectClient:
             mfa_callback: Callback function to get MFA code when needed
 
         Returns:
-            True if authentication successful, False otherwise
+            True if authentication successful, "MFA_REQUIRED" if MFA needed, False otherwise
         """
         if not GARMIN_CONNECT_AVAILABLE:
             logger.error("garminconnect library not available")
@@ -158,46 +159,108 @@ class GarminConnectClient:
         try:
             logger.info(f"Attempting to authenticate as {email}")
 
-            # Initialize the Garmin client
-            self._api = Garmin(email, password)
+            # Configure garth session path
+            garth_session_path = self.config_dir / "garth_session"
             
-            # Try authentication with improved error handling
+            # Try to resume existing garth session first
             try:
-                self._api.login()
-                logger.info("Authentication successful")
+                garth.resume(str(garth_session_path))
+                logger.info("Resumed existing garth session")
+                
+                # Test if session is still valid
+                try:
+                    # Try to initialize Garmin client with existing session
+                    self._api = Garmin()  # No credentials needed if garth session is valid
+                    self._authenticated = True
+                    logger.info("Authentication successful using existing session")
+                    return True
+                except Exception as e:
+                    logger.info(f"Existing session invalid, need fresh login: {e}")
+                    # Continue to fresh login
+                    
+            except (GarthException, FileNotFoundError) as e:
+                logger.info(f"No valid garth session found, performing fresh login: {e}")
+
+            # Perform fresh garth authentication
+            logger.info("Starting fresh garth authentication...")
+            
+            try:
+                # Handle MFA using garth's advanced flow
+                if mfa_callback:
+                    # Use advanced MFA handling with custom callback
+                    result1, result2 = garth.login(email, password, return_on_mfa=True)
+                    
+                    if result1 == "needs_mfa":
+                        logger.info("MFA required - requesting code from callback")
+                        mfa_code = mfa_callback()
+                        if not mfa_code:
+                            logger.error("MFA code required but not provided")
+                            return "MFA_REQUIRED"
+                        
+                        # Resume login with MFA code
+                        oauth1, oauth2 = garth.resume_login(result2, mfa_code)
+                        logger.info("MFA authentication successful")
+                    else:
+                        logger.info("Direct authentication successful")
+                else:
+                    # Use terminal-based MFA prompt (for CLI usage)
+                    def terminal_mfa():
+                        return input("Enter MFA code (or press Enter to return 'MFA_REQUIRED'): ").strip()
+                    
+                    try:
+                        garth.login(email, password, prompt_mfa=terminal_mfa)
+                        logger.info("Authentication successful")
+                    except Exception as mfa_error:
+                        if "mfa" in str(mfa_error).lower() or "verification" in str(mfa_error).lower():
+                            logger.info("MFA required but no callback provided")
+                            return "MFA_REQUIRED"
+                        else:
+                            raise mfa_error
+
+                # Save garth session for future use
+                garth.save(str(garth_session_path))
+                logger.info(f"Saved garth session to {garth_session_path}")
+
+                # Initialize Garmin client with authenticated session
+                self._api = Garmin()  # Uses existing garth session
+                
+                # Store successful session info
+                session_data = {
+                    "authenticated_at": datetime.now().isoformat(), 
+                    "email": email,
+                    "garth_session_path": str(garth_session_path)
+                }
+                with open(self.session_file, "w") as f:
+                    json.dump(session_data, f)
+
+                self._authenticated = True
+                logger.info(f"Successfully authenticated as {email}")
+                return True
+
             except Exception as e:
                 error_str = str(e).lower()
-                logger.error(f"Authentication failed with error: {e}")
+                logger.error(f"Garth authentication failed: {e}")
                 
-                # Check for various authentication failure scenarios
+                # Check for specific error types
                 if any(keyword in error_str for keyword in ["mfa", "multi", "verification", "code", "2fa", "two-factor"]):
                     logger.info("MFA required for authentication")
-                    self._authenticated = False
                     return "MFA_REQUIRED"
                 elif any(keyword in error_str for keyword in ["oauth", "token", "authorization", "forbidden", "unauthorized"]):
-                    logger.error("OAuth/Authorization error - credentials may be invalid or API access restricted")
-                    self._authenticated = False
+                    logger.error("OAuth/Authorization error")
+                    logger.error("This may indicate:")
+                    logger.error("1. Invalid credentials")
+                    logger.error("2. Account locked or suspended")
+                    logger.error("3. Need to verify account on Garmin Connect website")
                     return False
                 elif "rate" in error_str or "limit" in error_str:
                     logger.error("Rate limit exceeded - please wait before retrying")
-                    self._authenticated = False
                     return False
                 else:
-                    logger.error(f"Unknown authentication error: {e}")
-                    self._authenticated = False
+                    logger.error(f"Authentication failed: {e}")
                     return False
 
-            # Store successful session info
-            session_data = {"authenticated_at": datetime.now().isoformat(), "email": email}
-            with open(self.session_file, "w") as f:
-                json.dump(session_data, f)
-
-            self._authenticated = True
-            logger.info(f"Successfully authenticated as {email}")
-            return True
-
         except Exception as e:
-            logger.error(f"Authentication failed: {e}")
+            logger.error(f"Unexpected authentication error: {e}")
             self._authenticated = False
             return False
 
@@ -210,8 +273,19 @@ class GarminConnectClient:
         self._api = None
         self._authenticated = False
 
+        # Clear session file
         if self.session_file.exists():
             self.session_file.unlink()
+
+        # Clear garth session
+        garth_session_path = self.config_dir / "garth_session"
+        try:
+            if garth_session_path.exists():
+                import shutil
+                shutil.rmtree(garth_session_path, ignore_errors=True)
+                logger.info("Cleared garth session data")
+        except Exception as e:
+            logger.debug(f"Error clearing garth session: {e}")
 
         logger.info("Logged out successfully")
 
