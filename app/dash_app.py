@@ -162,6 +162,11 @@ app.layout = dbc.Container(
     className="px-0",
 )
 
+# Import pages to register them with the app
+# These imports trigger the dash.register_page() calls in each module
+import pages.calendar  # Main activity list page
+import pages.activity_detail  # Activity detail page
+
 
 # Global callback for URL-based page updates (if needed)
 @app.callback(
