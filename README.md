@@ -1,15 +1,18 @@
 # Garmin Dashboard
 
-A comprehensive fitness activity dashboard for Garmin Connect users, featuring both web-based visualization and desktop application for downloading and analyzing your activities.
+A comprehensive fitness activity dashboard for Garmin Connect users, featuring web-based visualization with direct Garmin Connect integration and optional desktop application for advanced functionality.
 
 ## Features
 
 ### 🌐 Web Dashboard
-- Interactive activity visualization with Plotly charts
-- Activity calendar with date-based filtering
-- Detailed activity metrics and analysis
-- Multi-page navigation with Bootstrap UI
-- Activity detail views with maps and performance data
+- **Professional Landing Page**: Enhanced interface with quick action cards and navigation
+- **Direct Garmin Connect Integration**: Login directly through web interface with MFA support
+- **Activity Synchronization**: Download activities directly from Garmin Connect to database
+- **Interactive Visualizations**: Real-time charts for heart rate, speed, elevation, and power data
+- **GPS Route Mapping**: Interactive maps with start/end markers and route visualization
+- **Activity Analytics**: Comprehensive metrics including pace, distance, duration, and performance
+- **Multi-page Navigation**: Professional Bootstrap UI with responsive design
+- **Activity Detail Views**: Detailed analysis with charts, maps, and comprehensive metrics
 
 ### 🖥️ Desktop Application
 - **Secure Login**: Encrypted credential storage for Garmin Connect
@@ -43,12 +46,18 @@ mkdir -p data activities
 
 ### 2. Start with Docker (Recommended)
 ```bash
-# Start the web dashboard
-docker-compose up -d
+# Set the dashboard port and start services
+export DASHBOARD_PORT=8050
+docker-compose up -d --build
 
 # View the dashboard
 open http://localhost:8050
 ```
+
+The web dashboard provides:
+- **Main Dashboard**: Activity overview and statistics at `/`
+- **Activity Details**: Individual activity analysis at `/activity/{id}`
+- **Garmin Connect**: Login and sync interface at `/garmin`
 
 ### 3. Use Desktop Application
 ```bash
@@ -70,15 +79,24 @@ python -m desktop_ui.main_window_simple
 # Create required directories
 mkdir -p data activities
 
-# Start services
-docker-compose up -d
+# Start services with proper port configuration
+export DASHBOARD_PORT=8050
+docker-compose up -d --build
 
 # Check status
 docker-compose ps
 
 # View logs
-docker-compose logs -f garmin-dashboard
+docker-compose logs -f garmin-dashboard-web
 ```
+
+#### Web Dashboard Usage
+1. **Access Dashboard**: Navigate to `http://localhost:8050`
+2. **Connect to Garmin**: Click "Connect Now" or visit `/garmin`
+3. **Login to Garmin Connect**: Enter your credentials (supports MFA)
+4. **Sync Activities**: Choose date range and sync your activities
+5. **View Activities**: Browse activities from the main dashboard
+6. **Analyze Details**: Click "View Details" for comprehensive activity analysis
 
 ### Development Mode
 ```bash
@@ -183,35 +201,102 @@ Settings are stored in `~/.garmin-dashboard/`:
 - `credentials.enc`: Encrypted Garmin Connect credentials
 - `encryption.key`: Encryption key (keep secure!)
 
+## Web Dashboard Features
+
+### Garmin Connect Integration
+The web dashboard now includes comprehensive Garmin Connect integration:
+
+#### Authentication
+- **Email/Password Login**: Secure authentication with your Garmin Connect account
+- **MFA Support**: Full support for accounts with two-factor authentication enabled
+- **Session Management**: Secure session handling with encrypted credentials
+- **Auto-Login Detection**: Seamless re-authentication for returning users
+
+#### Activity Synchronization
+- **Date Range Selection**: Sync activities from last 7, 30, 90 days, or all activities
+- **Real-time Progress**: Live progress indicators during sync operations
+- **Deduplication**: Automatic prevention of duplicate activity imports
+- **Error Handling**: Comprehensive error reporting and recovery
+
+#### Activity Visualization
+- **Interactive Charts**: Heart rate, speed, elevation, and power data visualization
+- **GPS Route Maps**: Full route visualization with start/end markers using OpenStreetMap
+- **Performance Metrics**: Comprehensive analysis including pace, distance, duration
+- **Activity Comparison**: Side-by-side analysis capabilities
+
+### Navigation Structure
+- **Landing Page** (`/`): Activity overview, statistics, and quick actions
+- **Activity Detail** (`/activity/{id}`): Comprehensive individual activity analysis
+- **Garmin Connect** (`/garmin`): Login interface and synchronization controls
+- **Statistics** (`/stats`): Performance trends and analytics (coming soon)
+- **Settings** (`/settings`): Application configuration (coming soon)
+
 ## File Formats Supported
 
-| Format | Import | Export | Features |
-|--------|--------|--------|----------|
-| **FIT** | ✅ | ✅ | Full data, recommended |
-| **GPX** | ✅ | ✅ | GPS tracks, waypoints |
-| **TCX** | ✅ | ❌ | Training data |
+| Format | Import | Export | Web Sync | Features |
+|--------|--------|--------|----------|----------|
+| **FIT** | ✅ | ✅ | ✅ | Full data, recommended |
+| **GPX** | ✅ | ✅ | ✅ | GPS tracks, waypoints |
+| **TCX** | ✅ | ❌ | ✅ | Training data |
 
 ## Project Structure
 
 ```
 fit-dashboard/
 ├── app/                    # Web dashboard application
-│   ├── dash_app.py        # Main Dash application
-│   ├── pages/             # Multi-page routing
+│   ├── dash_app.py        # Main Dash application with routing
+│   ├── pages/             # Multi-page components
+│   │   ├── calendar.py    # Landing page with activity overview
+│   │   ├── activity_detail.py # Individual activity analysis
+│   │   └── garmin_login.py # Garmin Connect integration UI
 │   └── data/              # Database models and queries
+│       ├── models.py      # SQLAlchemy models (Activity, Sample, RoutePoint)
+│       └── db.py          # Database connection and utilities
+├── garmin_client/         # Garmin Connect integration
+│   ├── client.py          # API client with MFA support
+│   └── sync.py            # Activity synchronization logic
 ├── desktop_ui/            # PyQt6 desktop application
 │   ├── main_window.py     # Main application window
+│   ├── main_window_simple.py # macOS-compatible version
 │   ├── login_dialog.py    # Secure login dialog
 │   ├── settings_dialog.py # Configuration dialog
 │   └── download_worker.py # Background download worker
-├── garmin_client/         # Garmin Connect integration
-│   └── client.py          # API client with encryption
 ├── cli/                   # Command-line tools
+│   └── gd_import.py       # Activity file import utility
 ├── ingest/                # File parsing utilities
+│   ├── fit_parser.py      # FIT file processing
+│   ├── gpx_parser.py      # GPX file processing
+│   └── tcx_parser.py      # TCX file processing
+├── data/                  # Database and data storage
 └── activities/            # Activity files directory
 ```
 
 ## Troubleshooting
+
+### Web Dashboard Issues
+**Garmin Connect login fails:**
+- Verify your Garmin Connect credentials are correct
+- Check if your account requires MFA and enter the 6-digit code when prompted
+- Clear browser cache and try again
+- Check Docker logs: `docker logs garmin-dashboard-web`
+
+**Activity pages show "Error loading activity":**
+- Ensure activities are imported into the database
+- Verify database connection is working
+- Check that activity IDs are valid integers
+- Import activities using: `python -m cli.gd_import ./activities`
+
+**Page routing issues (404 errors):**
+- Ensure Docker container is running: `docker-compose ps`
+- Check container logs: `docker logs garmin-dashboard-web`
+- Verify port 8050 is not being used by other services
+- Restart with: `docker-compose down && docker-compose up -d --build`
+
+**Charts or maps not loading:**
+- Check browser console for JavaScript errors
+- Ensure internet connection for map tiles (OpenStreetMap)
+- Verify activity has GPS data for map visualization
+- Check that sample data exists in database
 
 ### Docker Issues
 **Volume mounting errors:**
@@ -226,10 +311,20 @@ chmod 755 data activities
 **Service won't start:**
 ```bash
 # Check logs
-docker-compose logs garmin-dashboard
+docker-compose logs garmin-dashboard-web
 
-# Restart services
-docker-compose down && docker-compose up -d
+# Restart services with rebuild
+docker-compose down && docker-compose up -d --build
+```
+
+**Port conflicts:**
+```bash
+# Check if port 8050 is in use
+lsof -i :8050
+
+# Use different port
+export DASHBOARD_PORT=8051
+docker-compose up -d --build
 ```
 
 ### Desktop Application Issues
@@ -239,9 +334,11 @@ docker-compose down && docker-compose up -d
 - Review logs in `~/.garmin-dashboard/logs/`
 
 **MFA (Two-Factor Authentication) accounts:**
-- The app supports accounts with MFA enabled
-- After entering email/password, you'll be prompted for your 6-digit MFA code
+- Both web and desktop applications support accounts with MFA enabled
+- **Web Dashboard**: After entering credentials, you'll see an MFA prompt for your 6-digit code
+- **Desktop App**: MFA prompt appears after initial login attempt
 - Enter the code from your authenticator app (Google Authenticator, Authy, etc.)
+- Supports email-based MFA and authenticator app codes
 
 **Downloads fail:**
 - Check rate limiting settings

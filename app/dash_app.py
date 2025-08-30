@@ -82,6 +82,12 @@ app.layout = dbc.Container(
                                             className="text-white",
                                         ),
                                         dbc.NavLink(
+                                            [html.I(className="fas fa-download me-1"), "Garmin Sync"],
+                                            href="/garmin",
+                                            active="exact",
+                                            className="text-white",
+                                        ),
+                                        dbc.NavLink(
                                             [html.I(className="fas fa-cog me-1"), "Settings"],
                                             href="/settings",
                                             active="exact",
@@ -113,9 +119,6 @@ app.layout = dbc.Container(
         ),
         # Location component for URL routing
         dcc.Location(id="url", refresh=False),
-        # Test callback functionality
-        html.Div(id="test-div", children="Initial content"),
-        dcc.Interval(id="test-interval", interval=1000, n_intervals=0, max_intervals=1),
         # Main content area - this is where pages will be rendered
         html.Div(id="page-content"),
         # Footer
@@ -204,20 +207,27 @@ def display_page(pathname):
         except Exception as e:
             logger.error(f"Error loading activity detail: {e}")
             return html.Div([html.H2(f"Error loading activity: {str(e)}")])
+            
+    elif pathname == "/garmin":
+        # Garmin Connect login/sync page
+        try:
+            logger.info("Loading Garmin Connect page")
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("garmin_login", "/app/pages/garmin_login.py")
+            garmin_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(garmin_module)
+            return garmin_module.layout()
+        except Exception as e:
+            logger.error(f"Error loading Garmin page: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return html.Div([html.H2(f"Error loading Garmin Connect: {str(e)}")])
+            
     else:
         logger.info(f"Unknown pathname: {pathname}")
         return html.Div([html.H2("404 - Page not found")])
 
 
-# Test callback to verify callbacks work
-@app.callback(
-    Output("test-div", "children"),
-    Input("test-interval", "n_intervals")
-)
-def test_callback(n_intervals):
-    """Test callback to verify callback system works."""
-    logger.info(f"Test callback triggered with n_intervals: {n_intervals}")
-    return f"Callbacks are working! Triggered {n_intervals} times."
 
 
 def update_session_data(pathname, session_data):
@@ -328,7 +338,28 @@ app.index_string = """
 
 # Import pages to ensure callbacks are registered
 try:
-    from pages import calendar, activity_detail
+    # Use absolute imports and sys.path approach
+    import sys
+    import os
+    sys.path.append('/app')
+    
+    from pages import calendar
+    from pages import activity_detail
+    
+    # Try different approaches for garmin_login
+    try:
+        from pages import garmin_login
+        logger.info("Successfully imported garmin_login using 'from pages import'")
+    except ImportError:
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("garmin_login", "/app/pages/garmin_login.py")
+            garmin_login = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(garmin_login)
+            logger.info("Successfully imported garmin_login using importlib")
+        except Exception as e2:
+            logger.error(f"Failed to import garmin_login with both methods: {e2}")
+            
     logger.info("Page modules imported successfully")
 except ImportError as e:
     logger.warning(f"Failed to import page modules: {e}")

@@ -49,6 +49,7 @@ class Activity(Base):
     # Primary key and identifiers
     id = mapped_column(Integer, primary_key=True)
     external_id = mapped_column(String(100), index=True)
+    garmin_activity_id = mapped_column(String(50), index=True)  # Garmin Connect activity ID
     file_hash = mapped_column(String(64))  # For deduplication
 
     # Activity metadata
