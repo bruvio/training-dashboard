@@ -41,6 +41,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY app/ ./app/
 COPY ingest/ ./ingest/
 COPY cli/ ./cli/
+COPY pages/ ./pages/
 COPY run_tests.py .
 
 # Create data directories with proper permissions

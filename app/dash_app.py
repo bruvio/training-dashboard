@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Initialize Dash app with research-validated configuration
 app = dash.Dash(
     __name__,
-    use_pages=True,  # Enable multi-page routing (Dash 2.17+)
+    use_pages=False,  # Disable automatic page discovery - we'll register manually
     external_stylesheets=[
         dbc.themes.BOOTSTRAP,  # Research-validated Bootstrap theme
         dbc.icons.FONT_AWESOME,  # Icons for better UX
@@ -109,7 +109,7 @@ app.layout = dbc.Container(
         # Location component for URL routing
         dcc.Location(id="url", refresh=False),
         # Main content area - this is where pages will be rendered
-        dash.page_container,
+        html.Div(id="page-content"),
         # Footer
         html.Footer(
             [
@@ -164,25 +164,39 @@ app.layout = dbc.Container(
     className="px-0",
 )
 
-# Global callback for URL-based page updates (if needed)
+# URL routing callback
+@app.callback(
+    dash.dependencies.Output("page-content", "children"),
+    [dash.dependencies.Input("url", "pathname")]
+)
+def display_page(pathname):
+    """Route URLs to appropriate page content."""
+    if pathname == "/" or pathname is None:
+        # Calendar/activity list page
+        from pages.calendar import layout as calendar_layout
+        return calendar_layout()
+    elif pathname.startswith("/activity/"):
+        # Activity detail page
+        try:
+            activity_id = pathname.split("/activity/")[1]
+            from pages.activity_detail import layout as activity_layout
+            return activity_layout(activity_id)
+        except (IndexError, ValueError):
+            return page_not_found()
+    else:
+        return page_not_found()
+
+# Session data callback (simplified)
 @app.callback(
     dash.dependencies.Output("session-store", "data"),
     [dash.dependencies.Input("url", "pathname")],
     [dash.dependencies.State("session-store", "data")],
 )
 def update_session_data(pathname, session_data):
-    """
-    Update session data based on URL changes.
-
-    This callback maintains application state across page navigation.
-    """
+    """Update session data based on URL changes."""
     if session_data is None:
         session_data = {}
-
-    # Update current page in session
     session_data["current_page"] = pathname
-    session_data["last_visit"] = dash.callback_context.triggered_id
-
     return session_data
 
 
@@ -284,10 +298,7 @@ app.index_string = """
 </html>
 """
 
-# Import pages to register them with the app (after app configuration)
-# These imports trigger the dash.register_page() calls in each module  
-import pages.calendar  # Main activity list page
-import pages.activity_detail  # Activity detail page
+# Pages are imported dynamically in routing callbacks - no need to import here
 
 if __name__ == "__main__":
     # Development server configuration
