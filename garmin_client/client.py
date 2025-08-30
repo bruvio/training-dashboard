@@ -158,17 +158,34 @@ class GarminConnectClient:
         try:
             logger.info(f"Attempting to authenticate as {email}")
 
-            # Create MFA prompt function
-            def mfa_prompt():
-                if mfa_callback:
-                    return mfa_callback()
+            # Initialize the Garmin client
+            self._api = Garmin(email, password)
+            
+            # Try authentication with improved error handling
+            try:
+                self._api.login()
+                logger.info("Authentication successful")
+            except Exception as e:
+                error_str = str(e).lower()
+                logger.error(f"Authentication failed with error: {e}")
+                
+                # Check for various authentication failure scenarios
+                if any(keyword in error_str for keyword in ["mfa", "multi", "verification", "code", "2fa", "two-factor"]):
+                    logger.info("MFA required for authentication")
+                    self._authenticated = False
+                    return "MFA_REQUIRED"
+                elif any(keyword in error_str for keyword in ["oauth", "token", "authorization", "forbidden", "unauthorized"]):
+                    logger.error("OAuth/Authorization error - credentials may be invalid or API access restricted")
+                    self._authenticated = False
+                    return False
+                elif "rate" in error_str or "limit" in error_str:
+                    logger.error("Rate limit exceeded - please wait before retrying")
+                    self._authenticated = False
+                    return False
                 else:
-                    # Fallback to console prompt
-                    return input("Enter MFA code: ")
-
-            # Initialize Garmin client with MFA support
-            self._api = Garmin(email, password, prompt_mfa=mfa_prompt)
-            self._api.login()
+                    logger.error(f"Unknown authentication error: {e}")
+                    self._authenticated = False
+                    return False
 
             # Store successful session info
             session_data = {"authenticated_at": datetime.now().isoformat(), "email": email}

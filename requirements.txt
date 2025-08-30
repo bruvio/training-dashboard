@@ -24,7 +24,7 @@ numpy>=1.24.0
 scipy>=1.11.0
 
 # Garmin Connect integration
-garminconnect>=0.2.27
+garminconnect>=0.2.28
 
 # Desktop UI framework (install separately for desktop development)
 # PyQt6>=6.6.0

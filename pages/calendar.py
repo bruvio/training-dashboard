@@ -92,35 +92,6 @@ def layout():
                         ],
                         width=4,
                     ),
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardBody(
-                                        [
-                                            html.H5(
-                                                [html.I(className="fas fa-chart-bar me-2"), "View Statistics"],
-                                                className="mb-3",
-                                            ),
-                                            html.P(
-                                                "Analyze your performance trends and training progress over time.",
-                                                className="mb-3",
-                                            ),
-                                            dbc.Button(
-                                                [html.I(className="fas fa-chart-line me-2"), "View Stats"],
-                                                href="/stats",
-                                                color="info",
-                                                size="lg",
-                                                className="w-100",
-                                                disabled=True,
-                                            ),
-                                        ]
-                                    )
-                                ]
-                            )
-                        ],
-                        width=4,
-                    ),
                 ],
                 className="mb-5",
             ),

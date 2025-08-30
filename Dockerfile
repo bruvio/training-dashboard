@@ -46,8 +46,8 @@ COPY garmin_client/ ./garmin_client/
 COPY run_tests.py .
 
 # Create data directories with proper permissions
-RUN mkdir -p /data /app/activities && \
-    chown -R garmin:garmin /app /data
+RUN mkdir -p /data /app/activities /home/garmin && \
+    chown -R garmin:garmin /app /data /home/garmin
 
 # Create health check script
 RUN echo '#!/bin/bash\ncurl -f http://localhost:8050/ || exit 1' > /healthcheck.sh && \

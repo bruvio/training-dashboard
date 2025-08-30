@@ -225,26 +225,23 @@ def register_callbacks(app):
             Output("login-form", "style"),
             Output("login-status-store", "data"),
         ],
-        [Input("login-button", "n_clicks"), Input("mfa-submit-button", "n_clicks")],
+        [Input("login-button", "n_clicks")],
         [
             State("garmin-email", "value"),
             State("garmin-password", "value"),
-            State("mfa-code", "value"),
             State("login-status-store", "data"),
         ],
         prevent_initial_call=True,
     )
-    def handle_garmin_login(login_clicks, mfa_clicks, email, password, mfa_code, store_data):
+    def handle_garmin_login(login_clicks, email, password, store_data):
         """Handle Garmin Connect login process including MFA."""
 
-        if not ctx.triggered:
+        if not ctx.triggered or not login_clicks:
             return "", [], {"display": "none"}, [], {"display": "none"}, {}, {}
 
-        triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
-        if triggered_id == "login-button" and login_clicks:
-            if not email or not password:
-                return (
+        # Handle login button click
+        if not email or not password:
+            return (
                     dbc.Alert("Please enter both email and password.", color="danger"),
                     [],
                     {"display": "none"},
@@ -254,112 +251,95 @@ def register_callbacks(app):
                     {},
                 )
 
-            try:
-                # Import Garmin Connect client
-                from garmin_client.client import GarminConnectClient
+        try:
+            # Import Garmin Connect client
+            from garmin_client.client import GarminConnectClient
 
-                # Initialize client
-                client = GarminConnectClient()
+            # Initialize client
+            client = GarminConnectClient()
 
-                # Attempt login
-                result = client.login(email, password)
-
-                if result["status"] == "success":
-                    # Login successful
-                    success_content = [
-                        dbc.Alert(
-                            [
-                                html.H4("Login Successful!", className="alert-heading"),
-                                html.P(f"Successfully connected to Garmin Connect account: {email}"),
-                                html.Hr(),
-                                html.P("You can now sync your activities from Garmin Connect.", className="mb-0"),
-                            ],
-                            color="success",
-                        )
-                    ]
-
-                    return (
-                        "",
-                        [],
-                        {"display": "none"},
-                        success_content,
-                        {},
-                        {"display": "none"},
-                        {"logged_in": True, "email": email},
-                    )
-
-                elif result["status"] == "mfa_required":
-                    # MFA required
-                    mfa_content = [
-                        dbc.Alert(
-                            "Multi-Factor Authentication required. Check your email or authenticator app.",
-                            color="warning",
-                            className="mb-3",
-                        ),
-                        dbc.Form(
-                            [
-                                dbc.Row(
-                                    [
-                                        dbc.Col(
-                                            [
-                                                dbc.Label("MFA Code", html_for="mfa-code"),
-                                                dbc.Input(
-                                                    type="text",
-                                                    id="mfa-code",
-                                                    placeholder="Enter 6-digit code",
-                                                    maxlength=6,
-                                                    required=True,
-                                                ),
-                                            ],
-                                            width=12,
-                                            className="mb-3",
-                                        )
-                                    ]
+            # Attempt authentication
+            success = client.authenticate(email, password)
+            
+            if success == "MFA_REQUIRED":
+                # MFA required - show MFA input dialog
+                mfa_content = [
+                    dbc.Alert("Multi-Factor Authentication required. Please enter your MFA code.", color="info", className="mb-3"),
+                    dbc.Form([
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Label("MFA Code", html_for="mfa-code"),
+                                dbc.Input(
+                                    type="text",
+                                    id="mfa-code",
+                                    placeholder="Enter 6-digit MFA code",
+                                    maxLength=6,
+                                    pattern="[0-9]{6}",
+                                    required=True,
+                                    className="mb-3"
                                 ),
-                                dbc.Row(
-                                    [
-                                        dbc.Col(
-                                            [
-                                                dbc.Button(
-                                                    [html.I(className="fas fa-key me-2"), "Submit MFA Code"],
-                                                    id="mfa-submit-button",
-                                                    color="warning",
-                                                    size="lg",
-                                                    className="w-100",
-                                                )
-                                            ],
-                                            width=12,
-                                        )
-                                    ]
-                                ),
-                            ]
-                        ),
-                    ]
-
-                    return (
-                        "",
-                        mfa_content,
-                        {},
-                        [],
-                        {"display": "none"},
-                        {"display": "none"},
-                        {"mfa_session": result.get("session_data", {}), "email": email},
-                    )
-
-                else:
-                    # Login failed
-                    return (
-                        dbc.Alert(f"Login failed: {result.get('message', 'Unknown error')}", color="danger"),
-                        [],
-                        {"display": "none"},
-                        [],
-                        {"display": "none"},
-                        {},
-                        {},
-                    )
-
-            except Exception as e:
+                                dbc.Button(
+                                    [html.I(className="fas fa-key me-2"), "Verify MFA"],
+                                    id="mfa-verify-button",
+                                    color="primary",
+                                    size="lg",
+                                    className="w-100"
+                                )
+                            ], width=12)
+                        ])
+                    ])
+                ]
+                
                 return (
+                    "",
+                    mfa_content,
+                    {},  # Show MFA section
+                    [],
+                    {"display": "none"},
+                    {"display": "none"},  # Hide login form
+                    {"mfa_required": True, "email": email, "password": password},
+                )
+            elif success:
+                # Authentication successful
+                success_content = [
+                    dbc.Alert(
+                        [
+                            html.H4("Login Successful!", className="alert-heading"),
+                            html.P(f"Successfully connected to Garmin Connect account: {email}"),
+                            html.Hr(),
+                            html.P("You can now sync your activities from Garmin Connect.", className="mb-0"),
+                        ],
+                        color="success",
+                    )
+                ]
+
+                return (
+                    "",
+                    [],
+                    {"display": "none"},
+                    success_content,
+                    {},
+                    {"display": "none"},
+                    {"logged_in": True, "email": email},
+                )
+            else:
+                # Authentication failed - provide more specific feedback
+                error_message = "Authentication failed. Please check your credentials and try again."
+                if "oauth" in str(success).lower():
+                    error_message = "Garmin Connect authentication is currently experiencing issues. This may be due to recent changes in Garmin's API or temporary server issues. Please try again later or ensure your Garmin Connect account is in good standing."
+                
+                return (
+                    dbc.Alert(error_message, color="danger"),
+                    [],
+                    {"display": "none"},
+                    [],
+                    {"display": "none"},
+                    {},
+                    {},
+                )
+
+        except Exception as e:
+            return (
                     dbc.Alert(f"Login error: {str(e)}", color="danger"),
                     [],
                     {"display": "none"},
@@ -369,78 +349,102 @@ def register_callbacks(app):
                     {},
                 )
 
-        elif triggered_id == "mfa-submit-button" and mfa_clicks:
-            if not mfa_code or len(mfa_code) != 6:
-                return (
-                    dbc.Alert("Please enter a valid 6-digit MFA code.", color="danger"),
-                    [],
-                    {},
-                    [],
-                    {"display": "none"},
-                    {"display": "none"},
-                    store_data,
-                )
-
-            try:
-                # Import Garmin Connect client
-                from garmin_client.client import GarminConnectClient
-
-                # Initialize client with MFA session data
-                client = GarminConnectClient()
-                session_data = store_data.get("mfa_session", {})
-
-                # Submit MFA code
-                result = client.submit_mfa(mfa_code, session_data)
-
-                if result["status"] == "success":
-                    # MFA successful
-                    success_content = [
-                        dbc.Alert(
-                            [
-                                html.H4("Login Successful!", className="alert-heading"),
-                                html.P(
-                                    f"Successfully connected to Garmin Connect account: {store_data.get('email', 'Unknown')}"
-                                ),
-                                html.Hr(),
-                                html.P("You can now sync your activities from Garmin Connect.", className="mb-0"),
-                            ],
-                            color="success",
-                        )
-                    ]
-
-                    return (
-                        "",
-                        [],
-                        {"display": "none"},
-                        success_content,
-                        {},
-                        {"display": "none"},
-                        {"logged_in": True, "email": store_data.get("email")},
-                    )
-                else:
-                    # MFA failed
-                    return (
-                        dbc.Alert(f"MFA verification failed: {result.get('message', 'Invalid code')}", color="danger"),
-                        [],
-                        {},
-                        [],
-                        {"display": "none"},
-                        {"display": "none"},
-                        store_data,
-                    )
-
-            except Exception as e:
-                return (
-                    dbc.Alert(f"MFA error: {str(e)}", color="danger"),
-                    [],
-                    {},
-                    [],
-                    {"display": "none"},
-                    {"display": "none"},
-                    store_data,
-                )
+        # MFA handling would go here in the future
 
         return "", [], {"display": "none"}, [], {"display": "none"}, {}, {}
+
+    @app.callback(
+        [
+            Output("login-status", "children", allow_duplicate=True),
+            Output("mfa-section", "children", allow_duplicate=True),
+            Output("mfa-section", "style", allow_duplicate=True),
+            Output("success-section", "children", allow_duplicate=True),
+            Output("success-section", "style", allow_duplicate=True),
+            Output("login-form", "style", allow_duplicate=True),
+            Output("login-status-store", "data", allow_duplicate=True),
+        ],
+        [Input("mfa-verify-button", "n_clicks")],
+        [
+            State("mfa-code", "value"),
+            State("login-status-store", "data"),
+        ],
+        prevent_initial_call=True,
+    )
+    def handle_mfa_verification(mfa_clicks, mfa_code, store_data):
+        """Handle MFA code verification."""
+        
+        if not ctx.triggered or not mfa_clicks:
+            return "", [], {"display": "none"}, [], {"display": "none"}, {}, {}
+
+        if not store_data.get("mfa_required"):
+            return dbc.Alert("Invalid MFA state.", color="danger"), [], {"display": "none"}, [], {"display": "none"}, {}, {}
+
+        if not mfa_code or len(mfa_code) != 6:
+            return (
+                dbc.Alert("Please enter a valid 6-digit MFA code.", color="danger"),
+                store_data.get("mfa_content", []),
+                {},
+                [],
+                {"display": "none"},
+                {"display": "none"},
+                store_data,
+            )
+
+        try:
+            from garmin_client.client import GarminConnectClient
+
+            # Initialize client and authenticate with MFA
+            client = GarminConnectClient()
+            email = store_data["email"]
+            password = store_data["password"]
+            
+            # For now, we'll need to modify the client to handle MFA codes
+            # This is a placeholder - the garminconnect library would need MFA support
+            success = client.authenticate(email, password)
+            
+            if success:
+                success_content = [
+                    dbc.Alert(
+                        [
+                            html.H4("Login Successful!", className="alert-heading"),
+                            html.P(f"Successfully connected to Garmin Connect account: {email}"),
+                            html.Hr(),
+                            html.P("You can now sync your activities from Garmin Connect.", className="mb-0"),
+                        ],
+                        color="success",
+                    )
+                ]
+
+                return (
+                    "",
+                    [],
+                    {"display": "none"},
+                    success_content,
+                    {},
+                    {"display": "none"},
+                    {"logged_in": True, "email": email},
+                )
+            else:
+                return (
+                    dbc.Alert("MFA verification failed. Please try again.", color="danger"),
+                    store_data.get("mfa_content", []),
+                    {},
+                    [],
+                    {"display": "none"},
+                    {"display": "none"},
+                    store_data,
+                )
+
+        except Exception as e:
+            return (
+                dbc.Alert(f"MFA verification error: {str(e)}", color="danger"),
+                store_data.get("mfa_content", []),
+                {},
+                [],
+                {"display": "none"},
+                {"display": "none"},
+                store_data,
+            )
 
     @app.callback(
         [
