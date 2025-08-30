@@ -13,6 +13,8 @@ import dash
 from dash import html, dcc
 import dash_bootstrap_components as dbc
 
+# Import pages will be done after app configuration
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,7 +32,7 @@ app = dash.Dash(
     update_title=None,  # Don't update title on page changes
 )
 
-# Configure app server for production
+# Configure app server for production  
 server = app.server
 server.config.update(
     {
@@ -162,12 +164,6 @@ app.layout = dbc.Container(
     className="px-0",
 )
 
-# Import pages to register them with the app
-# These imports trigger the dash.register_page() calls in each module
-import pages.calendar  # Main activity list page
-import pages.activity_detail  # Activity detail page
-
-
 # Global callback for URL-based page updates (if needed)
 @app.callback(
     dash.dependencies.Output("session-store", "data"),
@@ -287,6 +283,11 @@ app.index_string = """
     </body>
 </html>
 """
+
+# Import pages to register them with the app (after app configuration)
+# These imports trigger the dash.register_page() calls in each module  
+import pages.calendar  # Main activity list page
+import pages.activity_detail  # Activity detail page
 
 if __name__ == "__main__":
     # Development server configuration

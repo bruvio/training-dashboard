@@ -74,7 +74,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD /healthcheck.sh
 
 # Default command runs the web application
-CMD ["python", "-m", "app.dash_app"]
+CMD ["python", "/app/app/dash_app.py"]
 
 # Labels for better Docker image management
 LABEL maintainer="Garmin Dashboard" \
