@@ -1,3 +1,11 @@
+## [1.0.1](https://github.com/bruvio/training-dashboard/compare/1.0.0...1.0.1) (2025-08-31)
+
+
+### Bug Fixes
+
+* fix graph callbacks ([3350ed9](https://github.com/bruvio/training-dashboard/commit/3350ed92ad1adb7ecc56dd79bbfe55fdc3dfd597))
+* update graphs ([2e48326](https://github.com/bruvio/training-dashboard/commit/2e48326188eb9323bb9894d7a1ffdcb729c5833f))
+
 # 1.0.0 (2025-08-31)
 
 
