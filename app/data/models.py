@@ -76,6 +76,9 @@ class Activity(Base):
     file_path = mapped_column(Text)
     ingested_on = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # User annotations
+    comments = mapped_column(Text)  # User-editable comments for this activity
+
     # Relationships
     samples = relationship("Sample", back_populates="activity", cascade="all, delete-orphan", lazy="select")
     route_points = relationship("RoutePoint", back_populates="activity", cascade="all, delete-orphan", lazy="select")

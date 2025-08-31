@@ -2,7 +2,7 @@
 Activity detail page - Show detailed analysis and charts for a specific activity.
 """
 
-from dash import html, dcc, callback, Input, Output
+from dash import html, dcc, callback, Input, Output, State
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import pandas as pd
@@ -33,6 +33,8 @@ def layout(activity_id=None):
             dcc.Store(id="activity-data-store", data={"activity_id": activity_id}),
             # Header section
             dbc.Row([dbc.Col([html.Div(id="activity-header"), html.Hr()], width=12)]),
+            # Comments section
+            dbc.Row([dbc.Col([html.Div(id="activity-comments")], width=12)], className="mb-4"),
             # Summary section
             dbc.Row([dbc.Col([html.Div(id="activity-summary")], width=12)], className="mb-4"),
             # Charts and data section
@@ -126,36 +128,282 @@ def update_metric_selector(store_data):
             # Check which metrics have non-null values
             available_metrics = []
             metric_config = {
-                "heart_rate": {"label": "Heart Rate", "value": "heart_rate"},
-                "speed_mps": {"label": "Speed", "value": "speed_mps"},
-                "altitude_m": {"label": "Altitude", "value": "altitude_m"},
-                "cadence_rpm": {"label": "Cadence", "value": "cadence_rpm"},
-                "power_w": {"label": "Power", "value": "power_w"},
-                "temperature_c": {"label": "Temperature", "value": "temperature_c"},
+                # Basic metrics
+                "heart_rate": {"label": "Heart Rate (bpm)", "value": "heart_rate", "color": "red", "category": "basic"},
+                "pace_per_km": {"label": "Pace (min/km)", "value": "pace_per_km", "color": "blue", "category": "basic"},
+                "speed_mps": {"label": "Speed (m/s)", "value": "speed_mps", "color": "blue", "category": "basic"},
+                "altitude_m": {"label": "Altitude (m)", "value": "altitude_m", "color": "brown", "category": "basic"},
+                "cadence_rpm": {
+                    "label": "Cadence (rpm)",
+                    "value": "cadence_rpm",
+                    "color": "purple",
+                    "category": "basic",
+                },
+                "power_w": {"label": "Power (W)", "value": "power_w", "color": "orange", "category": "basic"},
+                "temperature_c": {
+                    "label": "Temperature (°C)",
+                    "value": "temperature_c",
+                    "color": "darkgreen",
+                    "category": "basic",
+                },
+                # Advanced running dynamics
+                "vertical_oscillation_mm": {
+                    "label": "Vertical Oscillation (mm)",
+                    "value": "vertical_oscillation_mm",
+                    "color": "darkred",
+                    "category": "running",
+                },
+                "vertical_ratio": {
+                    "label": "Vertical Ratio (%)",
+                    "value": "vertical_ratio",
+                    "color": "darkblue",
+                    "category": "running",
+                },
+                "ground_contact_time_ms": {
+                    "label": "Ground Contact Time (ms)",
+                    "value": "ground_contact_time_ms",
+                    "color": "darkgray",
+                    "category": "running",
+                },
+                "ground_contact_balance_pct": {
+                    "label": "Ground Contact Balance (%)",
+                    "value": "ground_contact_balance_pct",
+                    "color": "darkmagenta",
+                    "category": "running",
+                },
+                "step_length_mm": {
+                    "label": "Step Length (mm)",
+                    "value": "step_length_mm",
+                    "color": "darkorange",
+                    "category": "running",
+                },
+                # Power metrics
+                "air_power_w": {
+                    "label": "Air Power (W)",
+                    "value": "air_power_w",
+                    "color": "lightblue",
+                    "category": "power",
+                },
+                "form_power_w": {
+                    "label": "Form Power (W)",
+                    "value": "form_power_w",
+                    "color": "darkturquoise",
+                    "category": "power",
+                },
+                # Biomechanics
+                "leg_spring_stiffness": {
+                    "label": "Leg Spring Stiffness",
+                    "value": "leg_spring_stiffness",
+                    "color": "maroon",
+                    "category": "biomechanics",
+                },
+                "impact_loading_rate": {
+                    "label": "Impact Loading Rate",
+                    "value": "impact_loading_rate",
+                    "color": "crimson",
+                    "category": "biomechanics",
+                },
+                # Environmental (Stryd)
+                "stryd_temperature_c": {
+                    "label": "Stryd Temperature (°C)",
+                    "value": "stryd_temperature_c",
+                    "color": "forestgreen",
+                    "category": "environmental",
+                },
+                "stryd_humidity_pct": {
+                    "label": "Stryd Humidity (%)",
+                    "value": "stryd_humidity_pct",
+                    "color": "steelblue",
+                    "category": "environmental",
+                },
             }
 
             # Check each metric to see if it has data
             for metric_key, metric_info in metric_config.items():
-                has_data = any(getattr(sample, metric_key) is not None for sample in samples)
+                if metric_key == "pace_per_km":
+                    # Special case: pace is calculated from speed
+                    has_data = any(getattr(sample, "speed_mps") is not None for sample in samples)
+                else:
+                    has_data = any(getattr(sample, metric_key) is not None for sample in samples)
+
                 if has_data:
                     available_metrics.append(metric_info)
 
             if not available_metrics:
                 return dbc.Alert("No valid metrics found for this activity", color="warning")
 
-            # Default to first available metric
-            default_value = [available_metrics[0]["value"]] if available_metrics else []
+            # Group metrics by category
+            categories = {}
+            for metric in available_metrics:
+                category = metric["category"]
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(metric)
 
-            return dbc.Checklist(
-                options=available_metrics,
-                value=default_value,
-                id="data-overlay-selector",
-                inline=True,
-                className="mb-3",
+            # Set default values: pace and power (not form power) as requested
+            default_values = []
+            available_values = [m["value"] for m in available_metrics]
+            if "pace_per_km" in available_values:
+                default_values.append("pace_per_km")
+            if "power_w" in available_values:
+                default_values.append("power_w")
+
+            # If neither pace nor power available, default to first 2 available metrics
+            if not default_values:
+                default_values = available_values[:2]
+
+            # Create organized metric selector
+            metric_sections = []
+            category_order = ["basic", "running", "power", "biomechanics", "environmental"]
+            category_labels = {
+                "basic": "Basic Metrics",
+                "running": "Running Dynamics",
+                "power": "Power Analysis",
+                "biomechanics": "Biomechanics",
+                "environmental": "Environmental",
+            }
+
+            for category in category_order:
+                if category in categories:
+                    metric_sections.append(
+                        html.Div(
+                            [
+                                html.H6(category_labels[category], className="text-secondary mb-2 mt-3"),
+                                dbc.Checklist(
+                                    options=categories[category],
+                                    value=[m["value"] for m in categories[category] if m["value"] in default_values],
+                                    id=f"data-overlay-selector-{category}",
+                                    inline=True,
+                                    className="mb-2",
+                                ),
+                            ]
+                        )
+                    )
+
+            return html.Div(
+                [
+                    html.P("Select metrics to display in the chart:", className="text-muted mb-3"),
+                    html.Div(metric_sections),
+                    dcc.Store(id="combined-metric-selection", data=default_values),
+                ]
             )
 
     except Exception as e:
         return dbc.Alert(f"Error loading metrics: {str(e)}", color="danger")
+
+
+@callback(
+    Output("combined-metric-selection", "data"),
+    [
+        Input("data-overlay-selector-basic", "value"),
+        Input("data-overlay-selector-running", "value"),
+        Input("data-overlay-selector-power", "value"),
+        Input("data-overlay-selector-biomechanics", "value"),
+        Input("data-overlay-selector-environmental", "value"),
+    ],
+    prevent_initial_call=True,
+)
+def combine_metric_selections(basic, running, power, biomechanics, environmental):
+    """Combine metric selections from all categories."""
+    combined = []
+    for category_selection in [basic, running, power, biomechanics, environmental]:
+        if category_selection:
+            combined.extend(category_selection)
+    return combined
+
+
+@callback(Output("activity-comments", "children"), Input("activity-data-store", "data"))
+def update_activity_comments(store_data):
+    """Update activity comments section with editable text area."""
+    if not store_data or "activity_id" not in store_data:
+        return ""
+
+    activity_id = store_data["activity_id"]
+
+    try:
+        with session_scope() as session:
+            activity = session.query(Activity).filter_by(id=activity_id).first()
+
+            if not activity:
+                return ""
+
+            comments_text = activity.comments or ""
+
+            return dbc.Card(
+                [
+                    dbc.CardHeader(
+                        [html.H6([html.I(className="fas fa-comment-alt me-2"), "Activity Comments"], className="mb-0")]
+                    ),
+                    dbc.CardBody(
+                        [
+                            dbc.Textarea(
+                                id="activity-comments-textarea",
+                                placeholder="Add your comments about this activity...",
+                                value=comments_text,
+                                rows=3,
+                                className="mb-3",
+                            ),
+                            dbc.Row(
+                                [
+                                    dbc.Col(
+                                        [
+                                            dbc.Button(
+                                                [html.I(className="fas fa-save me-2"), "Save Comments"],
+                                                id="save-comments-btn",
+                                                color="primary",
+                                                size="sm",
+                                            )
+                                        ],
+                                        width="auto",
+                                    ),
+                                    dbc.Col([html.Div(id="comments-save-status")], width="auto"),
+                                ]
+                            ),
+                        ]
+                    ),
+                ]
+            )
+
+    except Exception as e:
+        return dbc.Alert(f"Error loading comments: {str(e)}", color="danger")
+
+
+@callback(
+    Output("comments-save-status", "children"),
+    Input("save-comments-btn", "n_clicks"),
+    [State("activity-comments-textarea", "value"), State("activity-data-store", "data")],
+    prevent_initial_call=True,
+)
+def save_activity_comments(n_clicks, comments_text, store_data):
+    """Save activity comments to database."""
+    if not n_clicks or not store_data or "activity_id" not in store_data:
+        return ""
+
+    activity_id = store_data["activity_id"]
+
+    try:
+        with session_scope() as session:
+            activity = session.query(Activity).filter_by(id=activity_id).first()
+
+            if not activity:
+                return dbc.Alert("Activity not found", color="danger")
+
+            activity.comments = comments_text
+            session.commit()
+
+            return dbc.Alert(
+                [html.I(className="fas fa-check me-2"), "Comments saved successfully!"],
+                color="success",
+                dismissable=True,
+                duration=3000,
+            )
+
+    except Exception as e:
+        return dbc.Alert(
+            [html.I(className="fas fa-exclamation-triangle me-2"), f"Error saving comments: {str(e)}"],
+            color="danger",
+            dismissable=True,
+        )
 
 
 @callback(Output("activity-header", "children"), Input("activity-data-store", "data"))
@@ -430,7 +678,7 @@ def update_activity_summary(store_data):
 
 @callback(
     Output("activity-charts", "children"),
-    [Input("activity-data-store", "data"), Input("data-overlay-selector", "value")],
+    [Input("activity-data-store", "data"), Input("combined-metric-selection", "data")],
     prevent_initial_call=True,
 )
 def update_activity_charts(store_data, selected_metrics):
@@ -451,18 +699,40 @@ def update_activity_charts(store_data, selected_metrics):
             if not samples:
                 return dbc.Alert("No sample data found for this activity", color="info")
 
-            # Convert to DataFrame
+            # Convert to DataFrame with all metrics and pace calculation
             sample_data = []
             for sample in samples:
+                # Calculate pace from speed (min/km)
+                pace_per_km = None
+                if sample.speed_mps and sample.speed_mps > 0:
+                    pace_per_km = (1000 / sample.speed_mps) / 60  # Convert to minutes per km
+
                 sample_data.append(
                     {
                         "time": sample.elapsed_time_s / 60,  # Convert to minutes
+                        # Basic metrics
                         "heart_rate": sample.heart_rate,
-                        "speed_mps": sample.speed_mps * 3.6 if sample.speed_mps else None,  # Convert to km/h
+                        "pace_per_km": pace_per_km,
+                        "speed_mps": sample.speed_mps,
                         "altitude_m": sample.altitude_m,
-                        "power_w": sample.power_w,
                         "cadence_rpm": sample.cadence_rpm,
+                        "power_w": sample.power_w,
                         "temperature_c": sample.temperature_c,
+                        # Advanced running dynamics
+                        "vertical_oscillation_mm": sample.vertical_oscillation_mm,
+                        "vertical_ratio": sample.vertical_ratio,
+                        "ground_contact_time_ms": sample.ground_contact_time_ms,
+                        "ground_contact_balance_pct": sample.ground_contact_balance_pct,
+                        "step_length_mm": sample.step_length_mm,
+                        # Power metrics
+                        "air_power_w": sample.air_power_w,
+                        "form_power_w": sample.form_power_w,
+                        # Biomechanics
+                        "leg_spring_stiffness": sample.leg_spring_stiffness,
+                        "impact_loading_rate": sample.impact_loading_rate,
+                        # Environmental
+                        "stryd_temperature_c": sample.stryd_temperature_c,
+                        "stryd_humidity_pct": sample.stryd_humidity_pct,
                     }
                 )
 
@@ -471,14 +741,31 @@ def update_activity_charts(store_data, selected_metrics):
             # Create multi-axis plot
             fig = go.Figure()
 
-            # Define colors and labels for each metric
+            # Define colors and labels for each metric (matching the selector)
             metric_config = {
-                "heart_rate": {"color": "#FF6B6B", "name": "Heart Rate", "unit": "bpm", "side": "left"},
-                "speed_mps": {"color": "#4ECDC4", "name": "Speed", "unit": "km/h", "side": "right"},
-                "altitude_m": {"color": "#45B7D1", "name": "Altitude", "unit": "m", "side": "right"},
-                "power_w": {"color": "#FFA07A", "name": "Power", "unit": "W", "side": "right"},
-                "cadence_rpm": {"color": "#98D8C8", "name": "Cadence", "unit": "rpm", "side": "right"},
-                "temperature_c": {"color": "#F7DC6F", "name": "Temperature", "unit": "°C", "side": "right"},
+                # Basic metrics
+                "heart_rate": {"color": "red", "name": "Heart Rate", "unit": "bpm"},
+                "pace_per_km": {"color": "blue", "name": "Pace", "unit": "min/km"},
+                "speed_mps": {"color": "blue", "name": "Speed", "unit": "m/s"},
+                "altitude_m": {"color": "brown", "name": "Altitude", "unit": "m"},
+                "cadence_rpm": {"color": "purple", "name": "Cadence", "unit": "rpm"},
+                "power_w": {"color": "orange", "name": "Power", "unit": "W"},
+                "temperature_c": {"color": "darkgreen", "name": "Temperature", "unit": "°C"},
+                # Advanced running dynamics
+                "vertical_oscillation_mm": {"color": "darkred", "name": "Vertical Oscillation", "unit": "mm"},
+                "vertical_ratio": {"color": "darkblue", "name": "Vertical Ratio", "unit": "%"},
+                "ground_contact_time_ms": {"color": "darkgray", "name": "Ground Contact Time", "unit": "ms"},
+                "ground_contact_balance_pct": {"color": "darkmagenta", "name": "Ground Contact Balance", "unit": "%"},
+                "step_length_mm": {"color": "darkorange", "name": "Step Length", "unit": "mm"},
+                # Power metrics
+                "air_power_w": {"color": "lightblue", "name": "Air Power", "unit": "W"},
+                "form_power_w": {"color": "darkturquoise", "name": "Form Power", "unit": "W"},
+                # Biomechanics
+                "leg_spring_stiffness": {"color": "maroon", "name": "Leg Spring Stiffness", "unit": ""},
+                "impact_loading_rate": {"color": "crimson", "name": "Impact Loading Rate", "unit": ""},
+                # Environmental
+                "stryd_temperature_c": {"color": "forestgreen", "name": "Stryd Temperature", "unit": "°C"},
+                "stryd_humidity_pct": {"color": "steelblue", "name": "Stryd Humidity", "unit": "%"},
             }
 
             # Filter out metrics with no data and build traces

@@ -323,7 +323,7 @@ def register_callbacks(app):
                 return (
                     "",
                     mfa_content,
-                    {},  # Show MFA section
+                    {"display": "block"},  # Show MFA section explicitly
                     [],
                     {"display": "none"},
                     {"display": "none"},  # Hide login form
@@ -421,7 +421,7 @@ def register_callbacks(app):
             return (
                 dbc.Alert("Please enter a valid 6-digit MFA code.", color="danger"),
                 store_data.get("mfa_content", []),
-                {},
+                {"display": "block"},  # Keep MFA section visible
                 [],
                 {"display": "none"},
                 {"display": "none"},
@@ -471,7 +471,7 @@ def register_callbacks(app):
                 return (
                     dbc.Alert("MFA verification failed. Please try again.", color="danger"),
                     store_data.get("mfa_content", []),
-                    {},
+                    {"display": "block"},  # Keep MFA section visible
                     [],
                     {"display": "none"},
                     {"display": "none"},
@@ -482,7 +482,7 @@ def register_callbacks(app):
             return (
                 dbc.Alert(f"MFA verification error: {str(e)}", color="danger"),
                 store_data.get("mfa_content", []),
-                {},
+                {"display": "block"},  # Keep MFA section visible
                 [],
                 {"display": "none"},
                 {"display": "none"},
