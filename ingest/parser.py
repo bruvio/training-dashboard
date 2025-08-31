@@ -190,7 +190,7 @@ class ActivityParser:
                     vertical_oscillation_mm = float(vertical_oscillation)
                 else:
                     vertical_oscillation_mm = None
-                
+
                 # Ground contact time (stance_time) - convert from ms to ms
                 ground_contact_time = record.get_value("stance_time")
                 if ground_contact_time is not None:

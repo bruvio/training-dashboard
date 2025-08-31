@@ -289,6 +289,7 @@ def display_page(pathname):
         try:
             logger.info("Loading Settings page")
             from pages.settings import layout as settings_layout
+
             return settings_layout()
         except Exception as e:
             logger.error(f"Error loading Settings page: {e}")

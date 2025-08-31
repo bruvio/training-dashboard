@@ -8,13 +8,14 @@ Research-validated implementation following PRP specifications.
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional, Union
-from datetime import datetime, date, timedelta
+from typing import Dict, Optional, Union
+from datetime import datetime
 
 try:
     from garminconnect import Garmin
     import garth
     from garth.exc import GarthException
+
     GARMIN_CONNECT_AVAILABLE = True
 except ImportError:
     GARMIN_CONNECT_AVAILABLE = False
@@ -129,7 +130,9 @@ class GarminConnectClient:
             self.credentials_file.unlink()
             logger.info("Credentials cleared")
 
-    def authenticate(self, email: str = None, password: str = None, mfa_callback=None, remember_me: bool = False) -> Union[bool, str]:
+    def authenticate(
+        self, email: str = None, password: str = None, mfa_callback=None, remember_me: bool = False
+    ) -> Union[bool, str]:
         """
         Authenticate with Garmin Connect using garth, with MFA support.
 
@@ -177,17 +180,17 @@ class GarminConnectClient:
 
             # ALWAYS use return_on_mfa=True to avoid terminal prompts in Docker
             result1, result2 = garth.login(email, password, return_on_mfa=True)
-            
+
             if result1 == "needs_mfa":
                 logger.info("MFA required for authentication")
-                
+
                 if mfa_callback:
                     logger.info("MFA callback available - requesting code")
                     mfa_code = mfa_callback()
                     if not mfa_code:
                         logger.warning("MFA code required but not provided by callback")
                         return "MFA_REQUIRED"
-                    
+
                     # Resume login with MFA code from callback
                     try:
                         oauth1, oauth2 = garth.resume_login(result2, mfa_code)
@@ -210,7 +213,7 @@ class GarminConnectClient:
             session_data = {
                 "authenticated_at": datetime.now().isoformat(),
                 "email": email,
-                "garth_session_path": str(garth_session_path)
+                "garth_session_path": str(garth_session_path),
             }
             with open(self.session_file, "w") as f:
                 json.dump(session_data, f)

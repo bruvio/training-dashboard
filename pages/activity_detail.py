@@ -4,7 +4,6 @@ Activity detail page - Show detailed analysis and charts for a specific activity
 
 from dash import html, dcc, callback, Input, Output
 import dash_bootstrap_components as dbc
-import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
@@ -51,8 +50,10 @@ def layout(activity_id=None):
                                                 [
                                                     dbc.Col(
                                                         [
-                                                            html.Label("Select Data to Display:", className="fw-bold mb-2"),
-                                                            html.Div(id="metric-selector-container")
+                                                            html.Label(
+                                                                "Select Data to Display:", className="fw-bold mb-2"
+                                                            ),
+                                                            html.Div(id="metric-selector-container"),
                                                         ]
                                                     )
                                                 ]
@@ -118,7 +119,7 @@ def update_metric_selector(store_data):
         with session_scope() as session:
             # Get samples to check which metrics have data
             samples = session.query(Sample).filter_by(activity_id=activity_id).limit(100).all()
-            
+
             if not samples:
                 return dbc.Alert("No sample data found", color="info")
 
@@ -226,141 +227,199 @@ def update_activity_summary(store_data):
     try:
         with session_scope() as session:
             activity = session.query(Activity).filter_by(id=activity_id).first()
-            
+
             if not activity:
                 return dbc.Alert(f"Activity {activity_id} not found", color="danger")
 
             # Get sample data to check what metrics are available
             samples = session.query(Sample).filter_by(activity_id=activity_id).limit(10).all()
-            
+
             # Determine available metrics
             available_metrics = set()
             if samples:
                 for sample in samples[:5]:  # Check first 5 samples
-                    for attr in ['heart_rate', 'speed_mps', 'altitude_m', 'power_w', 'cadence_rpm', 'temperature_c']:
+                    for attr in ["heart_rate", "speed_mps", "altitude_m", "power_w", "cadence_rpm", "temperature_c"]:
                         if getattr(sample, attr) is not None:
                             available_metrics.add(attr)
-            
+
             # Check for GPS data
             has_gps = any(sample.latitude and sample.longitude for sample in samples[:5]) if samples else False
-            
+
             # Create summary cards
             summary_cards = []
-            
+
             # Distance card
             if activity.distance_m and activity.distance_m > 0:
                 distance_km = activity.distance_m / 1000
                 summary_cards.append(
-                    dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H4(f"{distance_km:.2f} km", className="text-primary mb-0"),
-                                html.P("Distance", className="text-muted mb-0")
-                            ], className="text-center")
-                        ])
-                    ], width=2)
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H4(f"{distance_km:.2f} km", className="text-primary mb-0"),
+                                            html.P("Distance", className="text-muted mb-0"),
+                                        ],
+                                        className="text-center",
+                                    )
+                                ]
+                            )
+                        ],
+                        width=2,
+                    )
                 )
-            
+
             # Duration card
             if activity.elapsed_time_s:
                 hours = int(activity.elapsed_time_s // 3600)
                 minutes = int((activity.elapsed_time_s % 3600) // 60)
                 seconds = int(activity.elapsed_time_s % 60)
-                duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
-                summary_cards.append(
-                    dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H4(duration_str, className="text-success mb-0"),
-                                html.P("Duration", className="text-muted mb-0")
-                            ], className="text-center")
-                        ])
-                    ], width=2)
+                duration_str = (
+                    f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
                 )
-            
+                summary_cards.append(
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H4(duration_str, className="text-success mb-0"),
+                                            html.P("Duration", className="text-muted mb-0"),
+                                        ],
+                                        className="text-center",
+                                    )
+                                ]
+                            )
+                        ],
+                        width=2,
+                    )
+                )
+
             # Pace card (for running activities)
-            if activity.avg_pace_s_per_km and activity.sport == 'running':
+            if activity.avg_pace_s_per_km and activity.sport == "running":
                 pace_min = int(activity.avg_pace_s_per_km // 60)
                 pace_sec = int(activity.avg_pace_s_per_km % 60)
                 pace_str = f"{pace_min}:{pace_sec:02d}"
                 summary_cards.append(
-                    dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H4(f"{pace_str}/km", className="text-info mb-0"),
-                                html.P("Avg Pace", className="text-muted mb-0")
-                            ], className="text-center")
-                        ])
-                    ], width=2)
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H4(f"{pace_str}/km", className="text-info mb-0"),
+                                            html.P("Avg Pace", className="text-muted mb-0"),
+                                        ],
+                                        className="text-center",
+                                    )
+                                ]
+                            )
+                        ],
+                        width=2,
+                    )
                 )
-            
+
             # Speed/Pace card
             if activity.avg_speed_mps:
-                if activity.sport == 'running':
+                if activity.sport == "running":
                     # Show pace for running activities
                     pace_s_per_km = 1000 / activity.avg_speed_mps
                     pace_min = int(pace_s_per_km // 60)
                     pace_sec = int(pace_s_per_km % 60)
                     summary_cards.append(
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardBody([
-                                    html.H4(f"{pace_min}:{pace_sec:02d} /km", className="text-info mb-0"),
-                                    html.P("Avg Pace", className="text-muted mb-0")
-                                ], className="text-center")
-                            ])
-                        ], width=2)
+                        dbc.Col(
+                            [
+                                dbc.Card(
+                                    [
+                                        dbc.CardBody(
+                                            [
+                                                html.H4(f"{pace_min}:{pace_sec:02d} /km", className="text-info mb-0"),
+                                                html.P("Avg Pace", className="text-muted mb-0"),
+                                            ],
+                                            className="text-center",
+                                        )
+                                    ]
+                                )
+                            ],
+                            width=2,
+                        )
                     )
                 else:
                     # Show speed for other activities
                     speed_kmh = activity.avg_speed_mps * 3.6
                     summary_cards.append(
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardBody([
-                                    html.H4(f"{speed_kmh:.1f} km/h", className="text-info mb-0"),
-                                    html.P("Avg Speed", className="text-muted mb-0")
-                                ], className="text-center")
-                            ])
-                        ], width=2)
+                        dbc.Col(
+                            [
+                                dbc.Card(
+                                    [
+                                        dbc.CardBody(
+                                            [
+                                                html.H4(f"{speed_kmh:.1f} km/h", className="text-info mb-0"),
+                                                html.P("Avg Speed", className="text-muted mb-0"),
+                                            ],
+                                            className="text-center",
+                                        )
+                                    ]
+                                )
+                            ],
+                            width=2,
+                        )
                     )
-            
+
             # Heart Rate card
             if activity.avg_hr:
                 summary_cards.append(
-                    dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H4(f"{activity.avg_hr} bpm", className="text-danger mb-0"),
-                                html.P("Avg Heart Rate", className="text-muted mb-0")
-                            ], className="text-center")
-                        ])
-                    ], width=2)
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H4(f"{activity.avg_hr} bpm", className="text-danger mb-0"),
+                                            html.P("Avg Heart Rate", className="text-muted mb-0"),
+                                        ],
+                                        className="text-center",
+                                    )
+                                ]
+                            )
+                        ],
+                        width=2,
+                    )
                 )
-            
+
             # Available data types card
             metric_labels = {
-                'heart_rate': 'HR',
-                'speed_mps': 'Speed',
-                'altitude_m': 'Elevation',
-                'power_w': 'Power',
-                'cadence_rpm': 'Cadence',
-                'temperature_c': 'Temperature'
+                "heart_rate": "HR",
+                "speed_mps": "Speed",
+                "altitude_m": "Elevation",
+                "power_w": "Power",
+                "cadence_rpm": "Cadence",
+                "temperature_c": "Temperature",
             }
             available_labels = [metric_labels.get(metric, metric) for metric in available_metrics]
             if has_gps:
-                available_labels.append('GPS')
-                
-            data_types_str = ', '.join(available_labels) if available_labels else 'Heart Rate only'
+                available_labels.append("GPS")
+
+            data_types_str = ", ".join(available_labels) if available_labels else "Heart Rate only"
             summary_cards.append(
-                dbc.Col([
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.H6("Available Data", className="text-muted mb-1"),
-                            html.P(data_types_str, className="mb-0 small")
-                        ], className="text-center")
-                    ])
-                ], width=4)
+                dbc.Col(
+                    [
+                        dbc.Card(
+                            [
+                                dbc.CardBody(
+                                    [
+                                        html.H6("Available Data", className="text-muted mb-1"),
+                                        html.P(data_types_str, className="mb-0 small"),
+                                    ],
+                                    className="text-center",
+                                )
+                            ]
+                        )
+                    ],
+                    width=4,
+                )
             )
 
             return dbc.Row(summary_cards)
@@ -370,9 +429,9 @@ def update_activity_summary(store_data):
 
 
 @callback(
-    Output("activity-charts", "children"), 
+    Output("activity-charts", "children"),
     [Input("activity-data-store", "data"), Input("data-overlay-selector", "value")],
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def update_activity_charts(store_data, selected_metrics):
     """Update activity charts with sample data."""
@@ -425,7 +484,7 @@ def update_activity_charts(store_data, selected_metrics):
             # Filter out metrics with no data and build traces
             valid_traces = []
             axes_used = []
-            
+
             for i, metric in enumerate(selected_metrics):
                 if metric in metric_config and metric in df.columns:
                     # Check if data exists and has non-null values
@@ -433,7 +492,7 @@ def update_activity_charts(store_data, selected_metrics):
                     if len(data_series) > 0:
                         # Assign y-axis (y, y2, y3, etc.)
                         yaxis_ref = "y" if i == 0 else f"y{i+1}"
-                        
+
                         fig.add_trace(
                             go.Scatter(
                                 x=df["time"],
@@ -450,24 +509,19 @@ def update_activity_charts(store_data, selected_metrics):
                                 ),
                             )
                         )
-                        
-                        valid_traces.append({
-                            "metric": metric,
-                            "yaxis": yaxis_ref,
-                            "config": metric_config[metric]
-                        })
+
+                        valid_traces.append({"metric": metric, "yaxis": yaxis_ref, "config": metric_config[metric]})
                         axes_used.append(yaxis_ref)
 
             if not valid_traces:
-                return dbc.Alert("No data available for the selected metrics. Please select different metrics from the available options.", color="warning")
+                return dbc.Alert(
+                    "No data available for the selected metrics. Please select different metrics from the available options.",
+                    color="warning",
+                )
 
             # Configure layout with proper multi-axis formatting
             layout_config = {
-                "title": {
-                    "text": "Activity Data Over Time",
-                    "x": 0.5,
-                    "font": {"size": 16}
-                },
+                "title": {"text": "Activity Data Over Time", "x": 0.5, "font": {"size": 16}},
                 "xaxis": {
                     "title": "Time (minutes)",
                     "showgrid": True,
@@ -475,29 +529,23 @@ def update_activity_charts(store_data, selected_metrics):
                 },
                 "height": 600,
                 "hovermode": "x unified",
-                "legend": {
-                    "orientation": "h",
-                    "yanchor": "bottom",
-                    "y": 1.02,
-                    "xanchor": "center",
-                    "x": 0.5
-                },
+                "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "center", "x": 0.5},
                 "margin": {"l": 60, "r": 60, "t": 80, "b": 60},
             }
 
             # Configure multiple y-axes
             for i, trace in enumerate(valid_traces):
                 yaxis_key = "yaxis" if i == 0 else f"yaxis{i+1}"
-                
+
                 axis_config = {
                     "title": {
                         "text": f"{trace['config']['name']} ({trace['config']['unit']})",
-                        "font": {"color": trace['config']['color']}
+                        "font": {"color": trace["config"]["color"]},
                     },
-                    "tickfont": {"color": trace['config']['color']},
+                    "tickfont": {"color": trace["config"]["color"]},
                     "showgrid": i == 0,  # Only show grid for primary axis
                 }
-                
+
                 if i == 0:
                     # Primary axis (left side)
                     axis_config["side"] = "left"
@@ -507,8 +555,8 @@ def update_activity_charts(store_data, selected_metrics):
                     axis_config["side"] = "right"
                     if i > 1:
                         # Offset additional axes
-                        axis_config["position"] = 1.0 - (i-1) * 0.08
-                
+                        axis_config["position"] = 1.0 - (i - 1) * 0.08
+
                 layout_config[yaxis_key] = axis_config
 
             fig.update_layout(**layout_config)
@@ -627,17 +675,21 @@ def update_activity_laps(store_data):
 
             # Create lap splits table
             table_header = [
-                html.Thead([
-                    html.Tr([
-                        html.Th("Lap", style={"width": "10%"}),
-                        html.Th("Distance", style={"width": "15%"}),
-                        html.Th("Time", style={"width": "15%"}),
-                        html.Th("Avg HR", style={"width": "15%"}),
-                        html.Th("Max HR", style={"width": "15%"}),
-                        html.Th("Avg Power", style={"width": "15%"}),
-                        html.Th("Avg Speed", style={"width": "15%"}),
-                    ])
-                ])
+                html.Thead(
+                    [
+                        html.Tr(
+                            [
+                                html.Th("Lap", style={"width": "10%"}),
+                                html.Th("Distance", style={"width": "15%"}),
+                                html.Th("Time", style={"width": "15%"}),
+                                html.Th("Avg HR", style={"width": "15%"}),
+                                html.Th("Max HR", style={"width": "15%"}),
+                                html.Th("Avg Power", style={"width": "15%"}),
+                                html.Th("Avg Speed", style={"width": "15%"}),
+                            ]
+                        )
+                    ]
+                )
             ]
 
             table_rows = []
@@ -658,11 +710,11 @@ def update_activity_laps(store_data):
                 # Calculate speed if not stored but distance and time available
                 if not speed_mps and lap.distance_m and lap.elapsed_time_s and lap.elapsed_time_s > 0:
                     speed_mps = lap.distance_m / lap.elapsed_time_s
-                
+
                 if speed_mps:
-                    # Get activity to check sport type  
+                    # Get activity to check sport type
                     activity = session.query(Activity).filter_by(id=activity_id).first()
-                    if activity and activity.sport == 'running':
+                    if activity and activity.sport == "running":
                         # Show pace for running
                         pace_s_per_km = 1000 / speed_mps
                         pace_min = int(pace_s_per_km // 60)
@@ -676,26 +728,23 @@ def update_activity_laps(store_data):
                     speed_str = "N/A"
 
                 table_rows.append(
-                    html.Tr([
-                        html.Td(f"{lap.lap_index + 1}"),
-                        html.Td(distance_str),
-                        html.Td(time_str),
-                        html.Td(f"{lap.avg_hr}" if lap.avg_hr else "N/A"),
-                        html.Td(f"{lap.max_hr}" if lap.max_hr else "N/A"),
-                        html.Td(f"{lap.avg_power_w:.0f}W" if lap.avg_power_w else "N/A"),
-                        html.Td(speed_str),
-                    ])
+                    html.Tr(
+                        [
+                            html.Td(f"{lap.lap_index + 1}"),
+                            html.Td(distance_str),
+                            html.Td(time_str),
+                            html.Td(f"{lap.avg_hr}" if lap.avg_hr else "N/A"),
+                            html.Td(f"{lap.max_hr}" if lap.max_hr else "N/A"),
+                            html.Td(f"{lap.avg_power_w:.0f}W" if lap.avg_power_w else "N/A"),
+                            html.Td(speed_str),
+                        ]
+                    )
                 )
 
             table_body = [html.Tbody(table_rows)]
 
             return dbc.Table(
-                table_header + table_body,
-                bordered=True,
-                hover=True,
-                responsive=True,
-                striped=True,
-                className="mb-0"
+                table_header + table_body, bordered=True, hover=True, responsive=True, striped=True, className="mb-0"
             )
 
     except Exception as e:

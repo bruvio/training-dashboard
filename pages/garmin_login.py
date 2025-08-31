@@ -99,7 +99,7 @@ def layout():
                                                                                 id="remember-me-checkbox",
                                                                                 label="Remember my credentials",
                                                                                 value=False,
-                                                                                className="mb-3"
+                                                                                className="mb-3",
                                                                             ),
                                                                         ],
                                                                         width=12,
@@ -261,14 +261,14 @@ def register_callbacks(app):
         # Handle login button click
         if not email or not password:
             return (
-                    dbc.Alert("Please enter both email and password.", color="danger"),
-                    [],
-                    {"display": "none"},
-                    [],
-                    {"display": "none"},
-                    {},
-                    {},
-                )
+                dbc.Alert("Please enter both email and password.", color="danger"),
+                [],
+                {"display": "none"},
+                [],
+                {"display": "none"},
+                {},
+                {},
+            )
 
         try:
             # Import Garmin Connect client
@@ -279,36 +279,47 @@ def register_callbacks(app):
 
             # Attempt authentication without MFA callback first
             success = client.authenticate(email, password, remember_me=remember_me)
-            
+
             if success == "MFA_REQUIRED":
                 # MFA required - show MFA input dialog
                 mfa_content = [
-                    dbc.Alert("Multi-Factor Authentication required. Please enter your MFA code.", color="info", className="mb-3"),
-                    dbc.Form([
-                        dbc.Row([
-                            dbc.Col([
-                                dbc.Label("MFA Code", html_for="mfa-code"),
-                                dbc.Input(
-                                    type="text",
-                                    id="mfa-code",
-                                    placeholder="Enter 6-digit MFA code",
-                                    maxLength=6,
-                                    pattern="[0-9]{6}",
-                                    required=True,
-                                    className="mb-3"
-                                ),
-                                dbc.Button(
-                                    [html.I(className="fas fa-key me-2"), "Verify MFA"],
-                                    id="mfa-verify-button",
-                                    color="primary",
-                                    size="lg",
-                                    className="w-100"
-                                )
-                            ], width=12)
-                        ])
-                    ])
+                    dbc.Alert(
+                        "Multi-Factor Authentication required. Please enter your MFA code.",
+                        color="info",
+                        className="mb-3",
+                    ),
+                    dbc.Form(
+                        [
+                            dbc.Row(
+                                [
+                                    dbc.Col(
+                                        [
+                                            dbc.Label("MFA Code", html_for="mfa-code"),
+                                            dbc.Input(
+                                                type="text",
+                                                id="mfa-code",
+                                                placeholder="Enter 6-digit MFA code",
+                                                maxLength=6,
+                                                pattern="[0-9]{6}",
+                                                required=True,
+                                                className="mb-3",
+                                            ),
+                                            dbc.Button(
+                                                [html.I(className="fas fa-key me-2"), "Verify MFA"],
+                                                id="mfa-verify-button",
+                                                color="primary",
+                                                size="lg",
+                                                className="w-100",
+                                            ),
+                                        ],
+                                        width=12,
+                                    )
+                                ]
+                            )
+                        ]
+                    ),
                 ]
-                
+
                 return (
                     "",
                     mfa_content,
@@ -346,7 +357,7 @@ def register_callbacks(app):
                 error_message = "Authentication failed. Please check your credentials and try again."
                 if "oauth" in str(success).lower():
                     error_message = "Garmin Connect authentication is currently experiencing issues. This may be due to recent changes in Garmin's API or temporary server issues. Please try again later or ensure your Garmin Connect account is in good standing."
-                
+
                 return (
                     dbc.Alert(error_message, color="danger"),
                     [],
@@ -359,14 +370,14 @@ def register_callbacks(app):
 
         except Exception as e:
             return (
-                    dbc.Alert(f"Login error: {str(e)}", color="danger"),
-                    [],
-                    {"display": "none"},
-                    [],
-                    {"display": "none"},
-                    {},
-                    {},
-                )
+                dbc.Alert(f"Login error: {str(e)}", color="danger"),
+                [],
+                {"display": "none"},
+                [],
+                {"display": "none"},
+                {},
+                {},
+            )
 
         # MFA handling would go here in the future
 
@@ -391,12 +402,20 @@ def register_callbacks(app):
     )
     def handle_mfa_verification(mfa_clicks, mfa_code, store_data):
         """Handle MFA code verification."""
-        
+
         if not ctx.triggered or not mfa_clicks:
             return "", [], {"display": "none"}, [], {"display": "none"}, {}, {}
 
         if not store_data.get("mfa_required"):
-            return dbc.Alert("Invalid MFA state.", color="danger"), [], {"display": "none"}, [], {"display": "none"}, {}, {}
+            return (
+                dbc.Alert("Invalid MFA state.", color="danger"),
+                [],
+                {"display": "none"},
+                [],
+                {"display": "none"},
+                {},
+                {},
+            )
 
         if not mfa_code or len(mfa_code) != 6:
             return (
@@ -416,14 +435,16 @@ def register_callbacks(app):
             client = GarminConnectClient()
             email = store_data["email"]
             password = store_data["password"]
-            
+
             # Create MFA callback that returns the provided code
             def web_mfa_callback():
                 logger.info(f"MFA callback called, returning code: {mfa_code}")
                 return mfa_code
-            
-            success = client.authenticate(email, password, mfa_callback=web_mfa_callback, remember_me=store_data.get("remember_me", False))
-            
+
+            success = client.authenticate(
+                email, password, mfa_callback=web_mfa_callback, remember_me=store_data.get("remember_me", False)
+            )
+
             if success:
                 success_content = [
                     dbc.Alert(
@@ -612,16 +633,17 @@ def register_callbacks(app):
         """Load saved credentials when navigating to the Garmin login page."""
         if pathname != "/garmin":
             return "", "", False
-            
+
         try:
             from garmin_client.client import GarminConnectClient
+
             client = GarminConnectClient()
             credentials = client.load_credentials()
-            
+
             if credentials:
                 return credentials.get("email", ""), credentials.get("password", ""), True
             else:
                 return "", "", False
-                
+
         except Exception:
             return "", "", False

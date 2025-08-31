@@ -139,7 +139,7 @@ class Sample(Base):
     cadence_rpm = mapped_column(Integer)
     speed_mps = mapped_column(Float)
     temperature_c = mapped_column(Float)
-    
+
     # Advanced running dynamics (Stryd, Garmin, etc.)
     vertical_oscillation_mm = mapped_column(Float)  # Vertical movement
     vertical_ratio = mapped_column(Float)  # Vertical ratio %
