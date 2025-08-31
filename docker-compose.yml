@@ -1,0 +1,135 @@
+# Docker Compose configuration for Garmin Dashboard
+# Fixed version with proper volume mounting and directory creation
+
+services:
+  # Data initialization service - creates directories first
+  data-init:
+    image: busybox
+    command: ['sh', '-c', 'mkdir -p /data/activities && chown 1000:1000 /data && echo "Data directories initialized"']
+    volumes:
+      - ./data:/data
+    networks:
+      - garmin-network
+
+  # Main web application
+  garmin-dashboard:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: garmin-dashboard-web
+    ports:
+      - "${DASHBOARD_PORT:-8050}:8050"
+    volumes:
+      # Fixed volume mounting with proper directory creation
+      - ./data:/data
+      - ./activities:/app/activities:ro
+    environment:
+      - DATABASE_URL=sqlite:////data/garmin_dashboard.db
+      - DASH_DEBUG=${DASH_DEBUG:-False}
+      - HOST=0.0.0.0
+      - PORT=8050
+      - PYTHONPATH=/app
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - data-init
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8050/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - garmin-network
+
+  # CLI importer service (runs once, then exits)
+  garmin-importer:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: garmin-dashboard-importer
+    volumes:
+      # Fixed volume mounting
+      - ./data:/data
+      - ./activities:/app/activities:ro
+    environment:
+      - DATABASE_URL=sqlite:////data/garmin_dashboard.db
+      - PYTHONPATH=/app
+    command: python -m cli.gd_import import-activities /app/activities --verbose
+    depends_on:
+      - data-init
+      - garmin-dashboard
+    profiles:
+      - tools
+    networks:
+      - garmin-network
+
+  # Development services (only enabled with dev profile)
+  garmin-dashboard-dev:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: builder  # Use builder stage for development
+    container_name: garmin-dashboard-dev
+    ports:
+      - "8050:8050"
+    volumes:
+      # Mount source code for development
+      - .:/app
+      - ./data:/data
+      - ./activities:/app/activities:ro
+    environment:
+      - DATABASE_URL=sqlite:////data/garmin_dashboard.db
+      - DASH_DEBUG=True
+      - HOST=0.0.0.0
+      - PORT=8050
+      - PYTHONPATH=/app
+    command: python -m app.dash_app
+    depends_on:
+      - data-init
+    profiles:
+      - dev
+    networks:
+      - garmin-network
+
+  # Test runner service
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: garmin-dashboard-tests
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONPATH=/app
+    command: python run_tests.py
+    profiles:
+      - test
+    networks:
+      - garmin-network
+
+# Network for service communication
+networks:
+  garmin-network:
+    driver: bridge
+
+# Usage examples:
+#
+# Create directories and start:
+# mkdir -p data activities && docker-compose up -d
+#
+# Development mode:
+# docker-compose --profile dev up
+#
+# Run importer:
+# docker-compose --profile tools run garmin-importer
+#
+# Run tests:
+# docker-compose --profile test run test-runner
+#
+# View logs:
+# docker-compose logs -f garmin-dashboard
