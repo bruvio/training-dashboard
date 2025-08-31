@@ -1,4 +1,4 @@
-# flake8: noqa 
+# flake8: noqa
 """
 Database configuration and session management for Garmin Dashboard.
 
