@@ -119,18 +119,32 @@ def update_metric_selector(store_data):
 
     try:
         with session_scope() as session:
+            # Get activity for sport-specific labels
+            activity = session.query(Activity).filter_by(id=activity_id).first()
+            if not activity:
+                return dbc.Alert("Activity not found", color="danger")
+
             # Get samples to check which metrics have data
             samples = session.query(Sample).filter_by(activity_id=activity_id).limit(100).all()
 
             if not samples:
                 return dbc.Alert("No sample data found", color="info")
 
+            # Determine sport-specific pace label
+            sport = (activity.sport or "").lower()
+            if sport in ["running", "run"]:
+                pace_label = "Pace (min/km)"
+            elif sport in ["swimming", "swim"]:
+                pace_label = "Pace (min/100m)"
+            else:
+                pace_label = "Speed (km/h)"
+
             # Check which metrics have non-null values
             available_metrics = []
             metric_config = {
                 # Basic metrics
                 "heart_rate": {"label": "Heart Rate (bpm)", "value": "heart_rate", "color": "red", "category": "basic"},
-                "pace_per_km": {"label": "Pace (min/km)", "value": "pace_per_km", "color": "blue", "category": "basic"},
+                "pace_per_km": {"label": pace_label, "value": "pace_per_km", "color": "blue", "category": "basic"},
                 "speed_mps": {"label": "Speed (m/s)", "value": "speed_mps", "color": "blue", "category": "basic"},
                 "altitude_m": {"label": "Altitude (m)", "value": "altitude_m", "color": "brown", "category": "basic"},
                 "cadence_rpm": {
@@ -264,19 +278,36 @@ def update_metric_selector(store_data):
             }
 
             for category in category_order:
-                if category in categories:
+                # Always create selector, even if empty
+                category_options = categories.get(category, [])
+                selected_values = [m["value"] for m in category_options if m["value"] in default_values]
+                
+                # Only show section if it has metrics OR if it's a basic category (always show basic)
+                if category_options or category == "basic":
                     metric_sections.append(
                         html.Div(
                             [
                                 html.H6(category_labels[category], className="text-secondary mb-2 mt-3"),
                                 dbc.Checklist(
-                                    options=categories[category],
-                                    value=[m["value"] for m in categories[category] if m["value"] in default_values],
+                                    options=category_options,
+                                    value=selected_values,
                                     id=f"data-overlay-selector-{category}",
                                     inline=True,
                                     className="mb-2",
                                 ),
                             ]
+                        )
+                    )
+                else:
+                    # Create hidden/empty selector to satisfy callback
+                    metric_sections.append(
+                        html.Div(
+                            dbc.Checklist(
+                                options=[],
+                                value=[],
+                                id=f"data-overlay-selector-{category}",
+                                style={"display": "none"},
+                            )
                         )
                     )
 
@@ -305,10 +336,20 @@ def update_metric_selector(store_data):
 )
 def combine_metric_selections(basic, running, power, biomechanics, environmental):
     """Combine metric selections from all categories."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    logger.info(
+        f"🔄 CALLBACK TRIGGERED! Inputs: basic={basic}, running={running}, power={power}, biomechanics={biomechanics}, environmental={environmental}"
+    )
+
     combined = []
     for category_selection in [basic, running, power, biomechanics, environmental]:
         if category_selection:
             combined.extend(category_selection)
+
+    logger.info(f"🔄 Metric selection changed: {combined}")
     return combined
 
 
@@ -683,6 +724,12 @@ def update_activity_summary(store_data):
 )
 def update_activity_charts(store_data, selected_metrics):
     """Update activity charts with sample data."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"📊 Chart update triggered - Activity: {store_data}, Metrics: {selected_metrics}")
+
     if not store_data or "activity_id" not in store_data:
         return dbc.Alert("No activity data", color="warning")
 
@@ -693,19 +740,41 @@ def update_activity_charts(store_data, selected_metrics):
             selected_metrics = ["heart_rate"]  # Default
 
         with session_scope() as session:
+            # Get activity info for sport-specific calculations
+            activity = session.query(Activity).filter_by(id=activity_id).first()
+            if not activity:
+                return dbc.Alert("Activity not found", color="danger")
+
             # Get activity samples
             samples = session.query(Sample).filter_by(activity_id=activity_id).order_by(Sample.elapsed_time_s).all()
 
             if not samples:
                 return dbc.Alert("No sample data found for this activity", color="info")
 
-            # Convert to DataFrame with all metrics and pace calculation
+            # Convert to DataFrame with all metrics and sport-specific speed calculation
             sample_data = []
             for sample in samples:
-                # Calculate pace from speed (min/km)
+                # Calculate sport-specific speed/pace
                 pace_per_km = None
+                speed_display = None
+
                 if sample.speed_mps and sample.speed_mps > 0:
-                    pace_per_km = (1000 / sample.speed_mps) / 60  # Convert to minutes per km
+                    sport = (activity.sport or "").lower()
+
+                    if sport in ["running", "run"]:
+                        # Running: min/km pace
+                        pace_per_km = (1000 / sample.speed_mps) / 60  # Convert to minutes per km
+                        speed_display = pace_per_km
+                    elif sport in ["swimming", "swim"]:
+                        # Swimming: min/100m pace
+                        pace_per_100m = (100 / sample.speed_mps) / 60  # Convert to minutes per 100m
+                        speed_display = pace_per_100m
+                        pace_per_km = pace_per_100m  # Use same field for consistency
+                    else:
+                        # Cycling and others: km/h
+                        speed_kmh = sample.speed_mps * 3.6
+                        speed_display = speed_kmh
+                        pace_per_km = speed_kmh  # Use same field for consistency
 
                 sample_data.append(
                     {
@@ -741,11 +810,23 @@ def update_activity_charts(store_data, selected_metrics):
             # Create multi-axis plot
             fig = go.Figure()
 
+            # Determine sport-specific pace label
+            sport = (activity.sport or "").lower()
+            if sport in ["running", "run"]:
+                pace_label = "Pace (min/km)"
+                pace_unit = "min/km"
+            elif sport in ["swimming", "swim"]:
+                pace_label = "Pace (min/100m)"
+                pace_unit = "min/100m"
+            else:
+                pace_label = "Speed (km/h)"
+                pace_unit = "km/h"
+
             # Define colors and labels for each metric (matching the selector)
             metric_config = {
                 # Basic metrics
                 "heart_rate": {"color": "red", "name": "Heart Rate", "unit": "bpm"},
-                "pace_per_km": {"color": "blue", "name": "Pace", "unit": "min/km"},
+                "pace_per_km": {"color": "blue", "name": pace_label.split(" (")[0], "unit": pace_unit},
                 "speed_mps": {"color": "blue", "name": "Speed", "unit": "m/s"},
                 "altitude_m": {"color": "brown", "name": "Altitude", "unit": "m"},
                 "cadence_rpm": {"color": "purple", "name": "Cadence", "unit": "rpm"},
