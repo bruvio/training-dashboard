@@ -57,9 +57,11 @@ try:
     from pages import calendar
     from pages import activity_detail
     from pages import garmin_login
+    from pages import settings
 
-    # Register callbacks for garmin_login page
+    # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)
+    settings.register_callbacks(app)
     logger.info("✅ All page modules imported successfully - callbacks registered")
 
 except ImportError as e:
@@ -88,8 +90,14 @@ except ImportError as e:
         garmin_login = importlib.util.module_from_spec(garmin_spec)
         garmin_spec.loader.exec_module(garmin_login)
 
-        # Register callbacks for garmin_login page
+        # Load settings module
+        settings_spec = importlib.util.spec_from_file_location("settings", "/app/pages/settings.py")
+        settings = importlib.util.module_from_spec(settings_spec)
+        settings_spec.loader.exec_module(settings)
+
+        # Register callbacks for pages that need them
         garmin_login.register_callbacks(app)
+        settings.register_callbacks(app)
         logger.info("✅ Page modules imported via importlib - callbacks registered")
 
     except Exception as e2:
@@ -275,6 +283,16 @@ def display_page(pathname):
 
             logger.error(traceback.format_exc())
             return html.Div([html.H2(f"Error loading Garmin Connect: {str(e)}")])
+
+    elif pathname == "/settings":
+        # Settings page
+        try:
+            logger.info("Loading Settings page")
+            from pages.settings import layout as settings_layout
+            return settings_layout()
+        except Exception as e:
+            logger.error(f"Error loading Settings page: {e}")
+            return html.Div([html.H2(f"Error loading Settings: {str(e)}")])
 
     else:
         logger.info(f"Unknown pathname: {pathname}")

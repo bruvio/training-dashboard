@@ -129,25 +129,29 @@ class GarminConnectClient:
             self.credentials_file.unlink()
             logger.info("Credentials cleared")
 
-    def authenticate(self, email: str = None, password: str = None, mfa_callback=None) -> Union[bool, str]:
+    def authenticate(self, email: str = None, password: str = None, mfa_callback=None, remember_me: bool = False) -> Union[bool, str]:
         """
-        Authenticate with Garmin Connect using modern garth-based approach with MFA support.
+        Authenticate with Garmin Connect using garth, with MFA support.
 
         Args:
             email: Garmin Connect email (optional if stored)
             password: Garmin Connect password (optional if stored)
-            mfa_callback: Callback function to get MFA code when needed
+            mfa_callback: Callable that returns MFA code when called
 
         Returns:
-            True if authentication successful, "MFA_REQUIRED" if MFA needed, False otherwise
+            True if authentication successful,
+            "MFA_REQUIRED" if MFA needed but not provided,
+            False otherwise
         """
         if not GARMIN_CONNECT_AVAILABLE:
             logger.error("garminconnect library not available")
             return False
 
-        # Use provided credentials or load from storage
+        # Load stored credentials if not provided
         if email and password:
-            self.store_credentials(email, password)
+            # Only store credentials if remember_me is True
+            if remember_me:
+                self.store_credentials(email, password)
         else:
             credentials = self.load_credentials()
             if not credentials:
@@ -156,369 +160,72 @@ class GarminConnectClient:
             email = credentials["email"]
             password = credentials["password"]
 
+        garth_session_path = self.config_dir / "garth_session"
+
+        # Try to resume previous session
         try:
-            logger.info(f"Attempting to authenticate as {email}")
+            garth.resume(str(garth_session_path))
+            logger.info("Resumed existing garth session")
+            self._api = Garmin()
+            self._authenticated = True
+            return True
+        except (GarthException, FileNotFoundError):
+            logger.info("No valid garth session found, performing fresh login")
 
-            # Configure garth session path
-            garth_session_path = self.config_dir / "garth_session"
+        try:
+            logger.info(f"Authenticating as {email}")
+
+            # ALWAYS use return_on_mfa=True to avoid terminal prompts in Docker
+            result1, result2 = garth.login(email, password, return_on_mfa=True)
             
-            # Try to resume existing garth session first
-            try:
-                garth.resume(str(garth_session_path))
-                logger.info("Resumed existing garth session")
+            if result1 == "needs_mfa":
+                logger.info("MFA required for authentication")
                 
-                # Test if session is still valid
-                try:
-                    # Try to initialize Garmin client with existing session
-                    self._api = Garmin()  # No credentials needed if garth session is valid
-                    self._authenticated = True
-                    logger.info("Authentication successful using existing session")
-                    return True
-                except Exception as e:
-                    logger.info(f"Existing session invalid, need fresh login: {e}")
-                    # Continue to fresh login
-                    
-            except (GarthException, FileNotFoundError) as e:
-                logger.info(f"No valid garth session found, performing fresh login: {e}")
-
-            # Perform fresh garth authentication
-            logger.info("Starting fresh garth authentication...")
-            
-            try:
-                # Handle MFA using garth's advanced flow
                 if mfa_callback:
-                    # Use advanced MFA handling with custom callback
-                    result1, result2 = garth.login(email, password, return_on_mfa=True)
+                    logger.info("MFA callback available - requesting code")
+                    mfa_code = mfa_callback()
+                    if not mfa_code:
+                        logger.warning("MFA code required but not provided by callback")
+                        return "MFA_REQUIRED"
                     
-                    if result1 == "needs_mfa":
-                        logger.info("MFA required - requesting code from callback")
-                        mfa_code = mfa_callback()
-                        if not mfa_code:
-                            logger.error("MFA code required but not provided")
-                            return "MFA_REQUIRED"
-                        
-                        # Resume login with MFA code
+                    # Resume login with MFA code from callback
+                    try:
                         oauth1, oauth2 = garth.resume_login(result2, mfa_code)
                         logger.info("MFA authentication successful")
-                    else:
-                        logger.info("Direct authentication successful")
+                    except Exception as e:
+                        logger.error(f"MFA authentication failed: {e}")
+                        return "MFA_REQUIRED"
                 else:
-                    # Use terminal-based MFA prompt (for CLI usage)
-                    def terminal_mfa():
-                        return input("Enter MFA code (or press Enter to return 'MFA_REQUIRED'): ").strip()
-                    
-                    try:
-                        garth.login(email, password, prompt_mfa=terminal_mfa)
-                        logger.info("Authentication successful")
-                    except Exception as mfa_error:
-                        if "mfa" in str(mfa_error).lower() or "verification" in str(mfa_error).lower():
-                            logger.info("MFA required but no callback provided")
-                            return "MFA_REQUIRED"
-                        else:
-                            raise mfa_error
-
-                # Save garth session for future use
-                garth.save(str(garth_session_path))
-                logger.info(f"Saved garth session to {garth_session_path}")
-
-                # Initialize Garmin client with authenticated session
-                self._api = Garmin()  # Uses existing garth session
-                
-                # Store successful session info
-                session_data = {
-                    "authenticated_at": datetime.now().isoformat(), 
-                    "email": email,
-                    "garth_session_path": str(garth_session_path)
-                }
-                with open(self.session_file, "w") as f:
-                    json.dump(session_data, f)
-
-                self._authenticated = True
-                logger.info(f"Successfully authenticated as {email}")
-                return True
-
-            except Exception as e:
-                error_str = str(e).lower()
-                logger.error(f"Garth authentication failed: {e}")
-                
-                # Check for specific error types
-                if any(keyword in error_str for keyword in ["mfa", "multi", "verification", "code", "2fa", "two-factor"]):
-                    logger.info("MFA required for authentication")
+                    # No callback available - return MFA_REQUIRED to trigger UI prompt
+                    logger.info("No MFA callback provided - returning MFA_REQUIRED")
                     return "MFA_REQUIRED"
-                elif any(keyword in error_str for keyword in ["oauth", "token", "authorization", "forbidden", "unauthorized"]):
-                    logger.error("OAuth/Authorization error")
-                    logger.error("This may indicate:")
-                    logger.error("1. Invalid credentials")
-                    logger.error("2. Account locked or suspended")
-                    logger.error("3. Need to verify account on Garmin Connect website")
-                    return False
-                elif "rate" in error_str or "limit" in error_str:
-                    logger.error("Rate limit exceeded - please wait before retrying")
-                    return False
-                else:
-                    logger.error(f"Authentication failed: {e}")
-                    return False
+            else:
+                logger.info("Direct authentication successful (no MFA required)")
+
+            # Save session on success
+            garth.save(str(garth_session_path))
+            self._api = Garmin()
+            self._authenticated = True
+
+            session_data = {
+                "authenticated_at": datetime.now().isoformat(),
+                "email": email,
+                "garth_session_path": str(garth_session_path)
+            }
+            with open(self.session_file, "w") as f:
+                json.dump(session_data, f)
+
+            logger.info("Authentication successful")
+            return True
 
         except Exception as e:
-            logger.error(f"Unexpected authentication error: {e}")
+            error_str = str(e).lower()
+            if any(k in error_str for k in ["mfa", "verification", "2fa", "two-factor", "needs_mfa"]):
+                logger.warning("MFA required but no callback provided or authentication failed")
+                return "MFA_REQUIRED"
+            logger.error(f"Authentication failed: {e}")
             self._authenticated = False
             return False
-
-    def is_authenticated(self) -> bool:
-        """Check if client is currently authenticated."""
-        return self._authenticated and self._api is not None
-
-    def logout(self):
-        """Logout and clear session."""
-        self._api = None
-        self._authenticated = False
-
-        # Clear session file
-        if self.session_file.exists():
-            self.session_file.unlink()
-
-        # Clear garth session
-        garth_session_path = self.config_dir / "garth_session"
-        try:
-            if garth_session_path.exists():
-                import shutil
-                shutil.rmtree(garth_session_path, ignore_errors=True)
-                logger.info("Cleared garth session data")
-        except Exception as e:
-            logger.debug(f"Error clearing garth session: {e}")
-
-        logger.info("Logged out successfully")
-
-    def get_activities(
-        self, start_date: Union[date, str], end_date: Union[date, str] = None, limit: int = 100
-    ) -> List[Dict]:
-        """
-        Get activities for date range.
-
-        Args:
-            start_date: Start date (date object or ISO string)
-            end_date: End date (date object or ISO string). Defaults to today.
-            limit: Maximum number of activities to retrieve
-
-        Returns:
-            List of activity dictionaries
-        """
-        if not self.is_authenticated():
-            logger.error("Not authenticated. Call authenticate() first.")
-            return []
-
-        # Convert dates to strings if needed
-        if isinstance(start_date, date):
-            start_date = start_date.isoformat()
-
-        if end_date is None:
-            end_date = date.today().isoformat()
-        elif isinstance(end_date, date):
-            end_date = end_date.isoformat()
-
-        try:
-            logger.info(f"Retrieving activities from {start_date} to {end_date}")
-            activities = self._api.get_activities_by_date(start_date, end_date, limit=limit)
-
-            logger.info(f"Retrieved {len(activities)} activities")
-            return activities if activities else []
-
-        except Exception as e:
-            logger.error(f"Failed to retrieve activities: {e}")
-            return []
-
-    def download_activity(self, activity_id: int, format_type: str = "fit", output_dir: Path = None) -> Optional[Path]:
-        """
-        Download single activity file.
-
-        Args:
-            activity_id: Garmin activity ID
-            format_type: File format ('fit' or 'gpx')
-            output_dir: Output directory (defaults to config_dir/downloads)
-
-        Returns:
-            Path to downloaded file, or None if failed
-        """
-        if not self.is_authenticated():
-            logger.error("Not authenticated. Call authenticate() first.")
-            return None
-
-        output_dir = output_dir or (self.config_dir / "downloads")
-        output_dir.mkdir(exist_ok=True)
-
-        try:
-            # Get activity details for naming
-            activity_detail = self._api.get_activity(activity_id)
-            activity_name = activity_detail.get("activityName", f"activity_{activity_id}")
-
-            # Clean filename for filesystem safety
-            safe_name = "".join(c for c in activity_name if c.isalnum() or c in (" ", "-", "_")).rstrip()
-            safe_name = safe_name[:50]  # Limit length
-            filename = f"{activity_id}_{safe_name}.{format_type.lower()}"
-            output_path = output_dir / filename
-
-            logger.info(f"Downloading activity {activity_id} as {format_type}")
-
-            # Download file based on format
-            if format_type.lower() == "fit":
-                file_data = self._api.download_activity(activity_id, dl_fmt=self._api.ActivityDownloadFormat.ORIGINAL)
-            elif format_type.lower() == "gpx":
-                file_data = self._api.download_activity(activity_id, dl_fmt=self._api.ActivityDownloadFormat.GPX)
-            else:
-                logger.error(f"Unsupported format: {format_type}")
-                return None
-
-            # Save file
-            output_path.write_bytes(file_data)
-            logger.info(f"Downloaded activity {activity_id} to {output_path}")
-            return output_path
-
-        except Exception as e:
-            logger.error(f"Failed to download activity {activity_id}: {e}")
-            return None
-
-    def download_multiple_activities(
-        self,
-        activity_ids: List[int],
-        format_type: str = "fit",
-        output_dir: Path = None,
-        max_concurrent: int = 3,
-        delay_between: float = 1.0,
-    ) -> Dict[int, Optional[Path]]:
-        """
-        Download multiple activities with rate limiting.
-
-        Args:
-            activity_ids: List of activity IDs to download
-            format_type: File format ('fit' or 'gpx')
-            output_dir: Output directory
-            max_concurrent: Maximum concurrent downloads
-            delay_between: Delay between downloads in seconds
-
-        Returns:
-            Dictionary mapping activity_id to download path (or None if failed)
-        """
-        results = {}
-
-        logger.info(f"Starting download of {len(activity_ids)} activities")
-
-        for i, activity_id in enumerate(activity_ids):
-            try:
-                # Rate limiting delay
-                if i > 0:
-                    import time
-
-                    time.sleep(delay_between)
-
-                result = self.download_activity(activity_id, format_type, output_dir)
-                results[activity_id] = result
-
-                logger.info(f"Downloaded {i+1}/{len(activity_ids)} activities")
-
-            except Exception as e:
-                logger.error(f"Failed to download activity {activity_id}: {e}")
-                results[activity_id] = None
-
-        successful_downloads = len([p for p in results.values() if p is not None])
-        logger.info(f"Download complete: {successful_downloads}/{len(activity_ids)} successful")
-
-        return results
-
-    def get_config(self) -> Dict:
-        """
-        Load application configuration.
-
-        Returns:
-            Configuration dictionary
-        """
-        if self.config_file.exists():
-            try:
-                with open(self.config_file) as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.error(f"Failed to load config: {e}")
-
-        # Default configuration
-        default_config = {
-            "default_download_format": "fit",
-            "download_directory": str(self.config_dir / "downloads"),
-            "max_concurrent_downloads": 3,
-            "rate_limit_delay": 1.0,
-            "auto_import_to_dashboard": True,
-            "activities_directory": "./activities",
-        }
-
-        # Save default config
-        self.save_config(default_config)
-        return default_config
-
-    def save_config(self, config: Dict):
-        """
-        Save application configuration.
-
-        Args:
-            config: Configuration dictionary to save
-        """
-        try:
-            with open(self.config_file, "w") as f:
-                json.dump(config, f, indent=2)
-            logger.info("Configuration saved")
-        except Exception as e:
-            logger.error(f"Failed to save config: {e}")
-
-    def get_session_info(self) -> Optional[Dict]:
-        """
-        Get current session information.
-
-        Returns:
-            Session information dictionary or None
-        """
-        if not self.session_file.exists():
-            return None
-
-        try:
-            with open(self.session_file) as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load session info: {e}")
-            return None
-
-    def test_connection(self) -> bool:
-        """
-        Test if the client can connect to Garmin Connect.
-
-        Returns:
-            True if connection successful, False otherwise
-        """
-        if not self.is_authenticated():
-            return False
-
-        try:
-            # Try to get a small amount of data
-            activities = self.get_activities(start_date=date.today() - timedelta(days=1), limit=1)
-            return True
-        except Exception as e:
-            logger.error(f"Connection test failed: {e}")
-            return False
-
-    def get_user_profile(self) -> Optional[Dict]:
-        """
-        Get user profile information.
-
-        Returns:
-            User profile dictionary or None if failed
-        """
-        if not self.is_authenticated():
-            logger.error("Not authenticated")
-            return None
-
-        try:
-            profile = self._api.get_user_profile()
-            logger.info("Retrieved user profile")
-            return profile
-        except Exception as e:
-            logger.error(f"Failed to get user profile: {e}")
-            return None
 
 
 # Convenience functions for common operations

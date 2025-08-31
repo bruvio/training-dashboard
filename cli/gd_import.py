@@ -362,6 +362,18 @@ def import_single_file(file_path: Path, force_reimport: bool = False) -> ImportR
                             cadence_rpm=sample_data.cadence_rpm,
                             speed_mps=sample_data.speed_mps,
                             temperature_c=sample_data.temperature_c,
+                            # Advanced running dynamics
+                            vertical_oscillation_mm=sample_data.vertical_oscillation_mm,
+                            vertical_ratio=sample_data.vertical_ratio,
+                            ground_contact_time_ms=sample_data.ground_contact_time_ms,
+                            ground_contact_balance_pct=sample_data.ground_contact_balance_pct,
+                            step_length_mm=sample_data.step_length_mm,
+                            air_power_w=sample_data.air_power_w,
+                            form_power_w=sample_data.form_power_w,
+                            leg_spring_stiffness=sample_data.leg_spring_stiffness,
+                            impact_loading_rate=sample_data.impact_loading_rate,
+                            stryd_temperature_c=sample_data.stryd_temperature_c,
+                            stryd_humidity_pct=sample_data.stryd_humidity_pct,
                         )
                         session.add(sample)
 

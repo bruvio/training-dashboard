@@ -139,6 +139,19 @@ class Sample(Base):
     cadence_rpm = mapped_column(Integer)
     speed_mps = mapped_column(Float)
     temperature_c = mapped_column(Float)
+    
+    # Advanced running dynamics (Stryd, Garmin, etc.)
+    vertical_oscillation_mm = mapped_column(Float)  # Vertical movement
+    vertical_ratio = mapped_column(Float)  # Vertical ratio %
+    ground_contact_time_ms = mapped_column(Float)  # Ground contact time
+    ground_contact_balance_pct = mapped_column(Float)  # L/R balance
+    step_length_mm = mapped_column(Float)  # Step length
+    air_power_w = mapped_column(Float)  # Air resistance power
+    form_power_w = mapped_column(Float)  # Form power (Stryd)
+    leg_spring_stiffness = mapped_column(Float)  # Leg stiffness
+    impact_loading_rate = mapped_column(Float)  # Impact loading rate
+    stryd_temperature_c = mapped_column(Float)  # Stryd temperature
+    stryd_humidity_pct = mapped_column(Float)  # Stryd humidity
 
     # Relationship
     activity = relationship("Activity", back_populates="samples")
@@ -273,6 +286,18 @@ class SampleData:
         cadence_rpm: Optional[int] = None,
         speed_mps: Optional[float] = None,
         temperature_c: Optional[float] = None,
+        # Advanced running dynamics
+        vertical_oscillation_mm: Optional[float] = None,
+        vertical_ratio: Optional[float] = None,
+        ground_contact_time_ms: Optional[float] = None,
+        ground_contact_balance_pct: Optional[float] = None,
+        step_length_mm: Optional[float] = None,
+        air_power_w: Optional[float] = None,
+        form_power_w: Optional[float] = None,
+        leg_spring_stiffness: Optional[float] = None,
+        impact_loading_rate: Optional[float] = None,
+        stryd_temperature_c: Optional[float] = None,
+        stryd_humidity_pct: Optional[float] = None,
     ):
         self.timestamp = timestamp
         self.elapsed_time_s = elapsed_time_s
@@ -284,6 +309,18 @@ class SampleData:
         self.cadence_rpm = cadence_rpm
         self.speed_mps = speed_mps
         self.temperature_c = temperature_c
+        # Advanced running dynamics
+        self.vertical_oscillation_mm = vertical_oscillation_mm
+        self.vertical_ratio = vertical_ratio
+        self.ground_contact_time_ms = ground_contact_time_ms
+        self.ground_contact_balance_pct = ground_contact_balance_pct
+        self.step_length_mm = step_length_mm
+        self.air_power_w = air_power_w
+        self.form_power_w = form_power_w
+        self.leg_spring_stiffness = leg_spring_stiffness
+        self.impact_loading_rate = impact_loading_rate
+        self.stryd_temperature_c = stryd_temperature_c
+        self.stryd_humidity_pct = stryd_humidity_pct
 
 
 class LapData:

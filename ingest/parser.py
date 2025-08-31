@@ -183,6 +183,23 @@ class ActivityParser:
                     lat = lat * (180 / (2**31))
                     lon = lon * (180 / (2**31))
 
+                # Extract advanced running dynamics
+                vertical_oscillation = record.get_value("vertical_oscillation")
+                if vertical_oscillation is not None:
+                    # Convert from mm to mm (already in correct units)
+                    vertical_oscillation_mm = float(vertical_oscillation)
+                else:
+                    vertical_oscillation_mm = None
+                
+                # Ground contact time (stance_time) - convert from ms to ms
+                ground_contact_time = record.get_value("stance_time")
+                if ground_contact_time is not None:
+                    ground_contact_time_ms = float(ground_contact_time)
+                else:
+                    # Try Ground Time field (from Stryd)
+                    ground_time = record.get_value("Ground Time")
+                    ground_contact_time_ms = float(ground_time) if ground_time is not None else None
+
                 sample = SampleData(
                     timestamp=timestamp,
                     elapsed_time_s=elapsed_time,
@@ -194,6 +211,18 @@ class ActivityParser:
                     cadence_rpm=record.get_value("cadence"),
                     speed_mps=record.get_value("speed"),
                     temperature_c=record.get_value("temperature"),
+                    # Advanced running dynamics
+                    vertical_oscillation_mm=vertical_oscillation_mm,
+                    vertical_ratio=record.get_value("vertical_ratio"),
+                    ground_contact_time_ms=ground_contact_time_ms,
+                    ground_contact_balance_pct=record.get_value("stance_time_balance"),
+                    step_length_mm=record.get_value("step_length"),
+                    air_power_w=record.get_value("Air Power"),
+                    form_power_w=record.get_value("Form Power"),
+                    leg_spring_stiffness=record.get_value("Leg Spring Stiffness"),
+                    impact_loading_rate=record.get_value("Impact Loading Rate"),
+                    stryd_temperature_c=record.get_value("Stryd Temperature"),
+                    stryd_humidity_pct=record.get_value("Stryd Humidity"),
                 )
                 samples.append(sample)
 
@@ -205,11 +234,21 @@ class ActivityParser:
 
             # Parse lap messages
             for lap_idx, lap in enumerate(fitfile.get_messages("lap")):
+                # Get lap speed or calculate from distance/time
+                avg_speed_mps = lap.get_value("avg_speed")
+                if not avg_speed_mps:
+                    # Calculate from distance and time if not provided
+                    distance = lap.get_value("total_distance")
+                    time = lap.get_value("total_elapsed_time")
+                    if distance and time and time > 0:
+                        avg_speed_mps = distance / time
+
                 lap_data = LapData(
                     lap_index=lap_idx,
                     start_time_utc=lap.get_value("start_time"),
                     elapsed_time_s=lap.get_value("total_elapsed_time"),
                     distance_m=lap.get_value("total_distance"),
+                    avg_speed_mps=avg_speed_mps,
                     avg_hr=lap.get_value("avg_heart_rate"),
                     max_hr=lap.get_value("max_heart_rate"),
                     avg_power_w=lap.get_value("avg_power"),

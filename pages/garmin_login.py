@@ -92,6 +92,21 @@ def layout():
                                                                 [
                                                                     dbc.Col(
                                                                         [
+                                                                            dbc.Checkbox(
+                                                                                id="remember-me-checkbox",
+                                                                                label="Remember my credentials",
+                                                                                value=False,
+                                                                                className="mb-3"
+                                                                            ),
+                                                                        ],
+                                                                        width=12,
+                                                                    )
+                                                                ]
+                                                            ),
+                                                            dbc.Row(
+                                                                [
+                                                                    dbc.Col(
+                                                                        [
                                                                             dbc.Button(
                                                                                 [
                                                                                     html.I(
@@ -229,11 +244,12 @@ def register_callbacks(app):
         [
             State("garmin-email", "value"),
             State("garmin-password", "value"),
+            State("remember-me-checkbox", "value"),
             State("login-status-store", "data"),
         ],
         prevent_initial_call=True,
     )
-    def handle_garmin_login(login_clicks, email, password, store_data):
+    def handle_garmin_login(login_clicks, email, password, remember_me, store_data):
         """Handle Garmin Connect login process including MFA."""
 
         if not ctx.triggered or not login_clicks:
@@ -258,12 +274,8 @@ def register_callbacks(app):
             # Initialize client
             client = GarminConnectClient()
 
-            # Attempt authentication with MFA callback
-            def web_mfa_callback():
-                # Return None to trigger MFA_REQUIRED response
-                return None
-            
-            success = client.authenticate(email, password, mfa_callback=web_mfa_callback)
+            # Attempt authentication without MFA callback first
+            success = client.authenticate(email, password, remember_me=remember_me)
             
             if success == "MFA_REQUIRED":
                 # MFA required - show MFA input dialog
@@ -404,9 +416,10 @@ def register_callbacks(app):
             
             # Create MFA callback that returns the provided code
             def web_mfa_callback():
+                logger.info(f"MFA callback called, returning code: {mfa_code}")
                 return mfa_code
             
-            success = client.authenticate(email, password, mfa_callback=web_mfa_callback)
+            success = client.authenticate(email, password, mfa_callback=web_mfa_callback, remember_me=remember_me)
             
             if success:
                 success_content = [
@@ -581,3 +594,31 @@ def register_callbacks(app):
                 return sync_controls, error_message, "", {"display": "none"}
 
         return sync_controls, "", "", {"display": "none"}
+
+    # Callback to load saved credentials on page load
+    @app.callback(
+        [
+            Output("garmin-email", "value"),
+            Output("garmin-password", "value"),
+            Output("remember-me-checkbox", "value"),
+        ],
+        [Input("url", "pathname")],
+        prevent_initial_call=False,
+    )
+    def load_saved_credentials(pathname):
+        """Load saved credentials when navigating to the Garmin login page."""
+        if pathname != "/garmin":
+            return "", "", False
+            
+        try:
+            from garmin_client.client import GarminConnectClient
+            client = GarminConnectClient()
+            credentials = client.load_credentials()
+            
+            if credentials:
+                return credentials.get("email", ""), credentials.get("password", ""), True
+            else:
+                return "", "", False
+                
+        except Exception:
+            return "", "", False

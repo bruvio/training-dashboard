@@ -294,19 +294,36 @@ def update_activity_summary(store_data):
                     ], width=2)
                 )
             
-            # Speed card (for non-running activities)
-            if activity.avg_speed_mps and activity.sport != 'running':
-                speed_kmh = activity.avg_speed_mps * 3.6
-                summary_cards.append(
-                    dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H4(f"{speed_kmh:.1f} km/h", className="text-info mb-0"),
-                                html.P("Avg Speed", className="text-muted mb-0")
-                            ], className="text-center")
-                        ])
-                    ], width=2)
-                )
+            # Speed/Pace card
+            if activity.avg_speed_mps:
+                if activity.sport == 'running':
+                    # Show pace for running activities
+                    pace_s_per_km = 1000 / activity.avg_speed_mps
+                    pace_min = int(pace_s_per_km // 60)
+                    pace_sec = int(pace_s_per_km % 60)
+                    summary_cards.append(
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H4(f"{pace_min}:{pace_sec:02d} /km", className="text-info mb-0"),
+                                    html.P("Avg Pace", className="text-muted mb-0")
+                                ], className="text-center")
+                            ])
+                        ], width=2)
+                    )
+                else:
+                    # Show speed for other activities
+                    speed_kmh = activity.avg_speed_mps * 3.6
+                    summary_cards.append(
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H4(f"{speed_kmh:.1f} km/h", className="text-info mb-0"),
+                                    html.P("Avg Speed", className="text-muted mb-0")
+                                ], className="text-center")
+                            ])
+                        ], width=2)
+                    )
             
             # Heart Rate card
             if activity.avg_hr:
@@ -637,18 +654,23 @@ def update_activity_laps(store_data):
                 distance_str = f"{lap.distance_m/1000:.2f} km" if lap.distance_m else "N/A"
 
                 # Format speed/pace
-                if lap.avg_speed_mps:
-                    # Get activity to check sport type
+                speed_mps = lap.avg_speed_mps
+                # Calculate speed if not stored but distance and time available
+                if not speed_mps and lap.distance_m and lap.elapsed_time_s and lap.elapsed_time_s > 0:
+                    speed_mps = lap.distance_m / lap.elapsed_time_s
+                
+                if speed_mps:
+                    # Get activity to check sport type  
                     activity = session.query(Activity).filter_by(id=activity_id).first()
                     if activity and activity.sport == 'running':
                         # Show pace for running
-                        pace_s_per_km = 1000 / lap.avg_speed_mps
+                        pace_s_per_km = 1000 / speed_mps
                         pace_min = int(pace_s_per_km // 60)
                         pace_sec = int(pace_s_per_km % 60)
                         speed_str = f"{pace_min}:{pace_sec:02d}/km"
                     else:
                         # Show speed for other activities
-                        speed_kmh = lap.avg_speed_mps * 3.6
+                        speed_kmh = speed_mps * 3.6
                         speed_str = f"{speed_kmh:.1f} km/h"
                 else:
                     speed_str = "N/A"
