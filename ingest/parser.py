@@ -199,16 +199,20 @@ class ActivityParser:
                     ground_time = record.get_value("Ground Time")
                     ground_contact_time_ms = float(ground_time) if ground_time is not None else None
 
+                # Get speed and altitude, preferring enhanced values
+                speed = record.get_value("enhanced_speed") or record.get_value("speed")
+                altitude = record.get_value("enhanced_altitude") or record.get_value("altitude")
+
                 sample = SampleData(
                     timestamp=timestamp,
                     elapsed_time_s=elapsed_time,
                     latitude=lat,
                     longitude=lon,
-                    altitude_m=record.get_value("altitude"),
+                    altitude_m=altitude,
                     heart_rate=record.get_value("heart_rate"),
                     power_w=record.get_value("power"),
                     cadence_rpm=record.get_value("cadence"),
-                    speed_mps=record.get_value("speed"),
+                    speed_mps=speed,
                     temperature_c=record.get_value("temperature"),
                     # Advanced running dynamics
                     vertical_oscillation_mm=vertical_oscillation_mm,

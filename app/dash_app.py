@@ -49,11 +49,12 @@ try:
 
     # Import pages to register their callbacks with the app
     sys.path.insert(0, "/app")  # Ensure /app is first for pages import
-    from pages import activity_detail, calendar, garmin_login, settings
+    from pages import activity_detail, calendar, garmin_login, settings, fit_upload
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)
     settings.register_callbacks(app)
+    fit_upload.register_callbacks(app)
     logger.info("✅ All page modules imported successfully - callbacks registered")
 
 except ImportError as e:
@@ -87,9 +88,15 @@ except ImportError as e:
         settings = importlib.util.module_from_spec(settings_spec)
         settings_spec.loader.exec_module(settings)
 
+        # Load fit_upload module
+        fit_upload_spec = importlib.util.spec_from_file_location("fit_upload", "/app/pages/fit_upload.py")
+        fit_upload = importlib.util.module_from_spec(fit_upload_spec)
+        fit_upload_spec.loader.exec_module(fit_upload)
+
         # Register callbacks for pages that need them
         garmin_login.register_callbacks(app)
         settings.register_callbacks(app)
+        fit_upload.register_callbacks(app)
         logger.info("✅ Page modules imported via importlib - callbacks registered")
 
     except Exception as e2:
@@ -135,6 +142,12 @@ app.layout = dbc.Container(
                                         dbc.NavLink(
                                             [html.I(className="fas fa-download me-1"), "Garmin Sync"],
                                             href="/garmin",
+                                            active="exact",
+                                            className="text-white",
+                                        ),
+                                        dbc.NavLink(
+                                            [html.I(className="fas fa-file-upload me-1"), "Import Files"],
+                                            href="/upload",
                                             active="exact",
                                             className="text-white",
                                         ),
@@ -286,6 +299,17 @@ def display_page(pathname):
         except Exception as e:
             logger.error(f"Error loading Settings page: {e}")
             return html.Div([html.H2(f"Error loading Settings: {str(e)}")])
+
+    elif pathname == "/upload":
+        # FIT file upload page
+        try:
+            logger.info("Loading FIT Upload page")
+            from pages.fit_upload import layout as upload_layout
+
+            return upload_layout()
+        except Exception as e:
+            logger.error(f"Error loading Upload page: {e}")
+            return html.Div([html.H2(f"Error loading Upload page: {str(e)}")])
 
     else:
         logger.info(f"Unknown pathname: {pathname}")

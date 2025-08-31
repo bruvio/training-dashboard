@@ -79,11 +79,10 @@ def layout():
                                             ),
                                             dbc.Button(
                                                 [html.I(className="fas fa-file-upload me-2"), "Import Files"],
+                                                href="/upload",
                                                 color="secondary",
                                                 size="lg",
                                                 className="w-100",
-                                                disabled=True,
-                                                title="Use CLI: python -m cli.gd_import [directory]",
                                             ),
                                         ]
                                     )
