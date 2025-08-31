@@ -301,7 +301,7 @@ def update_metric_selector(store_data):
         Input("data-overlay-selector-biomechanics", "value"),
         Input("data-overlay-selector-environmental", "value"),
     ],
-    prevent_initial_call=True,
+    prevent_initial_call=False,
 )
 def combine_metric_selections(basic, running, power, biomechanics, environmental):
     """Combine metric selections from all categories."""
@@ -679,7 +679,7 @@ def update_activity_summary(store_data):
 @callback(
     Output("activity-charts", "children"),
     [Input("activity-data-store", "data"), Input("combined-metric-selection", "data")],
-    prevent_initial_call=True,
+    prevent_initial_call=False,
 )
 def update_activity_charts(store_data, selected_metrics):
     """Update activity charts with sample data."""
