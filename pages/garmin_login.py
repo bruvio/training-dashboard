@@ -2,9 +2,12 @@
 Garmin Connect login and data synchronization page.
 """
 
+import logging
 from dash import html, dcc, Input, Output, State, ctx
 import dash_bootstrap_components as dbc
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 # This page uses manual routing - no registration needed
 
@@ -313,7 +316,7 @@ def register_callbacks(app):
                     [],
                     {"display": "none"},
                     {"display": "none"},  # Hide login form
-                    {"mfa_required": True, "email": email, "password": password},
+                    {"mfa_required": True, "email": email, "password": password, "remember_me": remember_me},
                 )
             elif success:
                 # Authentication successful
@@ -419,7 +422,7 @@ def register_callbacks(app):
                 logger.info(f"MFA callback called, returning code: {mfa_code}")
                 return mfa_code
             
-            success = client.authenticate(email, password, mfa_callback=web_mfa_callback, remember_me=remember_me)
+            success = client.authenticate(email, password, mfa_callback=web_mfa_callback, remember_me=store_data.get("remember_me", False))
             
             if success:
                 success_content = [
