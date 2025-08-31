@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 import tempfile
 
-from dash import Input, Output, State, callback, ctx, dcc, html
+from dash import Input, Output, State, dcc, html
 import dash_bootstrap_components as dbc
 
 from app.data.db import session_scope
@@ -172,13 +172,6 @@ def register_callbacks(app):
             return [], "", ""
 
         logger.info(f"Processing {len(contents)} uploaded files")
-
-        # Show initial progress
-        progress_content = [
-            html.H5("Processing Files...", className="mb-3"),
-            dbc.Progress(value=20, color="primary", className="mb-3"),
-            html.P("Parsing and importing files...", className="text-muted"),
-        ]
 
         results = {"imported": 0, "skipped": 0, "errors": 0, "duplicates": 0, "error_details": []}
         file_list_items = []

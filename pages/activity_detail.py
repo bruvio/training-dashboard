@@ -281,7 +281,7 @@ def update_metric_selector(store_data):
                 # Always create selector, even if empty
                 category_options = categories.get(category, [])
                 selected_values = [m["value"] for m in category_options if m["value"] in default_values]
-                
+
                 # Only show section if it has metrics OR if it's a basic category (always show basic)
                 if category_options or category == "basic":
                     metric_sections.append(
@@ -756,7 +756,6 @@ def update_activity_charts(store_data, selected_metrics):
             for sample in samples:
                 # Calculate sport-specific speed/pace
                 pace_per_km = None
-                speed_display = None
 
                 if sample.speed_mps and sample.speed_mps > 0:
                     sport = (activity.sport or "").lower()
@@ -764,16 +763,13 @@ def update_activity_charts(store_data, selected_metrics):
                     if sport in ["running", "run"]:
                         # Running: min/km pace
                         pace_per_km = (1000 / sample.speed_mps) / 60  # Convert to minutes per km
-                        speed_display = pace_per_km
                     elif sport in ["swimming", "swim"]:
                         # Swimming: min/100m pace
                         pace_per_100m = (100 / sample.speed_mps) / 60  # Convert to minutes per 100m
-                        speed_display = pace_per_100m
                         pace_per_km = pace_per_100m  # Use same field for consistency
                     else:
                         # Cycling and others: km/h
                         speed_kmh = sample.speed_mps * 3.6
-                        speed_display = speed_kmh
                         pace_per_km = speed_kmh  # Use same field for consistency
 
                 sample_data.append(
