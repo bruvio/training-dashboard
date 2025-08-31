@@ -1,14 +1,17 @@
 """
 FIT File Upload Page - Upload and import FIT files directly from the web interface.
+Fixed version that processes files immediately on upload (proper Dash pattern).
 """
 
 import base64
 from datetime import datetime
+import hashlib
 import io
 import logging
 from pathlib import Path
+import tempfile
 
-from dash import Input, Output, State, ctx, dcc, html
+from dash import Input, Output, State, callback, ctx, dcc, html
 import dash_bootstrap_components as dbc
 
 from app.data.db import session_scope
@@ -34,7 +37,7 @@ def layout():
                             ),
                             html.P(
                                 "Upload FIT files directly from your Garmin device to analyze your workouts. "
-                                "Supports multiple file selection and automatic parsing with progress tracking.",
+                                "Files will be processed immediately after selection.",
                                 className="text-muted mb-4",
                             ),
                         ],
@@ -53,7 +56,7 @@ def layout():
                                         [
                                             html.H5("File Upload", className="mb-0"),
                                             html.Small(
-                                                "Drag and drop FIT files or click to select",
+                                                "Drag and drop FIT files or click to select - files will be imported immediately",
                                                 className="text-muted d-block mt-1",
                                             ),
                                         ]
@@ -110,22 +113,22 @@ def layout():
                                                                 value=False,
                                                             )
                                                         ],
-                                                        width=6,
+                                                        width=8,
                                                     ),
                                                     dbc.Col(
                                                         [
                                                             dbc.Button(
                                                                 [
-                                                                    html.I(className="fas fa-times me-2"),
-                                                                    "Clear Files",
+                                                                    html.I(className="fas fa-arrow-left me-2"),
+                                                                    "Back to Activities",
                                                                 ],
-                                                                id="clear-files-btn",
-                                                                color="outline-secondary",
+                                                                href="/",
+                                                                color="outline-primary",
                                                                 size="sm",
-                                                                className="float-end",
                                                             )
                                                         ],
-                                                        width=6,
+                                                        width=4,
+                                                        className="text-end",
                                                     ),
                                                 ]
                                             ),
@@ -144,50 +147,6 @@ def layout():
             html.Div(id="upload-progress", className="mt-4"),
             # Results section
             html.Div(id="upload-results", className="mt-4"),
-            # Action buttons - separate container to prevent upload interference
-            html.Hr(className="my-4"),
-            html.Div(
-                [
-                    dbc.Container(
-                        [
-                            dbc.Row(
-                                [
-                                    dbc.Col(
-                                        [
-                                            dbc.Button(
-                                                [html.I(className="fas fa-arrow-left me-2"), "Back to Activities"],
-                                                href="/",
-                                                color="outline-primary",
-                                                className="me-2",
-                                            ),
-                                            html.Button(
-                                                [html.I(className="fas fa-sync me-2"), "Process Files"],
-                                                id="process-files-btn",
-                                                className="btn btn-primary",
-                                                disabled=True,
-                                                style={
-                                                    "pointerEvents": "auto",
-                                                    "zIndex": 1000,
-                                                    "position": "relative",
-                                                },
-                                                n_clicks=0,
-                                                type="button",
-                                            ),
-                                        ],
-                                        className="text-center",
-                                    )
-                                ]
-                            )
-                        ],
-                        className="mt-4",
-                        fluid=False,
-                    )
-                ],
-                style={"position": "relative", "zIndex": 999, "background": "white"},
-                className="py-3",
-            ),
-            # Store for uploaded files data
-            dcc.Store(id="uploaded-files-store", data=[]),
         ],
         fluid=True,
     )
@@ -199,166 +158,125 @@ def register_callbacks(app):
     @app.callback(
         [
             Output("upload-file-list", "children"),
-            Output("uploaded-files-store", "data"),
-            Output("process-files-btn", "disabled"),
+            Output("upload-progress", "children"),
+            Output("upload-results", "children"),
         ],
-        [Input("fit-file-upload", "contents"), Input("clear-files-btn", "n_clicks")],
-        [State("fit-file-upload", "filename"), State("uploaded-files-store", "data")],
+        [Input("fit-file-upload", "contents")],
+        [State("fit-file-upload", "filename"), State("force-reimport", "value")],
         prevent_initial_call=True,
     )
-    def handle_file_selection(contents, clear_clicks, filenames, stored_files):
-        """Handle file selection and display file list."""
-        if ctx.triggered_id == "clear-files-btn":
-            # Clear all files
-            return [], [], True
+    def handle_file_upload(contents, filenames, force_reimport):
+        """Handle file upload and immediate processing."""
 
-        if not contents:
-            return [], [], True
+        if not contents or not filenames:
+            return [], "", ""
 
-        # Process uploaded files
-        file_data = []
-        for content, filename in zip(contents, filenames):
-            # Decode base64 content
-            content_type, content_string = content.split(",")
-            decoded = base64.b64decode(content_string)
+        logger.info(f"Processing {len(contents)} uploaded files")
 
-            file_info = {
-                "name": filename,
-                "content": content_string,
-                "size": len(decoded),
-                "type": Path(filename).suffix.lower(),
-            }
-            file_data.append(file_info)
-
-        # Create file list display
-        file_cards = []
-        for i, file_info in enumerate(file_data):
-            size_mb = file_info["size"] / (1024 * 1024)
-            file_type = file_info["type"].upper()
-
-            # Determine file type icon and color
-            if file_info["type"] in [".fit"]:
-                icon = "fas fa-file-code"
-                color = "success"
-            elif file_info["type"] in [".tcx", ".gpx"]:
-                icon = "fas fa-file-alt"
-                color = "info"
-            else:
-                icon = "fas fa-file"
-                color = "warning"
-
-            card = dbc.Card(
-                [
-                    dbc.CardBody(
-                        [
-                            dbc.Row(
-                                [
-                                    dbc.Col(
-                                        [
-                                            html.I(className=f"{icon} fa-2x text-{color}"),
-                                        ],
-                                        width=2,
-                                        className="text-center",
-                                    ),
-                                    dbc.Col(
-                                        [
-                                            html.H6(file_info["name"], className="mb-1"),
-                                            html.Small(
-                                                f"{file_type} file • {size_mb:.1f} MB",
-                                                className="text-muted",
-                                            ),
-                                        ],
-                                        width=8,
-                                    ),
-                                    dbc.Col(
-                                        [
-                                            dbc.Badge(
-                                                "Ready",
-                                                color="success",
-                                                pill=True,
-                                            )
-                                        ],
-                                        width=2,
-                                        className="text-center",
-                                    ),
-                                ]
-                            )
-                        ]
-                    )
-                ],
-                className="mb-2",
-            )
-            file_cards.append(card)
-
-        file_list_content = [
-            html.H5(f"{len(file_data)} Files Selected", className="mb-3"),
-            html.Div(file_cards),
-        ]
-
-        return file_list_content, file_data, False
-
-    @app.callback(
-        [Output("upload-progress", "children"), Output("upload-results", "children")],
-        [Input("process-files-btn", "n_clicks")],
-        [State("uploaded-files-store", "data"), State("force-reimport", "value")],
-        prevent_initial_call=True,
-    )
-    def process_uploaded_files(n_clicks, file_data, force_reimport):
-        """Process the uploaded FIT files."""
-        logger.info(
-            f"Process files callback triggered: n_clicks={n_clicks}, file_data_len={len(file_data) if file_data else 0}"
-        )
-
-        if not n_clicks or n_clicks == 0 or not file_data:
-            logger.info("Not processing - no clicks or no file data")
-            return "", ""
-
-        results = {"imported": 0, "skipped": 0, "errors": 0, "duplicates": 0, "error_details": []}
-
-        # Create progress bar
+        # Show initial progress
         progress_content = [
             html.H5("Processing Files...", className="mb-3"),
-            dbc.Progress(id="process-progress", value=0, className="mb-3"),
-            html.Div(id="process-status"),
+            dbc.Progress(value=20, color="primary", className="mb-3"),
+            html.P("Parsing and importing files...", className="text-muted"),
         ]
 
-        # Process each file
-        for i, file_info in enumerate(file_data):
+        results = {"imported": 0, "skipped": 0, "errors": 0, "duplicates": 0, "error_details": []}
+        file_list_items = []
+
+        # Process each uploaded file immediately
+        for i, (content, filename) in enumerate(zip(contents, filenames)):
             try:
-                # Update progress (this is simplified - in a real app you'd use callbacks for real-time updates)
-                _ = ((i + 1) / len(file_data)) * 100
+                # Decode base64 content
+                content_type, content_string = content.split(",")
+                decoded_content = base64.b64decode(content_string)
 
-                # Decode file content
-                decoded_content = base64.b64decode(file_info["content"])
-
-                # Create temporary file-like object
-                file_like = io.BytesIO(decoded_content)
+                size_mb = len(decoded_content) / (1024 * 1024)
+                file_type = Path(filename).suffix.upper()
 
                 # Process the file using existing import logic
-                result = import_file_from_content(file_like, file_info["name"], force_reimport)
+                file_like = io.BytesIO(decoded_content)
+                result = import_file_from_content(file_like, filename, force_reimport)
 
+                # Determine status and icon
                 if result["success"]:
                     results["imported"] += 1
+                    status = "Imported"
+                    status_color = "success"
+                    icon = "fas fa-check-circle"
+                    detail = f"Activity ID: {result.get('activity_id', 'Unknown')}"
                 elif result.get("reason") == "duplicate":
                     results["duplicates"] += 1
+                    status = "Duplicate"
+                    status_color = "warning"
+                    icon = "fas fa-exclamation-triangle"
+                    detail = "Already exists in database"
                 else:
                     results["skipped"] += 1
+                    status = "Skipped"
+                    status_color = "secondary"
+                    icon = "fas fa-minus-circle"
+                    detail = result.get("reason", "Unknown reason")
 
             except Exception as e:
                 results["errors"] += 1
-                results["error_details"].append({"file": file_info["name"], "error": str(e)})
-                logger.error(f"Error processing {file_info['name']}: {e}")
+                results["error_details"].append({"file": filename, "error": str(e)})
+                logger.error(f"Error processing {filename}: {e}")
+                status = "Error"
+                status_color = "danger"
+                icon = "fas fa-times-circle"
+                size_mb = 0
+                file_type = "UNKNOWN"
+                detail = str(e)[:50] + "..." if len(str(e)) > 50 else str(e)
+
+            # Create file item display
+            file_item = dbc.ListGroupItem(
+                [
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [html.I(className=f"{icon} fa-lg text-{status_color}")],
+                                width=1,
+                                className="text-center",
+                            ),
+                            dbc.Col(
+                                [
+                                    html.H6(filename, className="mb-1"),
+                                    html.Small(f"{file_type} • {size_mb:.1f} MB", className="text-muted d-block"),
+                                    html.Small(detail, className="text-muted"),
+                                ],
+                                width=9,
+                            ),
+                            dbc.Col(
+                                [
+                                    dbc.Badge(status, color=status_color, pill=True),
+                                ],
+                                width=2,
+                                className="text-end",
+                            ),
+                        ],
+                        align="center",
+                    )
+                ],
+                className="py-2",
+            )
+            file_list_items.append(file_item)
+
+        # Create file list display
+        file_list_content = [
+            html.H5(f"{len(contents)} Files Processed", className="mb-3"),
+            dbc.ListGroup(file_list_items),
+        ]
 
         # Create results display
         results_content = create_results_display(results)
 
-        # Update progress to complete
-        progress_content = [
-            html.H5("Processing Complete!", className="mb-3 text-success"),
+        # Final progress
+        final_progress = [
+            html.H5("Import Complete!", className="mb-3 text-success"),
             dbc.Progress(value=100, color="success", className="mb-3"),
         ]
 
-        return progress_content, results_content
+        return file_list_content, final_progress, results_content
 
 
 def import_file_from_content(file_content: io.BytesIO, filename: str, force_reimport: bool = False) -> dict:
@@ -368,9 +286,6 @@ def import_file_from_content(file_content: io.BytesIO, filename: str, force_reim
         file_content.seek(0)
         content_bytes = file_content.read()
         file_content.seek(0)
-
-        # Simple hash calculation (you might want to use a more robust method)
-        import hashlib
 
         file_hash = hashlib.md5(content_bytes).hexdigest()
 
@@ -383,8 +298,6 @@ def import_file_from_content(file_content: io.BytesIO, filename: str, force_reim
                     return {"success": False, "reason": "duplicate"}
 
             # Create a temporary file for parsing
-            import tempfile
-
             with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix) as temp_file:
                 temp_file.write(content_bytes)
                 temp_file.flush()
@@ -495,7 +408,7 @@ def import_file_from_content(file_content: io.BytesIO, filename: str, force_reim
 def create_results_display(results: dict) -> list:
     """Create a display for import results."""
     content = [
-        html.H5("Import Results", className="mb-3"),
+        html.H5("Import Summary", className="mb-3"),
         dbc.Row(
             [
                 dbc.Col(
@@ -507,7 +420,7 @@ def create_results_display(results: dict) -> list:
                                         html.H3(str(results["imported"]), className="text-success mb-1"),
                                         html.P("Imported", className="mb-0 text-muted"),
                                     ],
-                                    className="text-center",
+                                    className="text-center py-2",
                                 )
                             ]
                         )
@@ -523,7 +436,7 @@ def create_results_display(results: dict) -> list:
                                         html.H3(str(results["duplicates"]), className="text-warning mb-1"),
                                         html.P("Duplicates", className="mb-0 text-muted"),
                                     ],
-                                    className="text-center",
+                                    className="text-center py-2",
                                 )
                             ]
                         )
@@ -539,7 +452,7 @@ def create_results_display(results: dict) -> list:
                                         html.H3(str(results["skipped"]), className="text-info mb-1"),
                                         html.P("Skipped", className="mb-0 text-muted"),
                                     ],
-                                    className="text-center",
+                                    className="text-center py-2",
                                 )
                             ]
                         )
@@ -555,7 +468,7 @@ def create_results_display(results: dict) -> list:
                                         html.H3(str(results["errors"]), className="text-danger mb-1"),
                                         html.P("Errors", className="mb-0 text-muted"),
                                     ],
-                                    className="text-center",
+                                    className="text-center py-2",
                                 )
                             ]
                         )
