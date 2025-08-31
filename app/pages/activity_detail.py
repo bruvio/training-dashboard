@@ -5,21 +5,21 @@ Research-validated implementation with dash-leaflet maps and synchronized
 Plotly charts following enhanced PRP specifications.
 """
 
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 import dash
-from dash import html, dcc, callback, Input, Output
+from dash import Input, Output, callback, dcc, html
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
+import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import pandas as pd
-import numpy as np
 from scipy import ndimage
 from scipy.signal import savgol_filter
 
-from app.data.web_queries import get_activity_by_id, get_activity_samples, check_database_connection
+from app.data.web_queries import check_database_connection, get_activity_by_id, get_activity_samples
 
 # Register this page with dynamic routing (Dash 2.17+ pattern)
 dash.register_page(
@@ -348,14 +348,12 @@ def load_activity_data(pathname: str):
 
         # Load sample data
         samples_df = get_activity_samples(activity_id)
-        samples_data = samples_df.to_dict("records") if not samples_df.empty else []
+        samples_data = [] if samples_df.empty else samples_df.to_dict("records")
 
         # Load route bounds for map centering
         route_bounds = None
         if samples_data:
-            # Calculate bounds from samples with GPS data
-            gps_samples = [s for s in samples_data if s.get("position_lat") and s.get("position_long")]
-            if gps_samples:
+            if gps_samples := [s for s in samples_data if s.get("position_lat") and s.get("position_long")]:
                 lats = [s["position_lat"] for s in gps_samples]
                 lons = [s["position_long"] for s in gps_samples]
 
@@ -537,12 +535,11 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
     if not samples_data or not isinstance(samples_data, list):
         return [], [0, 0], 2, "No GPS data available for this activity"
 
-    # Extract GPS coordinates from samples
-    route_positions = []
-    for sample in samples_data:
-        if sample.get("position_lat") and sample.get("position_long"):
-            route_positions.append([sample["position_lat"], sample["position_long"]])
-
+    route_positions = [
+        [sample["position_lat"], sample["position_long"]]
+        for sample in samples_data
+        if sample.get("position_lat") and sample.get("position_long")
+    ]
     if not route_positions:
         return [], [0, 0], 2, "No GPS data available for this activity"
 
@@ -567,13 +564,11 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
             zoom = 15
 
         center = [center_lat, center_lon]
-        status = f"Route with {len(route_positions)} GPS points"
-
     else:
         # Fallback to first point
         center = route_positions[0]
         zoom = 13
-        status = f"Route with {len(route_positions)} GPS points"
+    status = f"Route with {len(route_positions)} GPS points"
 
     return route_positions, center, zoom, status
 
@@ -645,9 +640,7 @@ def update_activity_charts(
     prepared_data = prepare_chart_data(df, data_types, smoothing)
 
     # Create charts based on selected type
-    if chart_type == "subplots":
-        return create_subplot_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
-    elif chart_type == "dual_y":
+    if chart_type == "dual_y":
         return create_dual_y_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
     elif chart_type == "overlay":
         return create_overlay_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
@@ -688,7 +681,7 @@ def prepare_chart_data(df: pd.DataFrame, data_types: list, smoothing: str = "non
                     if len(data) > window:
                         smooth_data = savgol_filter(data, min(window, len(data) // 3 * 2 - 1), 3, mode="nearest")
                         prepared_data[key] = smooth_data
-                except:
+                except Exception:
                     # Fallback to simple moving average
                     prepared_data[key] = ndimage.uniform_filter1d(data, size=window, mode="nearest")
 

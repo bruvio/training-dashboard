@@ -5,11 +5,11 @@ QThread-based worker for downloading Garmin activities in the background
 with progress reporting and error handling.
 """
 
-import time
-from typing import List, Dict, Optional
 from pathlib import Path
+import time
+from typing import Dict, List, Optional
 
-from PyQt6.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
+from PyQt6.QtCore import QMutex, QMutexLocker, QThread, pyqtSignal
 
 from garmin_client.client import GarminConnectClient
 
@@ -83,11 +83,7 @@ class DownloadWorker(QThread):
                         f"Progress: {i+1}/{len(self.activity_ids)} ({((i+1)/len(self.activity_ids)*100):.1f}%)",
                     )
 
-                    # Download the activity with progress tracking
-                    downloaded_path = self.client.download_activity(activity_id, self.format_type, self.output_dir)
-
-                    # Update results with enhanced details
-                    if downloaded_path:
+                    if downloaded_path := self.client.download_activity(activity_id, self.format_type, self.output_dir):
                         self.successful_downloads += 1
                         self.download_results[activity_id] = str(downloaded_path)
                         file_size = downloaded_path.stat().st_size if downloaded_path.exists() else 0
@@ -230,7 +226,6 @@ class BulkDownloadManager:
     def start_next_download(self) -> Optional[DownloadWorker]:
         """Start the next download in the queue if possible."""
         if len(self.active_workers) < self.max_concurrent_workers and self.download_queue:
-
             worker = self.download_queue.pop(0)
             self.active_workers.append(worker)
 
@@ -271,7 +266,8 @@ class BulkDownloadManager:
 # Example usage and testing
 if __name__ == "__main__":
     import sys
-    from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QProgressBar, QLabel
+
+    from PyQt6.QtWidgets import QApplication, QLabel, QMainWindow, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
     class TestWindow(QMainWindow):
         def __init__(self):

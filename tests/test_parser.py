@@ -5,15 +5,16 @@ Tests FIT, TCX, and GPX parsing with error handling and data validation
 following the research-validated patterns from the enhanced PRP.
 """
 
-import pytest
 from datetime import datetime, timezone
-from pathlib import Path
-from unittest.mock import patch, mock_open, MagicMock
-import tempfile
 import hashlib
+from pathlib import Path
+import tempfile
+from unittest.mock import MagicMock, mock_open, patch
 
-from ingest.parser import ActivityParser, FileNotSupportedError, CorruptFileError
+import pytest
+
 from app.data.models import ActivityData, SampleData
+from ingest.parser import ActivityParser, CorruptFileError, FileNotSupportedError
 
 
 class TestActivityParser:
@@ -372,7 +373,6 @@ class TestParserIntegration:
         with patch.object(ActivityParser, "parse_fit_file") as mock_fit, patch.object(
             ActivityParser, "parse_tcx_file"
         ) as mock_tcx, patch.object(ActivityParser, "parse_gpx_file") as mock_gpx:
-
             mock_fit.return_value = ActivityData()
             mock_tcx.return_value = ActivityData()
             mock_gpx.return_value = ActivityData()

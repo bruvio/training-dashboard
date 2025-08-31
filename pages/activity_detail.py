@@ -2,13 +2,13 @@
 Activity detail page - Show detailed analysis and charts for a specific activity.
 """
 
-from dash import html, dcc, callback, Input, Output, State
+from dash import Input, Output, State, callback, dcc, html
 import dash_bootstrap_components as dbc
-import plotly.graph_objects as go
 import pandas as pd
+import plotly.graph_objects as go
 
 from app.data.db import session_scope
-from app.data.models import Activity, Sample, Lap
+from app.data.models import Activity, Lap, Sample
 
 # This page uses manual routing - no registration needed
 
@@ -848,7 +848,7 @@ def update_activity_charts(store_data, selected_metrics):
 
             fig.update_layout(**layout_config)
 
-            if not selected_metrics or not any(metric in df.columns for metric in selected_metrics):
+            if not selected_metrics or all(metric not in df.columns for metric in selected_metrics):
                 return dbc.Alert("No data available for selected metrics", color="info")
 
             return dcc.Graph(figure=fig, style={"height": "500px"})

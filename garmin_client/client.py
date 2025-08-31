@@ -5,11 +5,11 @@ Enhanced Garmin Connect client with encryption, error handling, and secure crede
 Research-validated implementation following PRP specifications.
 """
 
+from datetime import datetime
 import json
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
-from datetime import datetime
 
 try:
     from garminconnect import Garmin
@@ -80,12 +80,11 @@ class GarminConnectClient:
 
         if key_file.exists():
             return key_file.read_bytes()
-        else:
-            key = Fernet.generate_key()
-            key_file.write_bytes(key)
-            key_file.chmod(0o600)  # Secure permissions
-            logger.info("Created new encryption key")
-            return key
+        key = Fernet.generate_key()
+        key_file.write_bytes(key)
+        key_file.chmod(0o600)  # Secure permissions
+        logger.info("Created new encryption key")
+        return key
 
     def store_credentials(self, email: str, password: str):
         """
@@ -250,6 +249,4 @@ def quick_authenticate(email: str, password: str, config_dir: Path = None) -> Op
         Authenticated client instance or None if failed
     """
     client = GarminConnectClient(config_dir)
-    if client.authenticate(email, password):
-        return client
-    return None
+    return client if client.authenticate(email, password) else None

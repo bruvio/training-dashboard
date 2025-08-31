@@ -6,39 +6,40 @@ activity management, and integration with the web dashboard.
 Research-validated implementation following enhanced PRP specifications.
 """
 
-import sys
-import webbrowser
-import subprocess
-from datetime import datetime, date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import List, Dict
+import subprocess
+import sys
+from typing import Dict, List
+import webbrowser
 
+from PyQt6.QtCore import QDate, QSettings, QSize, Qt, QTimer
+from PyQt6.QtGui import QAction, QFont
 from PyQt6.QtWidgets import (
     QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
     QCalendarWidget,
+    QCheckBox,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
+    QStatusBar,
     QTableWidget,
     QTableWidgetItem,
-    QProgressBar,
-    QStatusBar,
-    QCheckBox,
-    QHeaderView,
-    QSplitter,
-    QGroupBox,
-    QMessageBox,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QDate, QSettings, QSize, QTimer
-from PyQt6.QtGui import QAction, QFont
 
 from garmin_client.client import GarminConnectClient
+
+from .download_worker import BulkDownloadManager, DownloadWorker
 from .login_dialog import LoginDialog
 from .settings_dialog import SettingsDialog
-from .download_worker import DownloadWorker, BulkDownloadManager
 
 
 class GarminDashboardApp(QMainWindow):
@@ -426,12 +427,10 @@ class GarminDashboardApp(QMainWindow):
 
     def restore_window_state(self):
         """Restore window size and position from settings."""
-        geometry = self.settings.value("geometry")
-        if geometry:
+        if geometry := self.settings.value("geometry"):
             self.restoreGeometry(geometry)
 
-        window_state = self.settings.value("windowState")
-        if window_state:
+        if window_state := self.settings.value("windowState"):
             self.restoreState(window_state)
 
     def save_window_state(self):
@@ -465,8 +464,7 @@ class GarminDashboardApp(QMainWindow):
     # Authentication methods
     def check_authentication_status(self):
         """Check if user has stored credentials and attempt auto-login."""
-        credentials = self.garmin_client.load_credentials()
-        if credentials:
+        if credentials := self.garmin_client.load_credentials():
             email = credentials.get("email", "")
             self.login_status_label.setText(f"Auto-authenticating as {email}...")
             self.login_status_label.setStyleSheet("color: #ffc107; font-weight: bold;")
@@ -587,10 +585,9 @@ class GarminDashboardApp(QMainWindow):
             self.set_date_range(-30)  # Default to last 30 days
 
         try:
-            # Fetch activities from Garmin Connect
-            activities = self.garmin_client.get_activities(self.current_start_date, self.current_end_date, limit=200)
-
-            if activities:
+            if activities := self.garmin_client.get_activities(
+                self.current_start_date, self.current_end_date, limit=200
+            ):
                 self.current_activities = activities
                 self.populate_activities_table(activities)
                 self.status_bar.showMessage(f"Found {len(activities)} activities")
@@ -616,13 +613,11 @@ class GarminDashboardApp(QMainWindow):
             checkbox = QCheckBox()
             self.activities_table.setCellWidget(row, 0, checkbox)
 
-            # Activity details
-            start_time_local = activity.get("startTimeLocal", "")
-            if start_time_local:
+            if start_time_local := activity.get("startTimeLocal", ""):
                 try:
                     dt = datetime.fromisoformat(start_time_local.replace("Z", ""))
                     date_str = dt.strftime("%Y-%m-%d %H:%M")
-                except:
+                except Exception:
                     date_str = start_time_local
             else:
                 date_str = "Unknown"
@@ -647,10 +642,7 @@ class GarminDashboardApp(QMainWindow):
             if duration and duration > 0:
                 hours = int(duration // 3600)
                 minutes = int((duration % 3600) // 60)
-                if hours > 0:
-                    duration_str = f"{hours}h {minutes}m"
-                else:
-                    duration_str = f"{minutes}m"
+                duration_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
             else:
                 duration_str = "N/A"
             self.activities_table.setItem(row, 4, QTableWidgetItem(duration_str))
@@ -706,8 +698,7 @@ class GarminDashboardApp(QMainWindow):
         for row in range(self.activities_table.rowCount()):
             checkbox = self.activities_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
-                activity_id = self.activities_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
-                if activity_id:
+                if activity_id := self.activities_table.item(row, 1).data(Qt.ItemDataRole.UserRole):
                     selected_activities.append(activity_id)
 
         return selected_activities
@@ -715,15 +706,13 @@ class GarminDashboardApp(QMainWindow):
     def select_all_activities(self):
         """Select all activities in the table."""
         for row in range(self.activities_table.rowCount()):
-            checkbox = self.activities_table.cellWidget(row, 0)
-            if checkbox:
+            if checkbox := self.activities_table.cellWidget(row, 0):
                 checkbox.setChecked(True)
 
     def select_no_activities(self):
         """Deselect all activities in the table."""
         for row in range(self.activities_table.rowCount()):
-            checkbox = self.activities_table.cellWidget(row, 0)
-            if checkbox:
+            if checkbox := self.activities_table.cellWidget(row, 0):
                 checkbox.setChecked(False)
 
     def download_selected_activities(self):
@@ -741,8 +730,7 @@ class GarminDashboardApp(QMainWindow):
         all_activities = []
 
         for row in range(self.activities_table.rowCount()):
-            activity_id = self.activities_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
-            if activity_id:
+            if activity_id := self.activities_table.item(row, 1).data(Qt.ItemDataRole.UserRole):
                 all_activities.append(activity_id)
 
         if not all_activities:
@@ -867,7 +855,7 @@ class GarminDashboardApp(QMainWindow):
                 self.status_bar.showMessage("Opened web dashboard in browser")
             else:
                 self.start_web_dashboard_and_open()
-        except:
+        except Exception:
             self.start_web_dashboard_and_open()
 
     def start_web_dashboard_and_open(self):

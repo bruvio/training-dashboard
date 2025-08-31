@@ -5,12 +5,13 @@ Optimized queries for activity data retrieval with proper filtering,
 sorting, and performance considerations.
 """
 
-from datetime import datetime, date
-from typing import List, Optional, Dict, Any, Tuple
-from sqlalchemy import select, func, or_, desc
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional, Tuple
+
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from .models import Activity, Sample, RoutePoint
+from .models import Activity, RoutePoint, Sample
 
 
 class ActivityQueries:

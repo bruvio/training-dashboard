@@ -5,8 +5,8 @@ Research-based implementation supporting FIT, TCX, and GPX file formats
 with comprehensive error handling and data normalization.
 """
 
-import logging
 import hashlib
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -35,7 +35,7 @@ except ImportError:
     GPXPY_AVAILABLE = False
     logging.warning("gpxpy not available - GPX file support disabled")
 
-from app.data.models import ActivityData, SampleData, LapData
+from app.data.models import ActivityData, LapData, SampleData
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class ActivityParser:
                     sha256_hash.update(chunk)
             return sha256_hash.hexdigest()
         except (OSError, IOError) as e:
-            raise CorruptFileError(f"Cannot read file {file_path}: {e}")
+            raise CorruptFileError(f"Cannot read file {file_path}: {e}") from e
 
     @staticmethod
     def parse_activity_file(file_path: Path) -> Optional[ActivityData]:
@@ -115,9 +115,8 @@ class ActivityParser:
         except Exception as e:
             if isinstance(e, (FileNotSupportedError, CorruptFileError)):
                 raise
-            else:
-                logger.warning(f"Parsing error for {file_path}: {e}")
-                raise CorruptFileError(f"Parse error: {e}")
+            logger.warning(f"Parsing error for {file_path}: {e}")
+            raise CorruptFileError(f"Parse error: {e}") from e
 
     @staticmethod
     def parse_fit_file(file_path: Path) -> Optional[ActivityData]:
@@ -267,7 +266,7 @@ class ActivityParser:
 
         except Exception as e:
             logger.error(f"FIT parsing error for {file_path}: {e}")
-            raise CorruptFileError(f"FIT parse error: {e}")
+            raise CorruptFileError(f"FIT parse error: {e}") from e
 
     @staticmethod
     def parse_tcx_file(file_path: Path) -> Optional[ActivityData]:
@@ -358,7 +357,7 @@ class ActivityParser:
 
         except Exception as e:
             logger.error(f"TCX parsing error for {file_path}: {e}")
-            raise CorruptFileError(f"TCX parse error: {e}")
+            raise CorruptFileError(f"TCX parse error: {e}") from e
 
     @staticmethod
     def parse_gpx_file(file_path: Path) -> Optional[ActivityData]:
@@ -409,7 +408,7 @@ class ActivityParser:
 
                 # Convert points to samples
                 start_time = all_points[0].time
-                for i, point in enumerate(all_points):
+                for point in all_points:
                     elapsed_time_s = 0
                     if point.time and start_time:
                         elapsed_time_s = int((point.time - start_time).total_seconds())
@@ -433,17 +432,15 @@ class ActivityParser:
                     # Use gpxpy's built-in distance calculation
                     total_distance = 0
                     for track in gpx.tracks:
-                        track_distance = track.length_2d()
-                        if track_distance:
+                        if track_distance := track.length_2d():
                             total_distance += track_distance
 
                     activity_data.distance_m = total_distance
 
                     # Calculate elapsed time
-                    if all_points and len(all_points) > 1:
-                        if all_points[0].time and all_points[-1].time:
-                            elapsed = all_points[-1].time - all_points[0].time
-                            activity_data.elapsed_time_s = int(elapsed.total_seconds())
+                    if all_points and len(all_points) > 1 and (all_points[0].time and all_points[-1].time):
+                        elapsed = all_points[-1].time - all_points[0].time
+                        activity_data.elapsed_time_s = int(elapsed.total_seconds())
 
                 except Exception as e:
                     logger.debug(f"Could not calculate GPX statistics: {e}")
@@ -458,7 +455,7 @@ class ActivityParser:
 
         except Exception as e:
             logger.error(f"GPX parsing error for {file_path}: {e}")
-            raise CorruptFileError(f"GPX parse error: {e}")
+            raise CorruptFileError(f"GPX parse error: {e}") from e
 
     @staticmethod
     def _derive_metrics(activity_data: ActivityData):

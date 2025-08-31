@@ -2,4 +2,4 @@
 Pages package for Garmin Dashboard.
 """
 
-from . import calendar, activity_detail, garmin_login
+from . import activity_detail, calendar, garmin_login

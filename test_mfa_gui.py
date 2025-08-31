@@ -3,13 +3,14 @@
 Test script for GUI MFA handling with Garmin Connect.
 """
 
-import sys
 from pathlib import Path
+import sys
 
 # Add the project root to Python path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
+
 from desktop_ui.login_dialog_simple import SimpleLoginDialog
 from desktop_ui.mfa_dialog import MFADialog
 from garmin_client.client import GarminConnectClient

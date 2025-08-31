@@ -8,21 +8,21 @@ Research-validated PyQt6 implementation following PRP specifications.
 import sys
 from typing import Tuple
 
-from PyQt6.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QFormLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QCheckBox,
-    QMessageBox,
-    QProgressBar,
-    QGroupBox,
-)
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+)
 
 
 class LoginDialog(QDialog):

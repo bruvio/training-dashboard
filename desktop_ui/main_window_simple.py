@@ -4,37 +4,38 @@ Simple Main Window for Garmin Connect Desktop Dashboard.
 Simplified version optimized for macOS compatibility with minimal styling.
 """
 
+from pathlib import Path
 import sys
 import webbrowser
-from pathlib import Path
 
+from PyQt6.QtCore import QDate, QSettings, QSize, Qt
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QProgressBar,
-    QStatusBar,
     QCheckBox,
-    QHeaderView,
-    QGroupBox,
-    QMessageBox,
     QComboBox,
     QDateEdit,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QStatusBar,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QDate, QSettings, QSize
-from PyQt6.QtGui import QFont
 
 from garmin_client.client import GarminConnectClient
+
+from .download_worker import BulkDownloadManager, DownloadWorker
 from .login_dialog_simple import SimpleLoginDialog
 from .mfa_dialog import MFADialog
 from .settings_dialog import SettingsDialog
-from .download_worker import DownloadWorker, BulkDownloadManager
 
 
 class SimpleGarminDashboardApp(QMainWindow):
@@ -232,7 +233,7 @@ class SimpleGarminDashboardApp(QMainWindow):
             stored_email = self.garmin_client.get_stored_email()
             if stored_email:
                 dialog.set_credentials(stored_email)
-        except:
+        except Exception:
             pass
 
         if dialog.exec() == SimpleLoginDialog.DialogCode.Accepted:

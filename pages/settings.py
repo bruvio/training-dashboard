@@ -4,11 +4,11 @@ Settings page for Garmin Dashboard.
 Provides database management, user preferences, and system information.
 """
 
-import logging
 from datetime import datetime
+import logging
 
 import dash
-from dash import html, Input, Output, State
+from dash import Input, Output, State, html
 import dash_bootstrap_components as dbc
 
 # Import database utilities
@@ -367,9 +367,9 @@ def register_callbacks(app):
     def update_system_info(_):
         """Display system information."""
         try:
+            from datetime import datetime
             import os
             import platform
-            from datetime import datetime
 
             system_info = [
                 dbc.Row(

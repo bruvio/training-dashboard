@@ -5,15 +5,16 @@ Provides common test setup, database fixtures, and test data generation
 following pytest best practices and research-validated patterns.
 """
 
-import pytest
-import tempfile
-import shutil
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+import shutil
+import tempfile
 from unittest.mock import patch
 
+import pytest
+
 from app.data.db import init_database
-from app.data.models import Activity, Sample, RoutePoint, Lap
+from app.data.models import Activity, Lap, RoutePoint, Sample
 
 
 @pytest.fixture(scope="session")
@@ -25,10 +26,7 @@ def temp_database():
 
     # Initialize database
     db_url = f"sqlite:///{db_path}"
-    db_config = init_database(db_url)
-
-    yield db_config
-
+    yield init_database(db_url)
     # Cleanup
     shutil.rmtree(temp_dir)
 
@@ -345,6 +343,5 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.integration)
 
         # Mark tests with fixtures as potentially slow
-        if hasattr(item, "fixturenames"):
-            if "activity_with_samples" in item.fixturenames:
-                item.add_marker(pytest.mark.slow)
+        if hasattr(item, "fixturenames") and "activity_with_samples" in item.fixturenames:
+            item.add_marker(pytest.mark.slow)

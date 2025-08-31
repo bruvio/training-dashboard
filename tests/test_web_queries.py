@@ -5,20 +5,21 @@ Tests database integration, query optimization, and data formatting
 for web components following the enhanced PRP specifications.
 """
 
-import pytest
-from datetime import datetime, timezone, date, timedelta
-from unittest.mock import patch, MagicMock
-import pandas as pd
+from datetime import date, datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
+import pandas as pd
+import pytest
+
+from app.data.db import DatabaseConfig
+from app.data.models import Activity, Sample
 from app.data.web_queries import (
+    check_database_connection,
     get_activities_for_date_range,
-    get_activity_summary_stats,
     get_activity_by_id,
     get_activity_samples,
-    check_database_connection,
+    get_activity_summary_stats,
 )
-from app.data.models import Activity, Sample
-from app.data.db import DatabaseConfig
 
 
 class TestWebQueries:
@@ -399,7 +400,7 @@ class TestWebQueriesIntegration:
         assert len(sport_mapping["running"]) > 0
 
         # Verify all mapped values are strings
-        for sport_category, sport_list in sport_mapping.items():
+        for sport_list in sport_mapping.values():
             assert all(isinstance(sport, str) for sport in sport_list)
 
 

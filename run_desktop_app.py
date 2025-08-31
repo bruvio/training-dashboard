@@ -6,8 +6,8 @@ This script ensures proper setup and launches the simplified version
 that works better on macOS.
 """
 
-import sys
 from pathlib import Path
+import sys
 
 # Add the project root to Python path
 project_root = Path(__file__).parent

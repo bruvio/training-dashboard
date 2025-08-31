@@ -6,9 +6,9 @@ Runs comprehensive test suite and reports results for validation gates
 following the enhanced PRP specification.
 """
 
-import sys
-import subprocess
 from pathlib import Path
+import subprocess
+import sys
 from typing import Dict, List, Tuple
 
 
@@ -48,8 +48,6 @@ def run_test_suite() -> Dict[str, bool]:
     Returns:
         Dictionary mapping test category to success status
     """
-    results = {}
-
     print("🏃 Starting Garmin Dashboard Test Suite")
     print("=" * 60)
 
@@ -57,8 +55,7 @@ def run_test_suite() -> Dict[str, bool]:
     success, output = run_command(
         ["python", "-m", "pytest", "tests/test_models.py", "-v", "--tb=short"], "Running SQLAlchemy model tests"
     )
-    results["models"] = success
-
+    results = {"models": success}
     # 2. Unit tests for parsers
     success, output = run_command(
         ["python", "-m", "pytest", "tests/test_parser.py", "-v", "--tb=short"], "Running file parser tests"
@@ -99,8 +96,6 @@ def check_code_quality() -> Dict[str, bool]:
     Returns:
         Dictionary mapping quality check to success status
     """
-    results = {}
-
     print("\n🔍 Running Code Quality Checks")
     print("=" * 60)
 
@@ -109,8 +104,7 @@ def check_code_quality() -> Dict[str, bool]:
         ["python", "-m", "black", "--check", "--diff", "app/", "ingest/", "cli/", "tests/"],
         "Checking code formatting with Black",
     )
-    results["black"] = success
-
+    results = {"black": success}
     # 2. isort import sorting check
     success, output = run_command(
         ["python", "-m", "isort", "--check-only", "--diff", "app/", "ingest/", "cli/", "tests/"],
@@ -151,13 +145,7 @@ def validate_project_structure() -> bool:
         "requirements.txt",
     ]
 
-    missing_files = []
-
-    for file_path in required_files:
-        if not Path(file_path).exists():
-            missing_files.append(file_path)
-
-    if missing_files:
+    if missing_files := [file_path for file_path in required_files if not Path(file_path).exists()]:
         print("❌ Missing required files:")
         for file_path in missing_files:
             print(f"   - {file_path}")

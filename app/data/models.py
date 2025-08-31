@@ -5,8 +5,9 @@ Enhanced with research-validated patterns for performance and relationships.
 """
 
 from datetime import datetime, timezone
-from typing import Optional, List
-from sqlalchemy import String, DateTime, Float, Integer, Text, Index, ForeignKey, Column
+from typing import List, Optional
+
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import declarative_base, relationship
 
 # Support for both SQLAlchemy 1.4+ and 2.0+

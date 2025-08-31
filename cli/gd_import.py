@@ -5,30 +5,30 @@ Typer-based CLI with Rich progress bars following PRP specifications.
 Supports FIT, TCX, GPX files with comprehensive error handling and deduplication.
 """
 
-import logging
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
-import typer
 from rich.console import Console
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    BarColumn,
-    TaskProgressColumn,
-    TimeElapsedColumn,
-    MofNCompleteColumn,
-)
 from rich.logging import RichHandler
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
+import typer
 
 # Import our modules
-from app.data.db import init_database, session_scope, get_db_config
-from app.data.models import Activity, Sample, RoutePoint, Lap, ImportResult
-from ingest.parser import ActivityParser, FileNotSupportedError, CorruptFileError, calculate_file_hash
+from app.data.db import get_db_config, init_database, session_scope
+from app.data.models import Activity, ImportResult, Lap, RoutePoint, Sample
+from ingest.parser import ActivityParser, CorruptFileError, FileNotSupportedError, calculate_file_hash
 
 # Initialize Rich console
 console = Console()
@@ -111,7 +111,7 @@ def import_activities(
             console.print(f"✅ Database initialized: [green]{db_config.database_url}[/green]")
         except Exception as e:
             console.print(f"❌ [red]Database Error:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     else:
         console.print("🧪 [yellow]Dry run mode - no database operations[/yellow]")
 
@@ -256,7 +256,6 @@ def import_files_with_progress(files: List[Path], force_reimport: bool = False) 
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-
         import_task = progress.add_task("Importing activities...", total=len(files))
 
         for file_path in files:
@@ -305,8 +304,7 @@ def import_single_file(file_path: Path, force_reimport: bool = False) -> ImportR
         with session_scope() as session:
             # Check for existing import (unless forcing reimport)
             if not force_reimport:
-                existing = session.query(Activity).filter_by(file_hash=file_hash).first()
-                if existing:
+                if existing := session.query(Activity).filter_by(file_hash=file_hash).first():
                     logger.debug(f"Skipping duplicate: {file_path.name}")
                     return ImportResult(imported=False, reason="duplicate")
 
@@ -482,7 +480,7 @@ def status():
 
     except Exception as e:
         console.print(f"❌ [red]Error getting database status:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 if __name__ == "__main__":

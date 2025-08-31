@@ -2,7 +2,7 @@
 Calendar page - Main activity list and calendar view.
 """
 
-from dash import html, callback, Input, Output
+from dash import Input, Output, callback, html
 import dash_bootstrap_components as dbc
 
 from app.data.db import session_scope

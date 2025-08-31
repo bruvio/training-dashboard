@@ -5,13 +5,14 @@ Tests model creation, relationships, and basic query functionality
 following the research-validated patterns from the PRP.
 """
 
-import pytest
 from datetime import datetime, timezone
+
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.data.models import Base, Activity, Sample, RoutePoint, Lap, ActivityData, SampleData
 from app.data.db import DatabaseConfig
+from app.data.models import Activity, ActivityData, Base, Lap, RoutePoint, Sample, SampleData
 
 
 class TestDatabaseModels:

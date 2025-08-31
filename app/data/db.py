@@ -5,13 +5,13 @@ Provides SQLAlchemy engine setup, session management, and database utilities
 with proper connection handling and performance optimization.
 """
 
+from contextlib import contextmanager
 import logging
 import os
-from contextlib import contextmanager
-from typing import Generator, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Generator, Optional
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, Session, scoped_session
+from sqlalchemy.orm import Session, scoped_session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 if TYPE_CHECKING:
@@ -145,7 +145,7 @@ class DatabaseConfig:
         """Get database information for debugging/monitoring."""
         with self.session_scope() as session:
             # Get table counts
-            from .models import Activity, Sample, RoutePoint, Lap
+            from .models import Activity, Lap, RoutePoint, Sample
 
             activity_count = session.query(Activity).count()
             sample_count = session.query(Sample).count()

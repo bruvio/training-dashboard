@@ -3,9 +3,9 @@
 Simple test script for Garmin Connect authentication with MFA handling.
 """
 
-import sys
 import getpass
 from pathlib import Path
+import sys
 
 # Add the project root to Python path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -33,10 +33,7 @@ def test_garmin_authentication():
 
         print(f"\n🔑 Attempting to authenticate as {email}...")
 
-        # Test authentication
-        success = client.authenticate(email, password)
-
-        if success:
+        if success := client.authenticate(email, password):
             print("✅ Authentication successful!")
 
             # Test getting recent activities
@@ -47,8 +44,7 @@ def test_garmin_authentication():
                 start_date = date.today() - timedelta(days=30)
                 end_date = date.today()
 
-                activities = client.get_activities(start_date, end_date, limit=5)
-                if activities:
+                if activities := client.get_activities(start_date, end_date, limit=5):
                     print(f"📈 Found {len(activities)} recent activities:")
                     for i, activity in enumerate(activities[:3], 1):
                         print(

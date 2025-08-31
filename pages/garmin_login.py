@@ -2,10 +2,11 @@
 Garmin Connect login and data synchronization page.
 """
 
-import logging
-from dash import html, dcc, Input, Output, State, ctx
-import dash_bootstrap_components as dbc
 from datetime import datetime, timedelta
+import logging
+
+from dash import Input, Output, State, ctx, dcc, html
+import dash_bootstrap_components as dbc
 
 logger = logging.getLogger(__name__)
 
@@ -590,9 +591,6 @@ def register_callbacks(app):
         # Handle sync button clicks
         if sync_clicks and login_status.get("logged_in"):
             try:
-                # Import sync functionality
-                pass
-
                 # Determine date range
                 if sync_period == "all":
                     start_date = None

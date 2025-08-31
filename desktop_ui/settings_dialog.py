@@ -5,29 +5,29 @@ Configuration dialog for managing download preferences, directories,
 rate limiting, and other application settings.
 """
 
-import sys
 from pathlib import Path
-from typing import Dict, Any
+import sys
+from typing import Any, Dict
 
-from PyQt6.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QFormLayout,
-    QTabWidget,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QCheckBox,
-    QSpinBox,
-    QDoubleSpinBox,
-    QComboBox,
-    QGroupBox,
-    QFileDialog,
-    QMessageBox,
-)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QTabWidget,
+    QVBoxLayout,
+)
 
 
 class SettingsDialog(QDialog):
@@ -410,15 +410,13 @@ class SettingsDialog(QDialog):
     def browse_download_directory(self):
         """Browse for download directory."""
         current_dir = self.download_dir_edit.text() or str(Path.home())
-        directory = QFileDialog.getExistingDirectory(self, "Select Download Directory", current_dir)
-        if directory:
+        if directory := QFileDialog.getExistingDirectory(self, "Select Download Directory", current_dir):
             self.download_dir_edit.setText(directory)
 
     def browse_activities_directory(self):
         """Browse for activities directory."""
         current_dir = self.activities_dir_edit.text() or "./activities"
-        directory = QFileDialog.getExistingDirectory(self, "Select Activities Directory", current_dir)
-        if directory:
+        if directory := QFileDialog.getExistingDirectory(self, "Select Activities Directory", current_dir):
             self.activities_dir_edit.setText(directory)
 
     def clear_credentials(self):

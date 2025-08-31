@@ -5,17 +5,12 @@ Research-validated implementation using Dash 2.17+ patterns with
 Bootstrap theme integration and proper page container setup.
 """
 
-import os
 import logging
+import os
 
 import dash
-from dash import html, dcc, Input, Output
+from dash import Input, Output, dcc, html
 import dash_bootstrap_components as dbc
-
-import os
-import logging
-
-# Import pages will be done after app configuration
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,10 +49,7 @@ try:
 
     # Import pages to register their callbacks with the app
     sys.path.insert(0, "/app")  # Ensure /app is first for pages import
-    from pages import calendar
-    from pages import activity_detail
-    from pages import garmin_login
-    from pages import settings
+    from pages import activity_detail, calendar, garmin_login, settings
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)

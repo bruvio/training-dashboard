@@ -7,19 +7,19 @@ Simplified version optimized for macOS compatibility.
 import sys
 from typing import Tuple
 
-from PyQt6.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QFormLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QCheckBox,
-    QMessageBox,
-)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
 
 
 class SimpleLoginDialog(QDialog):

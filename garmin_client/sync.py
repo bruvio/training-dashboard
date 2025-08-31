@@ -3,12 +3,13 @@ Garmin Connect data synchronization module.
 Handles downloading and processing activity data from Garmin Connect.
 """
 
-import logging
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict
+import logging
+from typing import Dict, List, Optional
 
 from app.data.db import session_scope
 from app.data.models import Activity, Sample
+
 from .client import GarminConnectClient
 
 logger = logging.getLogger(__name__)
@@ -81,9 +82,7 @@ def sync_activities_from_garmin(
                 try:
                     # Check if activity already exists
                     garmin_id = activity_data.get("activityId")
-                    existing_activity = session.query(Activity).filter_by(garmin_activity_id=garmin_id).first()
-
-                    if existing_activity:
+                    if existing_activity := session.query(Activity).filter_by(garmin_activity_id=garmin_id).first():
                         # Update existing activity
                         updated = update_activity_from_garmin(session, existing_activity, activity_data, client)
                         if updated:

@@ -5,13 +5,14 @@ Research-validated patterns for integrating SQLAlchemy with Dash callbacks,
 including session management and query optimization.
 """
 
-from datetime import datetime, date
-from typing import Optional, List, Dict, Any
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
+
 import pandas as pd
-from sqlalchemy import func, or_, desc, text
+from sqlalchemy import desc, func, or_, text
 
 from .db import session_scope
-from .models import Activity, Sample, Lap
+from .models import Activity, Lap, Sample
 
 
 def get_activities_for_date_range(
@@ -278,8 +279,7 @@ def get_activity_by_id(activity_id: int) -> Optional[Dict[str, Any]]:
         if not activity:
             return None
 
-        # Format for detail view (only using fields that exist in the model)
-        result = {
+        return {
             "id": activity.id,
             "external_id": activity.external_id,
             "name": getattr(activity, "name", None) or "Unnamed Activity",
@@ -287,7 +287,7 @@ def get_activity_by_id(activity_id: int) -> Optional[Dict[str, Any]]:
             "sport": activity.sport,
             "sub_sport": getattr(activity, "sub_sport", None),
             "start_time": activity.start_time_utc,
-            "total_distance_km": activity.distance_m / 1000 if activity.distance_m else 0,
+            "total_distance_km": (activity.distance_m / 1000 if activity.distance_m else 0),
             "total_time_s": activity.elapsed_time_s or 0,
             "moving_time_s": getattr(activity, "moving_time_s", None) or 0,
             "avg_hr": activity.avg_hr,
@@ -302,8 +302,6 @@ def get_activity_by_id(activity_id: int) -> Optional[Dict[str, Any]]:
             "file_path": activity.file_path,
             "ingested_on": getattr(activity, "ingested_on", None),
         }
-
-        return result
 
 
 def get_activity_samples(activity_id: int) -> Optional[pd.DataFrame]:
@@ -331,23 +329,20 @@ def get_activity_samples(activity_id: int) -> Optional[pd.DataFrame]:
         if not samples:
             return pd.DataFrame()  # Return empty DataFrame
 
-        # Convert to DataFrame
-        data = []
-        for sample in samples:
-            data.append(
-                {
-                    "elapsed_time_s": sample.elapsed_time_s,
-                    "position_lat": sample.latitude,
-                    "position_long": sample.longitude,
-                    "altitude_m": sample.altitude_m,
-                    "heart_rate_bpm": sample.heart_rate,
-                    "power_w": sample.power_w,
-                    "cadence_rpm": sample.cadence_rpm,
-                    "speed_mps": sample.speed_mps,
-                    "temperature_c": sample.temperature_c,
-                }
-            )
-
+        data = [
+            {
+                "elapsed_time_s": sample.elapsed_time_s,
+                "position_lat": sample.latitude,
+                "position_long": sample.longitude,
+                "altitude_m": sample.altitude_m,
+                "heart_rate_bpm": sample.heart_rate,
+                "power_w": sample.power_w,
+                "cadence_rpm": sample.cadence_rpm,
+                "speed_mps": sample.speed_mps,
+                "temperature_c": sample.temperature_c,
+            }
+            for sample in samples
+        ]
         df = pd.DataFrame(data)
 
         # Add computed columns
@@ -404,10 +399,8 @@ def get_activity_laps(activity_id: int) -> List[Dict[str, Any]]:
                 "max_power_w": lap.max_power_w,
                 "avg_cadence_rpm": lap.avg_cadence_rpm,
                 "moving_time_s": lap.moving_time_s,
+                "end_time_s": cumulative_time + (lap.elapsed_time_s or 0),
             }
-
-            # Calculate end time
-            lap_data["end_time_s"] = cumulative_time + (lap.elapsed_time_s or 0)
 
             result.append(lap_data)
 
