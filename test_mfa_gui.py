@@ -10,9 +10,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
-
 from desktop_ui.login_dialog_simple import SimpleLoginDialog
 from desktop_ui.mfa_dialog import MFADialog
+
 from garmin_client.client import GarminConnectClient
 
 

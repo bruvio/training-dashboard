@@ -1,3 +1,4 @@
+# flake8: noqa 
 """
 Pages package for Garmin Dashboard.
 """

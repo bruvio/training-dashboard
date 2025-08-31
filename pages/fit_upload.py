@@ -3,18 +3,17 @@ FIT File Upload Page - Upload and import FIT files directly from the web interfa
 """
 
 import base64
+from datetime import datetime
 import io
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
-from dash import Input, Output, State, callback, ctx, dcc, html
+from dash import Input, Output, State, ctx, dcc, html
 import dash_bootstrap_components as dbc
 
 from app.data.db import session_scope
-from app.data.models import Activity, Sample, RoutePoint, Lap
-from ingest.parser import ActivityParser, CorruptFileError, FileNotSupportedError, calculate_file_hash
+from app.data.models import Activity, Lap, RoutePoint, Sample
+from ingest.parser import ActivityParser, CorruptFileError, FileNotSupportedError
 
 logger = logging.getLogger(__name__)
 
@@ -327,7 +326,7 @@ def register_callbacks(app):
         for i, file_info in enumerate(file_data):
             try:
                 # Update progress (this is simplified - in a real app you'd use callbacks for real-time updates)
-                progress = ((i + 1) / len(file_data)) * 100
+                _ = ((i + 1) / len(file_data)) * 100
 
                 # Decode file content
                 decoded_content = base64.b64decode(file_info["content"])

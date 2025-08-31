@@ -596,7 +596,7 @@ def register_callbacks(app):
                     start_date = None
                 else:
                     days = int(sync_period)
-                    start_date = datetime.now() - timedelta(days=days)
+                    start_date = datetime.now() - timedelta(days=days)  # noqa: F841
 
                 # Start sync process
                 status_message = dbc.Alert(

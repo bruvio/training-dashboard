@@ -21,7 +21,7 @@ try:
 
 except ImportError:
     # Fallback to SQLAlchemy 1.4 style
-    from sqlalchemy.orm import declarative_base
+    from sqlalchemy.orm import declarative_base  # noqa: F811
 
     SQLALCHEMY_2_0 = False
     Base = declarative_base()

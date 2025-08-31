@@ -304,7 +304,7 @@ def import_single_file(file_path: Path, force_reimport: bool = False) -> ImportR
         with session_scope() as session:
             # Check for existing import (unless forcing reimport)
             if not force_reimport:
-                if existing := session.query(Activity).filter_by(file_hash=file_hash).first():
+                if existing := session.query(Activity).filter_by(file_hash=file_hash).first():  # noqa: F841
                     logger.debug(f"Skipping duplicate: {file_path.name}")
                     return ImportResult(imported=False, reason="duplicate")
 
