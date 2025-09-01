@@ -1122,9 +1122,7 @@ def save_activity_name(n_clicks, new_name, activity_data, pathname):
     except (ValueError, AttributeError):
         return dash.no_update, dash.no_update
 
-    # Update database
-    success = update_activity_name(activity_id, new_name)
-    if success:
+    if success := update_activity_name(activity_id, new_name):
         # Update the stored activity data
         updated_activity_data = activity_data.copy()
         updated_activity_data["name"] = new_name
