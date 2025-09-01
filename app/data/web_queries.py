@@ -120,6 +120,7 @@ def get_activities_for_date_range(
             result.append(
                 {
                     "id": activity.id,
+                    "name": activity.name or f"{activity.sport.title()} Activity",  # Include custom name
                     "start_time": (
                         activity.start_time_utc.strftime("%Y-%m-%d %H:%M:%S") if activity.start_time_utc else "N/A"
                     ),
@@ -282,7 +283,7 @@ def get_activity_by_id(activity_id: int) -> Optional[Dict[str, Any]]:
         return {
             "id": activity.id,
             "external_id": activity.external_id,
-            "name": getattr(activity, "name", None) or "Unnamed Activity",
+            "name": activity.name or f"{activity.sport.title()} Activity",
             "description": getattr(activity, "description", None),
             "sport": activity.sport,
             "sub_sport": getattr(activity, "sub_sport", None),
@@ -422,6 +423,95 @@ def get_activity_laps(activity_id: int) -> List[Dict[str, Any]]:
             cumulative_distance += lap.distance_m or 0
 
         return result
+
+
+def get_activity_navigation(activity_id: int) -> Dict[str, Optional[int]]:
+    """
+    Get previous/next activity IDs for navigation.
+
+    Args:
+        activity_id: Current activity ID
+
+    Returns:
+        Dict with 'previous' and 'next' activity IDs (None if not available)
+    """
+    with session_scope() as session:
+        current_activity = session.query(Activity).filter(Activity.id == activity_id).first()
+        if not current_activity:
+            return {"previous": None, "next": None}
+
+        # Get previous activity (lower ID, most recent)
+        previous = session.query(Activity).filter(Activity.id < activity_id).order_by(desc(Activity.id)).first()
+
+        # Get next activity (higher ID, earliest)
+        next_activity = session.query(Activity).filter(Activity.id > activity_id).order_by(Activity.id).first()
+
+        return {
+            "previous": previous.id if previous else None,
+            "next": next_activity.id if next_activity else None,
+        }
+
+
+def update_activity_name(activity_id: int, new_name: str) -> bool:
+    """
+    Update activity name in database.
+
+    Args:
+        activity_id: Activity ID to update
+        new_name: New name for the activity
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with session_scope() as session:
+            activity = session.query(Activity).filter(Activity.id == activity_id).first()
+            if activity:
+                activity.name = new_name.strip() if new_name.strip() else None
+                session.commit()
+                return True
+            return False
+    except Exception:
+        return False
+
+
+def get_filter_options() -> Dict[str, Any]:
+    """
+    Get available filter options for the main page.
+
+    Returns:
+        Dict with sports, duration ranges, and distance ranges
+    """
+    with session_scope() as session:
+        # Get unique sports
+        sports = (
+            session.query(Activity.sport).distinct().filter(Activity.sport.isnot(None)).order_by(Activity.sport).all()
+        )
+        sport_list = [sport[0] for sport in sports]
+
+        # Get duration ranges
+        duration_stats = session.query(
+            func.min(Activity.elapsed_time_s).label("min_duration"),
+            func.max(Activity.elapsed_time_s).label("max_duration"),
+        ).first()
+
+        # Get distance ranges
+        distance_stats = session.query(
+            func.min(Activity.distance_m).label("min_distance"),
+            func.max(Activity.distance_m).label("max_distance"),
+        ).first()
+
+        return {
+            "sports": sport_list,
+            "duration_range": {
+                "min": duration_stats.min_duration or 0,
+                "max": duration_stats.max_duration or 0,
+            },
+            "distance_range": {
+                "min": (distance_stats.min_distance or 0) / 1000,  # Convert to km
+                "max": (distance_stats.max_distance or 0) / 1000,
+            },
+        }
 
 
 def check_database_connection() -> bool:

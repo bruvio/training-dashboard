@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import dash
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, State, callback, dcc, html
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 import numpy as np
@@ -19,7 +19,13 @@ from plotly.subplots import make_subplots
 from scipy import ndimage
 from scipy.signal import savgol_filter
 
-from app.data.web_queries import check_database_connection, get_activity_by_id, get_activity_samples
+from app.data.web_queries import (
+    check_database_connection,
+    get_activity_by_id,
+    get_activity_samples,
+    get_activity_navigation,
+    update_activity_name,
+)
 
 # Register this page with dynamic routing (Dash 2.17+ pattern)
 dash.register_page(
@@ -48,22 +54,43 @@ def layout(activity_id: str = None, **kwargs):
             dcc.Store(id="activity-samples-store", data=[]),
             dcc.Store(id="activity-laps-store", data=[]),
             dcc.Store(id="route-bounds-store", data={}),
+            dcc.Store(id="activity-navigation-store", data={}),
             # Loading states
             dcc.Loading(
                 id="loading-activity-detail",
                 type="default",
                 children=[
-                    # Back button and header
+                    # Navigation and back button
                     dbc.Row(
                         [
                             dbc.Col(
                                 [
-                                    dbc.Button(
-                                        [html.I(className="fas fa-arrow-left me-2"), "Back to Activities"],
-                                        href="/",
-                                        color="secondary",
-                                        outline=True,
-                                        size="sm",
+                                    dbc.ButtonGroup(
+                                        [
+                                            dbc.Button(
+                                                [html.I(className="fas fa-chevron-left")],
+                                                id="prev-activity-btn",
+                                                color="outline-primary",
+                                                size="sm",
+                                                disabled=True,
+                                                title="Previous Activity",
+                                            ),
+                                            dbc.Button(
+                                                [html.I(className="fas fa-arrow-left me-2"), "Back to Activities"],
+                                                href="/",
+                                                color="secondary",
+                                                outline=True,
+                                                size="sm",
+                                            ),
+                                            dbc.Button(
+                                                [html.I(className="fas fa-chevron-right")],
+                                                id="next-activity-btn",
+                                                color="outline-primary",
+                                                size="sm",
+                                                disabled=True,
+                                                title="Next Activity",
+                                            ),
+                                        ],
                                         className="mb-3",
                                     )
                                 ]
@@ -313,6 +340,7 @@ def create_error_layout(error_message: str):
         Output("activity-samples-store", "data"),
         Output("activity-laps-store", "data"),
         Output("route-bounds-store", "data"),
+        Output("activity-navigation-store", "data"),
         Output("error-state", "children"),
         Output("error-state", "style"),
     ],
@@ -329,22 +357,22 @@ def load_activity_data(pathname: str):
     try:
         # Extract activity ID from URL
         if not pathname or not pathname.startswith("/activity/"):
-            return None, None, None, None, create_error_layout("Invalid activity URL"), {"display": "block"}
+            return None, None, None, None, None, create_error_layout("Invalid activity URL"), {"display": "block"}
 
         activity_id_str = pathname.replace("/activity/", "")
         try:
             activity_id = int(activity_id_str)
         except ValueError:
-            return None, None, None, None, create_error_layout("Invalid activity ID"), {"display": "block"}
+            return None, None, None, None, None, create_error_layout("Invalid activity ID"), {"display": "block"}
 
         # Check database connection
         if not check_database_connection():
-            return None, None, None, None, create_error_layout("Database connection failed"), {"display": "block"}
+            return None, None, None, None, None, create_error_layout("Database connection failed"), {"display": "block"}
 
         # Load activity details
         activity = get_activity_by_id(activity_id)
         if not activity:
-            return None, None, None, None, create_error_layout("Activity not found"), {"display": "block"}
+            return None, None, None, None, None, create_error_layout("Activity not found"), {"display": "block"}
 
         # Load sample data
         samples_df = get_activity_samples(activity_id)
@@ -371,11 +399,14 @@ def load_activity_data(pathname: str):
 
         laps_data = get_activity_laps(activity_id)
 
-        return activity, samples_data, laps_data, route_bounds, None, {"display": "none"}
+        # Load navigation data
+        navigation_data = get_activity_navigation(activity_id)
+
+        return activity, samples_data, laps_data, route_bounds, navigation_data, None, {"display": "none"}
 
     except Exception as e:
         error_msg = f"Unexpected error loading activity: {str(e)}"
-        return None, None, None, None, create_error_layout(error_msg), {"display": "block"}
+        return None, None, None, None, None, create_error_layout(error_msg), {"display": "block"}
 
 
 # Callback for activity header
@@ -407,16 +438,53 @@ def update_activity_header(activity_data: Optional[Dict[str, Any]]):
         [
             dbc.CardBody(
                 [
-                    html.H2(
+                    dbc.Row(
                         [
-                            sport_emoji,
-                            " ",
-                            activity_data.get("name", f"{sport.title()} Activity"),
-                            dbc.Badge(
-                                activity_data.get("source", "unknown").upper(), color="secondary", className="ms-3"
+                            dbc.Col(
+                                [
+                                    html.Div(
+                                        [
+                                            html.H2(
+                                                [
+                                                    sport_emoji,
+                                                    " ",
+                                                    html.Span(
+                                                        activity_data.get("name", f"{sport.title()} Activity"),
+                                                        id="activity-title-display",
+                                                        style={"cursor": "pointer", "border-bottom": "1px dashed #ccc"},
+                                                    ),
+                                                    dbc.Badge(
+                                                        activity_data.get("source", "unknown").upper(),
+                                                        color="secondary",
+                                                        className="ms-3",
+                                                    ),
+                                                ],
+                                                className="mb-3",
+                                            ),
+                                            dbc.Input(
+                                                id="activity-title-input",
+                                                value=activity_data.get("name", f"{sport.title()} Activity"),
+                                                style={"display": "none"},
+                                                className="mb-3",
+                                                placeholder="Enter activity name",
+                                            ),
+                                        ]
+                                    )
+                                ]
                             ),
-                        ],
-                        className="mb-3",
+                            dbc.Col(
+                                [
+                                    dbc.Button(
+                                        [html.I(className="fas fa-edit me-1"), "Edit Name"],
+                                        id="edit-name-btn",
+                                        color="outline-primary",
+                                        size="sm",
+                                        className="float-end",
+                                    )
+                                ],
+                                width="auto",
+                            ),
+                        ]
                     ),
                     dbc.Row(
                         [
@@ -965,3 +1033,114 @@ def format_duration(total_seconds: int) -> str:
         return f"{hours}:{minutes:02d}:{seconds:02d}"
     else:
         return f"{minutes}:{seconds:02d}"
+
+
+# Navigation callbacks
+@callback(
+    [
+        Output("prev-activity-btn", "disabled"),
+        Output("prev-activity-btn", "href"),
+        Output("next-activity-btn", "disabled"),
+        Output("next-activity-btn", "href"),
+    ],
+    [Input("activity-navigation-store", "data")],
+)
+def update_navigation_buttons(navigation_data):
+    """Update navigation button states and links."""
+    if not navigation_data:
+        return True, None, True, None
+
+    prev_disabled = navigation_data.get("previous") is None
+    next_disabled = navigation_data.get("next") is None
+
+    prev_href = f"/activity/{navigation_data['previous']}" if not prev_disabled else None
+    next_href = f"/activity/{navigation_data['next']}" if not next_disabled else None
+
+    return prev_disabled, prev_href, next_disabled, next_href
+
+
+# Name editing callbacks
+@callback(
+    [
+        Output("activity-title-display", "style"),
+        Output("activity-title-input", "style"),
+        Output("edit-name-btn", "children"),
+    ],
+    [Input("edit-name-btn", "n_clicks")],
+    prevent_initial_call=True,
+)
+def toggle_name_edit(n_clicks):
+    """Toggle between display and edit mode for activity name."""
+    if n_clicks and n_clicks % 2 == 1:  # Odd clicks = edit mode
+        return (
+            {"display": "none"},
+            {"display": "block"},
+            [html.I(className="fas fa-save me-1"), "Save"],
+        )
+    else:  # Even clicks or initial = display mode
+        return (
+            {"cursor": "pointer", "border-bottom": "1px dashed #ccc"},
+            {"display": "none"},
+            [html.I(className="fas fa-edit me-1"), "Edit Name"],
+        )
+
+
+@callback(
+    [
+        Output("activity-title-display", "children"),
+        Output("activity-detail-store", "data", allow_duplicate=True),
+    ],
+    [Input("edit-name-btn", "n_clicks")],
+    [
+        State("activity-title-input", "value"),
+        State("activity-detail-store", "data"),
+        State("url", "pathname"),
+    ],
+    prevent_initial_call=True,
+)
+def save_activity_name(n_clicks, new_name, activity_data, pathname):
+    """Save the updated activity name to database."""
+    if not n_clicks or n_clicks % 2 == 1 or not new_name or not activity_data:
+        return dash.no_update, dash.no_update
+
+    # Extract activity ID from pathname
+    try:
+        activity_id = int(pathname.replace("/activity/", ""))
+    except (ValueError, AttributeError):
+        return dash.no_update, dash.no_update
+
+    # Update database
+    success = update_activity_name(activity_id, new_name)
+    if success:
+        # Update the stored activity data
+        updated_activity_data = activity_data.copy()
+        updated_activity_data["name"] = new_name
+        return new_name, updated_activity_data
+
+    return dash.no_update, dash.no_update
+
+
+# Keyboard navigation
+@callback(
+    Output("url", "pathname", allow_duplicate=True),
+    [Input("prev-activity-btn", "n_clicks"), Input("next-activity-btn", "n_clicks")],
+    [State("activity-navigation-store", "data")],
+    prevent_initial_call=True,
+)
+def handle_navigation_clicks(prev_clicks, next_clicks, navigation_data):
+    """Handle navigation button clicks."""
+    if not navigation_data:
+        return dash.no_update
+
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+
+    button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    if button_id == "prev-activity-btn" and navigation_data.get("previous"):
+        return f"/activity/{navigation_data['previous']}"
+    elif button_id == "next-activity-btn" and navigation_data.get("next"):
+        return f"/activity/{navigation_data['next']}"
+
+    return dash.no_update

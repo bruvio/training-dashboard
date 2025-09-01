@@ -82,6 +82,6 @@ CMD ["python", "/app/app/dash_app.py"]
 LABEL maintainer="Garmin Dashboard" \
       description="Local-first Garmin activity dashboard with Dash and Plotly" \
       version="1.0.0" \
-      org.opencontainers.image.source="https://github.com/your-repo/garmin-dashboard" \
+      org.opencontainers.image.source="https://github.com/bruvio/garmin-dashboard" \
       org.opencontainers.image.title="Garmin Dashboard" \
       org.opencontainers.image.description="Private, local-first dashboard for Garmin activities"

@@ -54,6 +54,7 @@ class Activity(Base):
     source = mapped_column(String(20))  # 'fit', 'tcx', 'gpx', 'garmindb'
     sport = mapped_column(String(30))
     sub_sport = mapped_column(String(30))
+    name = mapped_column(String(255))  # User-editable activity name
 
     # Temporal data (research-validated timezone handling)
     start_time_utc = mapped_column(DateTime(timezone=True), index=True)

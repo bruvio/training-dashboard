@@ -1,1115 +1,1146 @@
 """
-Activity detail page - Show detailed analysis and charts for a specific activity.
+Activity Detail Page for Garmin Dashboard.
+
+Research-validated implementation with dash-leaflet maps and synchronized
+Plotly charts following enhanced PRP specifications.
 """
 
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import dash
 from dash import Input, Output, State, callback, dcc, html
 import dash_bootstrap_components as dbc
+import dash_leaflet as dl
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from scipy import ndimage
+from scipy.signal import savgol_filter
 
-from app.data.db import session_scope
-from app.data.models import Activity, Lap, Sample
+from app.data.web_queries import (
+    check_database_connection,
+    get_activity_by_id,
+    get_activity_navigation,
+    get_activity_samples,
+    update_activity_name,
+)
 
-# This page uses manual routing - no registration needed
+# Register this page with dynamic routing (Dash 2.17+ pattern)
+dash.register_page(
+    __name__,
+    path="/activity/<activity_id>",
+    title="Activity Detail - Garmin Dashboard",
+    name="Activity Detail",
+    description="View detailed activity information with maps and charts",
+)
 
 
-def layout(activity_id=None):
+def layout(activity_id: str = None, **kwargs):
     """
-    Layout for activity detail page.
+    Layout for the activity detail page.
 
-    Args:
-        activity_id: Activity ID from URL path
+    Research-validated implementation with responsive layout,
+    dash-leaflet map integration, and synchronized charts.
     """
     if not activity_id:
-        return dbc.Alert("Invalid activity ID", color="danger")
-
-    try:
-        activity_id = int(activity_id)
-    except ValueError:
-        return dbc.Alert("Invalid activity ID format", color="danger")
+        return create_error_layout("No activity ID provided")
 
     return dbc.Container(
         [
-            dcc.Store(id="activity-data-store", data={"activity_id": activity_id}),
-            # Header section
-            dbc.Row([dbc.Col([html.Div(id="activity-header"), html.Hr()], width=12)]),
-            # Comments section
-            dbc.Row([dbc.Col([html.Div(id="activity-comments")], width=12)], className="mb-4"),
-            # Summary section
-            dbc.Row([dbc.Col([html.Div(id="activity-summary")], width=12)], className="mb-4"),
-            # Charts and data section
-            dbc.Row(
-                [
-                    dbc.Col(
+            # Store components for data management
+            dcc.Store(id="activity-detail-store", data={}),
+            dcc.Store(id="activity-samples-store", data=[]),
+            dcc.Store(id="activity-laps-store", data=[]),
+            dcc.Store(id="route-bounds-store", data={}),
+            dcc.Store(id="activity-navigation-store", data={}),
+            # Loading states
+            dcc.Loading(
+                id="loading-activity-detail",
+                type="default",
+                children=[
+                    # Navigation and back button
+                    dbc.Row(
                         [
-                            dbc.Card(
+                            dbc.Col(
                                 [
-                                    dbc.CardHeader([html.H5("Activity Charts", className="mb-0")]),
-                                    dbc.CardBody(
+                                    dbc.ButtonGroup(
                                         [
-                                            # Data type selector
-                                            dbc.Row(
+                                            dbc.Button(
+                                                [html.I(className="fas fa-chevron-left")],
+                                                id="prev-activity-btn",
+                                                color="outline-primary",
+                                                size="sm",
+                                                disabled=True,
+                                                title="Previous Activity",
+                                            ),
+                                            dbc.Button(
+                                                [html.I(className="fas fa-arrow-left me-2"), "Back to Activities"],
+                                                href="/",
+                                                color="secondary",
+                                                outline=True,
+                                                size="sm",
+                                            ),
+                                            dbc.Button(
+                                                [html.I(className="fas fa-chevron-right")],
+                                                id="next-activity-btn",
+                                                color="outline-primary",
+                                                size="sm",
+                                                disabled=True,
+                                                title="Next Activity",
+                                            ),
+                                        ],
+                                        className="mb-3",
+                                    )
+                                ]
+                            )
+                        ]
+                    ),
+                    # Activity header
+                    dbc.Row([dbc.Col([html.Div(id="activity-header")])], className="mb-4"),
+                    # Main content row - Map and Summary
+                    dbc.Row(
+                        [
+                            # Map column
+                            dbc.Col(
+                                [
+                                    dbc.Card(
+                                        [
+                                            dbc.CardHeader(
                                                 [
-                                                    dbc.Col(
-                                                        [
-                                                            html.Label(
-                                                                "Select Data to Display:", className="fw-bold mb-2"
-                                                            ),
-                                                            html.Div(id="metric-selector-container"),
-                                                        ]
+                                                    html.H5(
+                                                        [html.I(className="fas fa-map me-2"), "Route Map"],
+                                                        className="mb-0",
                                                     )
                                                 ]
                                             ),
-                                            html.Div(id="activity-charts"),
+                                            dbc.CardBody(
+                                                [
+                                                    html.Div(
+                                                        [
+                                                            dl.Map(
+                                                                [
+                                                                    dl.TileLayer(
+                                                                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                                                                        attribution="&copy; OpenStreetMap contributors",
+                                                                    ),
+                                                                    dl.Polyline(
+                                                                        id="route-polyline",
+                                                                        positions=[],
+                                                                        color="red",
+                                                                        weight=3,
+                                                                        opacity=0.8,
+                                                                    ),
+                                                                ],
+                                                                id="activity-map",
+                                                                style={"width": "100%", "height": "400px"},
+                                                                center=[0, 0],
+                                                                zoom=2,
+                                                            )
+                                                        ],
+                                                        className="map-container",
+                                                    ),
+                                                    html.Div(id="map-status", className="mt-2 text-muted small"),
+                                                ],
+                                                className="p-0",
+                                            ),
                                         ]
-                                    ),
-                                ]
-                            )
-                        ],
-                        width=12,
-                    )
-                ],
-                className="mb-4",
-            ),
-            # Route map section
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            dbc.Card(
+                                    )
+                                ],
+                                lg=8,
+                                md=12,
+                            ),
+                            # Summary statistics column
+                            dbc.Col(
                                 [
-                                    dbc.CardHeader([html.H5("Route Map", className="mb-0")]),
-                                    dbc.CardBody([html.Div(id="activity-map")]),
-                                ]
-                            )
+                                    dbc.Card(
+                                        [
+                                            dbc.CardHeader(
+                                                [
+                                                    html.H5(
+                                                        [html.I(className="fas fa-chart-bar me-2"), "Activity Summary"],
+                                                        className="mb-0",
+                                                    )
+                                                ]
+                                            ),
+                                            dbc.CardBody([html.Div(id="activity-summary")]),
+                                        ]
+                                    )
+                                ],
+                                lg=4,
+                                md=12,
+                            ),
                         ],
-                        width=12,
-                    )
-                ]
-            ),
-            # Lap splits section
-            dbc.Row(
-                [
-                    dbc.Col(
+                        className="mb-4",
+                    ),
+                    # Charts section
+                    dbc.Row(
                         [
-                            dbc.Card(
+                            dbc.Col(
                                 [
-                                    dbc.CardHeader([html.H5("Lap Splits", className="mb-0")]),
-                                    dbc.CardBody([html.Div(id="activity-laps")]),
+                                    dbc.Card(
+                                        [
+                                            dbc.CardHeader(
+                                                [
+                                                    dbc.Row(
+                                                        [
+                                                            dbc.Col(
+                                                                [
+                                                                    html.H5(
+                                                                        [
+                                                                            html.I(className="fas fa-chart-line me-2"),
+                                                                            "Activity Charts",
+                                                                        ],
+                                                                        className="mb-0",
+                                                                    ),
+                                                                    dbc.Badge(
+                                                                        "Interactive", color="info", className="ms-2"
+                                                                    ),
+                                                                ],
+                                                                width="auto",
+                                                            ),
+                                                            dbc.Col(
+                                                                [
+                                                                    dbc.Row(
+                                                                        [
+                                                                            dbc.Col(
+                                                                                [
+                                                                                    dbc.Label(
+                                                                                        "Chart Type:",
+                                                                                        size="sm",
+                                                                                        className="me-2",
+                                                                                    ),
+                                                                                    dbc.Select(
+                                                                                        id="chart-type-selector",
+                                                                                        options=[
+                                                                                            {
+                                                                                                "label": "Multi-subplot (Default)",
+                                                                                                "value": "subplots",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Single Chart - Dual Y-axis",
+                                                                                                "value": "dual_y",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Overlay - Single Y-axis",
+                                                                                                "value": "overlay",
+                                                                                            },
+                                                                                        ],
+                                                                                        value="subplots",
+                                                                                        size="sm",
+                                                                                    ),
+                                                                                ],
+                                                                                width=6,
+                                                                            ),
+                                                                            dbc.Col(
+                                                                                [
+                                                                                    dbc.Label(
+                                                                                        "Smoothing:",
+                                                                                        size="sm",
+                                                                                        className="me-2",
+                                                                                    ),
+                                                                                    dbc.Select(
+                                                                                        id="smoothing-selector",
+                                                                                        options=[
+                                                                                            {
+                                                                                                "label": "None",
+                                                                                                "value": "none",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Light",
+                                                                                                "value": "light",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Medium",
+                                                                                                "value": "medium",
+                                                                                            },
+                                                                                            {
+                                                                                                "label": "Heavy",
+                                                                                                "value": "heavy",
+                                                                                            },
+                                                                                        ],
+                                                                                        value="none",
+                                                                                        size="sm",
+                                                                                    ),
+                                                                                ],
+                                                                                width=6,
+                                                                            ),
+                                                                        ]
+                                                                    )
+                                                                ],
+                                                                className="ms-auto",
+                                                            ),
+                                                        ],
+                                                        className="align-items-center",
+                                                    ),
+                                                ]
+                                            ),
+                                            dbc.CardBody(
+                                                [
+                                                    dcc.Graph(
+                                                        id="activity-charts",
+                                                        className="chart-container",
+                                                        config={
+                                                            "displayModeBar": True,
+                                                            "displaylogo": False,
+                                                            "modeBarButtonsToRemove": ["pan2d", "lasso2d"],
+                                                        },
+                                                    )
+                                                ],
+                                                className="p-2",
+                                            ),
+                                        ]
+                                    )
                                 ]
                             )
-                        ],
-                        width=12,
-                    )
+                        ]
+                    ),
                 ],
-                className="mt-4",
             ),
+            # Error state
+            html.Div(id="error-state", style={"display": "none"}),
         ],
         fluid=True,
     )
 
 
-@callback(Output("metric-selector-container", "children"), Input("activity-data-store", "data"))
-def update_metric_selector(store_data):
-    """Update metric selector with only available data."""
-    if not store_data or "activity_id" not in store_data:
-        return dbc.Alert("No activity data", color="warning")
-
-    activity_id = store_data["activity_id"]
-
-    try:
-        with session_scope() as session:
-            # Get activity for sport-specific labels
-            activity = session.query(Activity).filter_by(id=activity_id).first()
-            if not activity:
-                return dbc.Alert("Activity not found", color="danger")
-
-            # Get samples to check which metrics have data
-            samples = session.query(Sample).filter_by(activity_id=activity_id).limit(100).all()
-
-            if not samples:
-                return dbc.Alert("No sample data found", color="info")
-
-            # Determine sport-specific pace label
-            sport = (activity.sport or "").lower()
-            if sport in ["running", "run"]:
-                pace_label = "Pace (min/km)"
-            elif sport in ["swimming", "swim"]:
-                pace_label = "Pace (min/100m)"
-            else:
-                pace_label = "Speed (km/h)"
-
-            # Check which metrics have non-null values
-            available_metrics = []
-            metric_config = {
-                # Basic metrics
-                "heart_rate": {"label": "Heart Rate (bpm)", "value": "heart_rate", "color": "red", "category": "basic"},
-                "pace_per_km": {"label": pace_label, "value": "pace_per_km", "color": "blue", "category": "basic"},
-                "speed_mps": {"label": "Speed (m/s)", "value": "speed_mps", "color": "blue", "category": "basic"},
-                "altitude_m": {"label": "Altitude (m)", "value": "altitude_m", "color": "brown", "category": "basic"},
-                "cadence_rpm": {
-                    "label": "Cadence (rpm)",
-                    "value": "cadence_rpm",
-                    "color": "purple",
-                    "category": "basic",
-                },
-                "power_w": {"label": "Power (W)", "value": "power_w", "color": "orange", "category": "basic"},
-                "temperature_c": {
-                    "label": "Temperature (°C)",
-                    "value": "temperature_c",
-                    "color": "darkgreen",
-                    "category": "basic",
-                },
-                # Advanced running dynamics
-                "vertical_oscillation_mm": {
-                    "label": "Vertical Oscillation (mm)",
-                    "value": "vertical_oscillation_mm",
-                    "color": "darkred",
-                    "category": "running",
-                },
-                "vertical_ratio": {
-                    "label": "Vertical Ratio (%)",
-                    "value": "vertical_ratio",
-                    "color": "darkblue",
-                    "category": "running",
-                },
-                "ground_contact_time_ms": {
-                    "label": "Ground Contact Time (ms)",
-                    "value": "ground_contact_time_ms",
-                    "color": "darkgray",
-                    "category": "running",
-                },
-                "ground_contact_balance_pct": {
-                    "label": "Ground Contact Balance (%)",
-                    "value": "ground_contact_balance_pct",
-                    "color": "darkmagenta",
-                    "category": "running",
-                },
-                "step_length_mm": {
-                    "label": "Step Length (mm)",
-                    "value": "step_length_mm",
-                    "color": "darkorange",
-                    "category": "running",
-                },
-                # Power metrics
-                "air_power_w": {
-                    "label": "Air Power (W)",
-                    "value": "air_power_w",
-                    "color": "lightblue",
-                    "category": "power",
-                },
-                "form_power_w": {
-                    "label": "Form Power (W)",
-                    "value": "form_power_w",
-                    "color": "darkturquoise",
-                    "category": "power",
-                },
-                # Biomechanics
-                "leg_spring_stiffness": {
-                    "label": "Leg Spring Stiffness",
-                    "value": "leg_spring_stiffness",
-                    "color": "maroon",
-                    "category": "biomechanics",
-                },
-                "impact_loading_rate": {
-                    "label": "Impact Loading Rate",
-                    "value": "impact_loading_rate",
-                    "color": "crimson",
-                    "category": "biomechanics",
-                },
-                # Environmental (Stryd)
-                "stryd_temperature_c": {
-                    "label": "Stryd Temperature (°C)",
-                    "value": "stryd_temperature_c",
-                    "color": "forestgreen",
-                    "category": "environmental",
-                },
-                "stryd_humidity_pct": {
-                    "label": "Stryd Humidity (%)",
-                    "value": "stryd_humidity_pct",
-                    "color": "steelblue",
-                    "category": "environmental",
-                },
-            }
-
-            # Check each metric to see if it has data
-            for metric_key, metric_info in metric_config.items():
-                if metric_key == "pace_per_km":
-                    # Special case: pace is calculated from speed
-                    has_data = any(getattr(sample, "speed_mps") is not None for sample in samples)
-                else:
-                    has_data = any(getattr(sample, metric_key) is not None for sample in samples)
-
-                if has_data:
-                    available_metrics.append(metric_info)
-
-            if not available_metrics:
-                return dbc.Alert("No valid metrics found for this activity", color="warning")
-
-            # Group metrics by category
-            categories = {}
-            for metric in available_metrics:
-                category = metric["category"]
-                if category not in categories:
-                    categories[category] = []
-                categories[category].append(metric)
-
-            # Set default values: pace and power (not form power) as requested
-            default_values = []
-            available_values = [m["value"] for m in available_metrics]
-            if "pace_per_km" in available_values:
-                default_values.append("pace_per_km")
-            if "power_w" in available_values:
-                default_values.append("power_w")
-
-            # If neither pace nor power available, default to first 2 available metrics
-            if not default_values:
-                default_values = available_values[:2]
-
-            # Create organized metric selector
-            metric_sections = []
-            category_order = ["basic", "running", "power", "biomechanics", "environmental"]
-            category_labels = {
-                "basic": "Basic Metrics",
-                "running": "Running Dynamics",
-                "power": "Power Analysis",
-                "biomechanics": "Biomechanics",
-                "environmental": "Environmental",
-            }
-
-            for category in category_order:
-                # Always create selector, even if empty
-                category_options = categories.get(category, [])
-                selected_values = [m["value"] for m in category_options if m["value"] in default_values]
-
-                # Only show section if it has metrics OR if it's a basic category (always show basic)
-                if category_options or category == "basic":
-                    metric_sections.append(
-                        html.Div(
-                            [
-                                html.H6(category_labels[category], className="text-secondary mb-2 mt-3"),
-                                dbc.Checklist(
-                                    options=category_options,
-                                    value=selected_values,
-                                    id=f"data-overlay-selector-{category}",
-                                    inline=True,
-                                    className="mb-2",
-                                ),
-                            ]
-                        )
-                    )
-                else:
-                    # Create hidden/empty selector to satisfy callback
-                    metric_sections.append(
-                        html.Div(
-                            dbc.Checklist(
-                                options=[],
-                                value=[],
-                                id=f"data-overlay-selector-{category}",
-                                style={"display": "none"},
-                            )
-                        )
-                    )
-
-            return html.Div(
+def create_error_layout(error_message: str):
+    """Create error layout for failed loads."""
+    return dbc.Container(
+        [
+            dbc.Row(
                 [
-                    html.P("Select metrics to display in the chart:", className="text-muted mb-3"),
-                    html.Div(metric_sections),
-                    dcc.Store(id="combined-metric-selection", data=default_values),
+                    dbc.Col(
+                        [
+                            dbc.Alert(
+                                [
+                                    html.H4(
+                                        [html.I(className="fas fa-exclamation-triangle me-2"), "Error Loading Activity"]
+                                    ),
+                                    html.P(error_message),
+                                    dbc.Button("Back to Activities", href="/", color="primary"),
+                                ],
+                                color="danger",
+                            )
+                        ],
+                        width=8,
+                        className="mx-auto mt-5",
+                    )
                 ]
             )
-
-    except Exception as e:
-        return dbc.Alert(f"Error loading metrics: {str(e)}", color="danger")
-
-
-@callback(
-    Output("combined-metric-selection", "data"),
-    [
-        Input("data-overlay-selector-basic", "value"),
-        Input("data-overlay-selector-running", "value"),
-        Input("data-overlay-selector-power", "value"),
-        Input("data-overlay-selector-biomechanics", "value"),
-        Input("data-overlay-selector-environmental", "value"),
-    ],
-    prevent_initial_call=False,
-)
-def combine_metric_selections(basic, running, power, biomechanics, environmental):
-    """Combine metric selections from all categories."""
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    logger.info(
-        f"🔄 CALLBACK TRIGGERED! Inputs: basic={basic}, running={running}, power={power}, biomechanics={biomechanics}, environmental={environmental}"
+        ]
     )
 
-    combined = []
-    for category_selection in [basic, running, power, biomechanics, environmental]:
-        if category_selection:
-            combined.extend(category_selection)
 
-    logger.info(f"🔄 Metric selection changed: {combined}")
-    return combined
+# Main callback to load activity data
+@callback(
+    [
+        Output("activity-detail-store", "data"),
+        Output("activity-samples-store", "data"),
+        Output("activity-laps-store", "data"),
+        Output("route-bounds-store", "data"),
+        Output("activity-navigation-store", "data"),
+        Output("error-state", "children"),
+        Output("error-state", "style"),
+    ],
+    [Input("url", "pathname")],
+    prevent_initial_call=False,
+)
+def load_activity_data(pathname: str):
+    """
+    Load activity data, samples, and route information.
 
-
-@callback(Output("activity-comments", "children"), Input("activity-data-store", "data"))
-def update_activity_comments(store_data):
-    """Update activity comments section with editable text area."""
-    if not store_data or "activity_id" not in store_data:
-        return ""
-
-    activity_id = store_data["activity_id"]
-
+    Research-validated pattern for data loading with comprehensive
+    error handling and graceful degradation.
+    """
     try:
-        with session_scope() as session:
-            activity = session.query(Activity).filter_by(id=activity_id).first()
+        # Extract activity ID from URL
+        if not pathname or not pathname.startswith("/activity/"):
+            return None, None, None, None, None, create_error_layout("Invalid activity URL"), {"display": "block"}
 
-            if not activity:
-                return ""
+        activity_id_str = pathname.replace("/activity/", "")
+        try:
+            activity_id = int(activity_id_str)
+        except ValueError:
+            return None, None, None, None, None, create_error_layout("Invalid activity ID"), {"display": "block"}
 
-            comments_text = activity.comments or ""
+        # Check database connection
+        if not check_database_connection():
+            return None, None, None, None, None, create_error_layout("Database connection failed"), {"display": "block"}
 
-            return dbc.Card(
+        # Load activity details
+        activity = get_activity_by_id(activity_id)
+        if not activity:
+            return None, None, None, None, None, create_error_layout("Activity not found"), {"display": "block"}
+
+        # Load sample data
+        samples_df = get_activity_samples(activity_id)
+        samples_data = [] if samples_df.empty else samples_df.to_dict("records")
+
+        # Load route bounds for map centering
+        route_bounds = None
+        if samples_data:
+            if gps_samples := [s for s in samples_data if s.get("position_lat") and s.get("position_long")]:
+                lats = [s["position_lat"] for s in gps_samples]
+                lons = [s["position_long"] for s in gps_samples]
+
+                route_bounds = {
+                    "min_lat": min(lats),
+                    "max_lat": max(lats),
+                    "min_lon": min(lons),
+                    "max_lon": max(lons),
+                    "center_lat": sum(lats) / len(lats),
+                    "center_lon": sum(lons) / len(lons),
+                }
+
+        # Load lap data for visualization
+        from ..data.web_queries import get_activity_laps
+
+        laps_data = get_activity_laps(activity_id)
+
+        # Load navigation data
+        navigation_data = get_activity_navigation(activity_id)
+
+        return activity, samples_data, laps_data, route_bounds, navigation_data, None, {"display": "none"}
+
+    except Exception as e:
+        error_msg = f"Unexpected error loading activity: {str(e)}"
+        return None, None, None, None, None, create_error_layout(error_msg), {"display": "block"}
+
+
+# Callback for activity header
+@callback(Output("activity-header", "children"), [Input("activity-detail-store", "data")])
+def update_activity_header(activity_data: Optional[Dict[str, Any]]):
+    """Update the activity header with basic information."""
+    if not activity_data or not isinstance(activity_data, dict):
+        return html.Div()
+
+    # Format start time
+    start_time_str = "Unknown"
+    if activity_data.get("start_time"):
+        try:
+            if isinstance(activity_data["start_time"], str):
+                dt = datetime.fromisoformat(activity_data["start_time"].replace("Z", "+00:00"))
+            else:
+                dt = activity_data["start_time"]
+            start_time_str = dt.strftime("%A, %B %d, %Y at %I:%M %p")
+        except (ValueError, TypeError):
+            start_time_str = str(activity_data["start_time"])
+
+    # Sport emoji mapping
+    sport_emoji_map = {"running": "🏃", "cycling": "🚴", "swimming": "🏊", "hiking": "🥾", "walking": "🚶"}
+
+    sport = activity_data.get("sport", "unknown")
+    sport_emoji = sport_emoji_map.get(sport, "⚽")
+
+    return dbc.Card(
+        [
+            dbc.CardBody(
                 [
-                    dbc.CardHeader(
-                        [html.H6([html.I(className="fas fa-comment-alt me-2"), "Activity Comments"], className="mb-0")]
-                    ),
-                    dbc.CardBody(
+                    dbc.Row(
                         [
-                            dbc.Textarea(
-                                id="activity-comments-textarea",
-                                placeholder="Add your comments about this activity...",
-                                value=comments_text,
-                                rows=3,
-                                className="mb-3",
-                            ),
-                            dbc.Row(
+                            dbc.Col(
                                 [
-                                    dbc.Col(
+                                    html.Div(
                                         [
-                                            dbc.Button(
-                                                [html.I(className="fas fa-save me-2"), "Save Comments"],
-                                                id="save-comments-btn",
-                                                color="primary",
-                                                size="sm",
-                                            )
-                                        ],
-                                        width="auto",
-                                    ),
-                                    dbc.Col([html.Div(id="comments-save-status")], width="auto"),
+                                            html.H2(
+                                                [
+                                                    sport_emoji,
+                                                    " ",
+                                                    html.Span(
+                                                        activity_data.get("name", f"{sport.title()} Activity"),
+                                                        id="activity-title-display",
+                                                        style={"cursor": "pointer", "border-bottom": "1px dashed #ccc"},
+                                                    ),
+                                                    dbc.Badge(
+                                                        activity_data.get("source", "unknown").upper(),
+                                                        color="secondary",
+                                                        className="ms-3",
+                                                    ),
+                                                ],
+                                                className="mb-3",
+                                            ),
+                                            dbc.Input(
+                                                id="activity-title-input",
+                                                value=activity_data.get("name", f"{sport.title()} Activity"),
+                                                style={"display": "none"},
+                                                className="mb-3",
+                                                placeholder="Enter activity name",
+                                            ),
+                                        ]
+                                    )
                                 ]
+                            ),
+                            dbc.Col(
+                                [
+                                    dbc.Button(
+                                        [html.I(className="fas fa-edit me-1"), "Edit Name"],
+                                        id="edit-name-btn",
+                                        color="outline-primary",
+                                        size="sm",
+                                        className="float-end",
+                                    )
+                                ],
+                                width="auto",
+                            ),
+                        ]
+                    ),
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.P(
+                                        [html.I(className="fas fa-calendar me-2"), start_time_str],
+                                        className="text-muted mb-2",
+                                    )
+                                ],
+                                lg=6,
+                            ),
+                            dbc.Col(
+                                [
+                                    html.P(
+                                        [
+                                            html.I(className="fas fa-clock me-2"),
+                                            format_duration(activity_data.get("total_time_s", 0)),
+                                        ],
+                                        className="text-muted mb-2",
+                                    )
+                                ],
+                                lg=6,
                             ),
                         ]
                     ),
                 ]
             )
+        ],
+        color="light",
+        outline=True,
+    )
 
-    except Exception as e:
-        return dbc.Alert(f"Error loading comments: {str(e)}", color="danger")
+
+# Callback for activity summary statistics
+@callback(Output("activity-summary", "children"), [Input("activity-detail-store", "data")])
+def update_activity_summary(activity_data: Optional[Dict[str, Any]]):
+    """Update the activity summary statistics."""
+    if not activity_data or not isinstance(activity_data, dict):
+        return html.Div()
+
+    summary_cards = []
+
+    # Distance
+    if activity_data.get("total_distance_km"):
+        summary_cards.append(
+            create_stat_card("Distance", f"{activity_data['total_distance_km']:.2f} km", "fas fa-route", "primary")
+        )
+
+    # Duration
+    duration_str = format_duration(activity_data.get("total_time_s", 0))
+    summary_cards.append(create_stat_card("Duration", duration_str, "fas fa-clock", "info"))
+
+    # Average Heart Rate
+    if activity_data.get("avg_hr"):
+        summary_cards.append(
+            create_stat_card("Avg HR", f"{int(activity_data['avg_hr'])} bpm", "fas fa-heartbeat", "danger")
+        )
+
+    # Average Power
+    if activity_data.get("avg_power_w"):
+        summary_cards.append(
+            create_stat_card("Avg Power", f"{int(activity_data['avg_power_w'])} W", "fas fa-bolt", "warning")
+        )
+
+    # Elevation Gain
+    if activity_data.get("elevation_gain_m"):
+        summary_cards.append(
+            create_stat_card("Elevation", f"{int(activity_data['elevation_gain_m'])} m", "fas fa-mountain", "success")
+        )
+
+    # Calories
+    if activity_data.get("calories"):
+        summary_cards.append(create_stat_card("Calories", f"{int(activity_data['calories'])}", "fas fa-fire", "danger"))
+
+    return html.Div(summary_cards)
 
 
-@callback(
-    Output("comments-save-status", "children"),
-    Input("save-comments-btn", "n_clicks"),
-    [State("activity-comments-textarea", "value"), State("activity-data-store", "data")],
-    prevent_initial_call=True,
-)
-def save_activity_comments(n_clicks, comments_text, store_data):
-    """Save activity comments to database."""
-    if not n_clicks or not store_data or "activity_id" not in store_data:
-        return ""
-
-    activity_id = store_data["activity_id"]
-
-    try:
-        with session_scope() as session:
-            activity = session.query(Activity).filter_by(id=activity_id).first()
-
-            if not activity:
-                return dbc.Alert("Activity not found", color="danger")
-
-            activity.comments = comments_text
-            session.commit()
-
-            return dbc.Alert(
-                [html.I(className="fas fa-check me-2"), "Comments saved successfully!"],
-                color="success",
-                dismissable=True,
-                duration=3000,
+def create_stat_card(title: str, value: str, icon: str, color: str):
+    """Create a statistics card."""
+    return dbc.Card(
+        [
+            dbc.CardBody(
+                [
+                    html.Div(
+                        [
+                            html.I(className=f"{icon} fa-lg text-{color} mb-2"),
+                            html.H4(value, className="mb-0"),
+                            html.P(title, className="text-muted small mb-0"),
+                        ],
+                        className="text-center",
+                    )
+                ]
             )
+        ],
+        className="mb-3",
+    )
 
-    except Exception as e:
-        return dbc.Alert(
-            [html.I(className="fas fa-exclamation-triangle me-2"), f"Error saving comments: {str(e)}"],
-            color="danger",
-            dismissable=True,
+
+# Callback for map updates
+@callback(
+    [
+        Output("route-polyline", "positions"),
+        Output("activity-map", "center"),
+        Output("activity-map", "zoom"),
+        Output("map-status", "children"),
+    ],
+    [Input("activity-samples-store", "data"), Input("route-bounds-store", "data")],
+)
+def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Optional[Dict]):
+    """
+    Update the activity map with route polyline and proper centering.
+
+    Research-validated dash-leaflet integration with GPS route visualization.
+    """
+    if not samples_data or not isinstance(samples_data, list):
+        return [], [0, 0], 2, "No GPS data available for this activity"
+
+    route_positions = [
+        [sample["position_lat"], sample["position_long"]]
+        for sample in samples_data
+        if sample.get("position_lat") and sample.get("position_long")
+    ]
+    if not route_positions:
+        return [], [0, 0], 2, "No GPS data available for this activity"
+
+    # Calculate map center and zoom
+    if route_bounds:
+        center_lat = route_bounds["center_lat"]
+        center_lon = route_bounds["center_lon"]
+
+        # Calculate appropriate zoom level based on route bounds
+        lat_diff = route_bounds["max_lat"] - route_bounds["min_lat"]
+        lon_diff = route_bounds["max_lon"] - route_bounds["min_lon"]
+        max_diff = max(lat_diff, lon_diff)
+
+        # Empirical zoom calculation
+        if max_diff > 1.0:
+            zoom = 8
+        elif max_diff > 0.1:
+            zoom = 10
+        elif max_diff > 0.01:
+            zoom = 13
+        else:
+            zoom = 15
+
+        center = [center_lat, center_lon]
+    else:
+        # Fallback to first point
+        center = route_positions[0]
+        zoom = 13
+    status = f"Route with {len(route_positions)} GPS points"
+
+    return route_positions, center, zoom, status
+
+
+# Callback for activity charts
+@callback(
+    Output("activity-charts", "figure"),
+    [
+        Input("activity-samples-store", "data"),
+        Input("activity-detail-store", "data"),
+        Input("activity-laps-store", "data"),
+        Input("chart-type-selector", "value"),
+        Input("smoothing-selector", "value"),
+    ],
+)
+def update_activity_charts(
+    samples_data: Optional[List[Dict]],
+    activity_data: Optional[Dict],
+    laps_data: Optional[List[Dict]] = None,
+    chart_type: str = "subplots",
+    smoothing: str = "none",
+):
+    """
+    Create fitplotter-style interactive charts with multiple view modes.
+
+    Implements chart type selection, data smoothing, and enhanced interactivity
+    inspired by the fitplotter library.
+    """
+    if not samples_data or not isinstance(samples_data, list):
+        return create_empty_chart_figure()
+
+    # Convert to DataFrame for easier processing
+    df = pd.DataFrame(samples_data)
+
+    if df.empty:
+        return create_empty_chart_figure()
+
+    # Apply intelligent downsampling for performance
+    if len(df) > 5000:
+        downsample_factor = len(df) // 2500
+        df = df.iloc[:: max(downsample_factor, 1)]
+
+    # Prepare time axis
+    if "elapsed_time_s" in df.columns:
+        df["elapsed_time_min"] = df["elapsed_time_s"] / 60
+        x_axis = df["elapsed_time_min"]
+        x_title = "Time (minutes)"
+    else:
+        x_axis = df.index
+        x_title = "Sample Index"
+
+    # Dynamically determine available data types based on what's in the data
+    data_types = []
+
+    # Standard metrics
+    if "speed_mps" in df.columns and df["speed_mps"].notna().any():
+        data_types.append(("pace", "Pace", "min/km", "blue"))
+    if "heart_rate_bpm" in df.columns and df["heart_rate_bpm"].notna().any():
+        data_types.append(("heart_rate", "Heart Rate", "bpm", "red"))
+    if "power_w" in df.columns and df["power_w"].notna().any():
+        data_types.append(("power", "Power", "W", "green"))
+    if "altitude_m" in df.columns and df["altitude_m"].notna().any():
+        data_types.append(("elevation", "Elevation", "m", "brown"))
+    if "cadence_rpm" in df.columns and df["cadence_rpm"].notna().any():
+        data_types.append(("cadence", "Cadence", "rpm", "orange"))
+
+    # Advanced running dynamics - dynamically add if present
+    if "vertical_oscillation_mm" in df.columns and df["vertical_oscillation_mm"].notna().any():
+        data_types.append(("vertical_oscillation", "Vertical Oscillation", "mm", "purple"))
+    if "vertical_ratio" in df.columns and df["vertical_ratio"].notna().any():
+        data_types.append(("vertical_ratio", "Vertical Ratio", "%", "pink"))
+    if "ground_contact_time_ms" in df.columns and df["ground_contact_time_ms"].notna().any():
+        data_types.append(("ground_contact_time", "Ground Contact Time", "ms", "darkred"))
+    if "ground_contact_balance_pct" in df.columns and df["ground_contact_balance_pct"].notna().any():
+        data_types.append(("ground_contact_balance", "GC Balance", "%", "navy"))
+    if "step_length_mm" in df.columns and df["step_length_mm"].notna().any():
+        data_types.append(("step_length", "Step Length", "mm", "teal"))
+    if "form_power_w" in df.columns and df["form_power_w"].notna().any():
+        data_types.append(("form_power", "Form Power", "W", "darkgreen"))
+    if "air_power_w" in df.columns and df["air_power_w"].notna().any():
+        data_types.append(("air_power", "Air Power", "W", "lightblue"))
+    if "leg_spring_stiffness" in df.columns and df["leg_spring_stiffness"].notna().any():
+        data_types.append(("leg_spring_stiffness", "Leg Spring Stiffness", "kN/m", "gold"))
+    if "impact_loading_rate" in df.columns and df["impact_loading_rate"].notna().any():
+        data_types.append(("impact_loading_rate", "Impact Loading Rate", "BW/s", "darkorange"))
+    if "stryd_temperature_c" in df.columns and df["stryd_temperature_c"].notna().any():
+        data_types.append(("stryd_temperature", "Stryd Temperature", "°C", "crimson"))
+    if "stryd_humidity_pct" in df.columns and df["stryd_humidity_pct"].notna().any():
+        data_types.append(("stryd_humidity", "Stryd Humidity", "%", "steelblue"))
+
+    if not data_types:
+        return create_empty_chart_figure("No chart data available")
+
+    # Prepare data with smoothing
+    prepared_data = prepare_chart_data(df, data_types, smoothing)
+
+    # Create charts based on selected type
+    if chart_type == "dual_y":
+        return create_dual_y_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
+    elif chart_type == "overlay":
+        return create_overlay_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
+    else:
+        return create_subplot_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
+
+
+def prepare_chart_data(df: pd.DataFrame, data_types: list, smoothing: str = "none"):
+    """Prepare and smooth chart data based on selected smoothing level."""
+    prepared_data = {}
+
+    for data_key, display_name, unit, color in data_types:
+        if data_key == "pace" and "speed_mps" in df.columns:
+            # Convert speed to pace (min/km), handling zero speeds
+            speed_kmh = df["speed_mps"] * 3.6
+            pace_data = np.where(speed_kmh > 0.1, 60 / speed_kmh, np.nan)
+            # Cap pace at reasonable max (15 min/km)
+            pace_data = np.where(pace_data > 15, 15, pace_data)
+            prepared_data[data_key] = pace_data
+        elif data_key == "heart_rate" and "heart_rate_bpm" in df.columns:
+            prepared_data[data_key] = df["heart_rate_bpm"].values
+        elif data_key == "power" and "power_w" in df.columns:
+            prepared_data[data_key] = df["power_w"].values
+        elif data_key == "elevation" and "altitude_m" in df.columns:
+            prepared_data[data_key] = df["altitude_m"].values
+        elif data_key == "cadence" and "cadence_rpm" in df.columns:
+            prepared_data[data_key] = df["cadence_rpm"].values
+        # Advanced running dynamics
+        elif data_key == "vertical_oscillation" and "vertical_oscillation_mm" in df.columns:
+            prepared_data[data_key] = df["vertical_oscillation_mm"].values
+        elif data_key == "vertical_ratio" and "vertical_ratio" in df.columns:
+            prepared_data[data_key] = df["vertical_ratio"].values
+        elif data_key == "ground_contact_time" and "ground_contact_time_ms" in df.columns:
+            prepared_data[data_key] = df["ground_contact_time_ms"].values
+        elif data_key == "ground_contact_balance" and "ground_contact_balance_pct" in df.columns:
+            prepared_data[data_key] = df["ground_contact_balance_pct"].values
+        elif data_key == "step_length" and "step_length_mm" in df.columns:
+            prepared_data[data_key] = df["step_length_mm"].values
+        elif data_key == "form_power" and "form_power_w" in df.columns:
+            prepared_data[data_key] = df["form_power_w"].values
+        elif data_key == "air_power" and "air_power_w" in df.columns:
+            prepared_data[data_key] = df["air_power_w"].values
+        elif data_key == "leg_spring_stiffness" and "leg_spring_stiffness" in df.columns:
+            prepared_data[data_key] = df["leg_spring_stiffness"].values
+        elif data_key == "impact_loading_rate" and "impact_loading_rate" in df.columns:
+            prepared_data[data_key] = df["impact_loading_rate"].values
+        elif data_key == "stryd_temperature" and "stryd_temperature_c" in df.columns:
+            prepared_data[data_key] = df["stryd_temperature_c"].values
+        elif data_key == "stryd_humidity" and "stryd_humidity_pct" in df.columns:
+            prepared_data[data_key] = df["stryd_humidity_pct"].values
+
+    # Apply smoothing if requested
+    if smoothing != "none":
+        window_sizes = {"light": 5, "medium": 15, "heavy": 31}
+        window = window_sizes.get(smoothing, 5)
+
+        for key, data in prepared_data.items():
+            if len(data) > window and not np.all(np.isnan(data)):
+                try:
+                    # Use Savitzky-Golay filter for better smoothing
+                    if len(data) > window:
+                        smooth_data = savgol_filter(data, min(window, len(data) // 3 * 2 - 1), 3, mode="nearest")
+                        prepared_data[key] = smooth_data
+                except Exception:
+                    # Fallback to simple moving average
+                    prepared_data[key] = ndimage.uniform_filter1d(data, size=window, mode="nearest")
+
+    return prepared_data
+
+
+def add_lap_markers(fig, x_axis, laps_data: Optional[List[Dict]] = None, subplot_row: int = None):
+    """Add lap markers to chart figure."""
+    if not laps_data:
+        return
+
+    for i, lap in enumerate(laps_data):
+        start_time_min = lap.get("start_time_s", 0) / 60
+        lap.get("end_time_s", 0) / 60
+
+        # Add vertical line at lap start
+        fig.add_vline(
+            x=start_time_min,
+            line=dict(color="rgba(255, 0, 0, 0.6)", width=1, dash="dash"),
+            annotation_text=f"L{lap.get('lap_index', i)}",
+            annotation_position="top",
+            annotation_font_size=10,
+            row=subplot_row,
+            col=1 if subplot_row else None,
         )
 
 
-@callback(Output("activity-header", "children"), Input("activity-data-store", "data"))
-def update_activity_header(store_data):
-    """Update activity header with basic info."""
-    if not store_data or "activity_id" not in store_data:
-        return dbc.Alert("No activity data", color="warning")
+def create_subplot_chart(
+    x_axis,
+    x_title: str,
+    prepared_data: dict,
+    data_types: list,
+    activity_data: dict,
+    laps_data: Optional[List[Dict]] = None,
+):
+    """Create multi-subplot chart layout similar to fitplotter."""
+    n_charts = len(data_types)
+    fig = make_subplots(
+        rows=n_charts,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=[f"{display_name} ({unit})" for _, display_name, unit, _ in data_types],
+    )
 
-    activity_id = store_data["activity_id"]
+    for i, (data_key, display_name, unit, color) in enumerate(data_types, 1):
+        if data_key in prepared_data:
+            y_data = prepared_data[data_key]
+            valid_mask = ~np.isnan(y_data)
 
-    try:
-        with session_scope() as session:
-            activity = session.query(Activity).filter_by(id=activity_id).first()
-
-            if not activity:
-                return dbc.Alert(f"Activity {activity_id} not found", color="danger")
-
-            # Format activity details
-            duration_str = f"{activity.elapsed_time_s // 60:.0f} min" if activity.elapsed_time_s else "N/A"
-            distance_str = f"{activity.distance_m/1000:.2f} km" if activity.distance_m else "N/A"
-            speed_str = f"{activity.avg_speed_mps * 3.6:.1f} km/h" if activity.avg_speed_mps else "N/A"
-
-            return html.Div(
-                [
-                    html.H1([html.I(className="fas fa-chart-line me-3"), f"Activity {activity_id}"]),
-                    dbc.Row(
-                        [
-                            dbc.Col([html.Strong("Sport: "), activity.sport or "Unknown"], width=3),
-                            dbc.Col([html.Strong("Duration: "), duration_str], width=3),
-                            dbc.Col([html.Strong("Distance: "), distance_str], width=3),
-                            dbc.Col([html.Strong("Avg Speed: "), speed_str], width=3),
-                        ],
-                        className="mb-3",
-                    ),
-                    dbc.Row(
-                        [
-                            dbc.Col(
-                                [
-                                    html.Strong("Date: "),
-                                    (
-                                        activity.start_time_utc.strftime("%Y-%m-%d %H:%M:%S")
-                                        if activity.start_time_utc
-                                        else "Unknown"
-                                    ),
-                                ],
-                                width=6,
-                            ),
-                            dbc.Col(
-                                [html.Strong("Source: "), activity.source.upper() if activity.source else "Unknown"],
-                                width=6,
-                            ),
-                        ]
-                    ),
-                ]
+            fig.add_trace(
+                go.Scatter(
+                    x=x_axis[valid_mask],
+                    y=y_data[valid_mask],
+                    mode="lines",
+                    name=display_name,
+                    line=dict(color=color, width=2),
+                    hovertemplate=f"<b>{display_name}</b><br>Time: %{{x:.1f}} min<br>{display_name}: %{{y:.1f}} {unit}<extra></extra>",
+                    showlegend=False,
+                ),
+                row=i,
+                col=1,
             )
 
-    except Exception as e:
-        return dbc.Alert(f"Error loading activity: {str(e)}", color="danger")
+            # Update y-axis for this subplot
+            fig.update_yaxes(title_text=unit, row=i, col=1)
+
+    # Add lap markers to each subplot
+    for i in range(1, n_charts + 1):
+        add_lap_markers(fig, x_axis, laps_data, subplot_row=i)
+
+    # Update layout
+    fig.update_xaxes(title_text=x_title, row=n_charts, col=1)
+    fig.update_layout(
+        height=150 * n_charts + 100,
+        showlegend=False,
+        title_text=activity_data.get("name", "Activity Charts") if activity_data else "Activity Charts",
+        hovermode="x unified",
+    )
+
+    return fig
 
 
-@callback(Output("activity-summary", "children"), Input("activity-data-store", "data"))
-def update_activity_summary(store_data):
-    """Update activity summary with key metrics and available data types."""
-    if not store_data or "activity_id" not in store_data:
-        return dbc.Alert("No activity data", color="warning")
+def create_dual_y_chart(
+    x_axis,
+    x_title: str,
+    prepared_data: dict,
+    data_types: list,
+    activity_data: dict,
+    laps_data: Optional[List[Dict]] = None,
+):
+    """Create dual y-axis chart with primary and secondary metrics."""
+    fig = go.Figure()
 
-    activity_id = store_data["activity_id"]
+    # Primary axis (first available metric)
+    primary_data = None
+    secondary_data = []
 
-    try:
-        with session_scope() as session:
-            activity = session.query(Activity).filter_by(id=activity_id).first()
+    for i, (data_key, display_name, unit, color) in enumerate(data_types):
+        if data_key in prepared_data:
+            y_data = prepared_data[data_key]
+            valid_mask = ~np.isnan(y_data)
 
-            if not activity:
-                return dbc.Alert(f"Activity {activity_id} not found", color="danger")
-
-            # Get sample data to check what metrics are available
-            samples = session.query(Sample).filter_by(activity_id=activity_id).limit(10).all()
-
-            # Determine available metrics
-            available_metrics = set()
-            if samples:
-                for sample in samples[:5]:  # Check first 5 samples
-                    for attr in ["heart_rate", "speed_mps", "altitude_m", "power_w", "cadence_rpm", "temperature_c"]:
-                        if getattr(sample, attr) is not None:
-                            available_metrics.add(attr)
-
-            # Check for GPS data
-            has_gps = any(sample.latitude and sample.longitude for sample in samples[:5]) if samples else False
-
-            # Create summary cards
-            summary_cards = []
-
-            # Distance card
-            if activity.distance_m and activity.distance_m > 0:
-                distance_km = activity.distance_m / 1000
-                summary_cards.append(
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardBody(
-                                        [
-                                            html.H4(f"{distance_km:.2f} km", className="text-primary mb-0"),
-                                            html.P("Distance", className="text-muted mb-0"),
-                                        ],
-                                        className="text-center",
-                                    )
-                                ]
-                            )
-                        ],
-                        width=2,
+            if i == 0:  # First metric goes on primary y-axis
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_axis[valid_mask],
+                        y=y_data[valid_mask],
+                        mode="lines",
+                        name=f"{display_name} ({unit})",
+                        line=dict(color=color, width=2),
+                        hovertemplate=f"<b>{display_name}</b><br>Time: %{{x:.1f}} min<br>{display_name}: %{{y:.1f}} {unit}<extra></extra>",
+                        yaxis="y",
                     )
                 )
-
-            # Duration card
-            if activity.elapsed_time_s:
-                hours = int(activity.elapsed_time_s // 3600)
-                minutes = int((activity.elapsed_time_s % 3600) // 60)
-                seconds = int(activity.elapsed_time_s % 60)
-                duration_str = (
-                    f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
-                )
-                summary_cards.append(
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardBody(
-                                        [
-                                            html.H4(duration_str, className="text-success mb-0"),
-                                            html.P("Duration", className="text-muted mb-0"),
-                                        ],
-                                        className="text-center",
-                                    )
-                                ]
-                            )
-                        ],
-                        width=2,
+                primary_data = (display_name, unit, color)
+            else:  # Other metrics go on secondary y-axis
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_axis[valid_mask],
+                        y=y_data[valid_mask],
+                        mode="lines",
+                        name=f"{display_name} ({unit})",
+                        line=dict(color=color, width=2, dash="dot"),
+                        hovertemplate=f"<b>{display_name}</b><br>Time: %{{x:.1f}} min<br>{display_name}: %{{y:.1f}} {unit}<extra></extra>",
+                        yaxis="y2",
                     )
                 )
+                secondary_data.append((display_name, unit, color))
 
-            # Pace card (for running activities)
-            if activity.avg_pace_s_per_km and activity.sport == "running":
-                pace_min = int(activity.avg_pace_s_per_km // 60)
-                pace_sec = int(activity.avg_pace_s_per_km % 60)
-                pace_str = f"{pace_min}:{pace_sec:02d}"
-                summary_cards.append(
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardBody(
-                                        [
-                                            html.H4(f"{pace_str}/km", className="text-info mb-0"),
-                                            html.P("Avg Pace", className="text-muted mb-0"),
-                                        ],
-                                        className="text-center",
-                                    )
-                                ]
-                            )
-                        ],
-                        width=2,
-                    )
-                )
+    # Add lap markers
+    add_lap_markers(fig, x_axis, laps_data)
 
-            # Speed/Pace card
-            if activity.avg_speed_mps:
-                if activity.sport == "running":
-                    # Show pace for running activities
-                    pace_s_per_km = 1000 / activity.avg_speed_mps
-                    pace_min = int(pace_s_per_km // 60)
-                    pace_sec = int(pace_s_per_km % 60)
-                    summary_cards.append(
-                        dbc.Col(
-                            [
-                                dbc.Card(
-                                    [
-                                        dbc.CardBody(
-                                            [
-                                                html.H4(f"{pace_min}:{pace_sec:02d} /km", className="text-info mb-0"),
-                                                html.P("Avg Pace", className="text-muted mb-0"),
-                                            ],
-                                            className="text-center",
-                                        )
-                                    ]
-                                )
-                            ],
-                            width=2,
-                        )
-                    )
+    # Update layout with dual y-axes
+    fig.update_layout(
+        title_text=activity_data.get("name", "Activity Chart") if activity_data else "Activity Chart",
+        xaxis_title=x_title,
+        yaxis=dict(
+            title=f"{primary_data[1]}" if primary_data else "Primary Metric",
+            side="left",
+            color=primary_data[2] if primary_data else "blue",
+        ),
+        yaxis2=dict(
+            title=f"{secondary_data[0][1]}" if secondary_data else "Secondary Metric",
+            side="right",
+            overlaying="y",
+            color=secondary_data[0][2] if secondary_data else "red",
+        ),
+        height=500,
+        hovermode="x unified",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+    )
+
+    return fig
+
+
+def create_overlay_chart(
+    x_axis,
+    x_title: str,
+    prepared_data: dict,
+    data_types: list,
+    activity_data: dict,
+    laps_data: Optional[List[Dict]] = None,
+):
+    """Create overlay chart with normalized data on single y-axis."""
+    fig = go.Figure()
+
+    # Normalize all data to 0-100 scale for overlay visualization
+    for data_key, display_name, unit, color in data_types:
+        if data_key in prepared_data:
+            y_data = prepared_data[data_key]
+            valid_mask = ~np.isnan(y_data)
+
+            if valid_mask.sum() > 0:
+                # Normalize to 0-100 scale
+                valid_data = y_data[valid_mask]
+                data_min, data_max = np.min(valid_data), np.max(valid_data)
+                if data_max > data_min:
+                    normalized_data = ((valid_data - data_min) / (data_max - data_min)) * 100
                 else:
-                    # Show speed for other activities
-                    speed_kmh = activity.avg_speed_mps * 3.6
-                    summary_cards.append(
-                        dbc.Col(
-                            [
-                                dbc.Card(
-                                    [
-                                        dbc.CardBody(
-                                            [
-                                                html.H4(f"{speed_kmh:.1f} km/h", className="text-info mb-0"),
-                                                html.P("Avg Speed", className="text-muted mb-0"),
-                                            ],
-                                            className="text-center",
-                                        )
-                                    ]
-                                )
-                            ],
-                            width=2,
-                        )
-                    )
+                    normalized_data = np.full_like(valid_data, 50)
 
-            # Heart Rate card
-            if activity.avg_hr:
-                summary_cards.append(
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardBody(
-                                        [
-                                            html.H4(f"{activity.avg_hr} bpm", className="text-danger mb-0"),
-                                            html.P("Avg Heart Rate", className="text-muted mb-0"),
-                                        ],
-                                        className="text-center",
-                                    )
-                                ]
-                            )
-                        ],
-                        width=2,
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_axis[valid_mask],
+                        y=normalized_data,
+                        mode="lines",
+                        name=f"{display_name}",
+                        line=dict(color=color, width=2),
+                        hovertemplate=f"<b>{display_name}</b><br>Time: %{{x:.1f}} min<br>Normalized: %{{y:.1f}}%<br>Actual: %{{customdata:.1f}} {unit}<extra></extra>",
+                        customdata=valid_data,
                     )
                 )
 
-            # Available data types card
-            metric_labels = {
-                "heart_rate": "HR",
-                "speed_mps": "Speed",
-                "altitude_m": "Elevation",
-                "power_w": "Power",
-                "cadence_rpm": "Cadence",
-                "temperature_c": "Temperature",
-            }
-            available_labels = [metric_labels.get(metric, metric) for metric in available_metrics]
-            if has_gps:
-                available_labels.append("GPS")
+    # Add lap markers
+    add_lap_markers(fig, x_axis, laps_data)
 
-            data_types_str = ", ".join(available_labels) if available_labels else "Heart Rate only"
-            summary_cards.append(
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            [
-                                dbc.CardBody(
-                                    [
-                                        html.H6("Available Data", className="text-muted mb-1"),
-                                        html.P(data_types_str, className="mb-0 small"),
-                                    ],
-                                    className="text-center",
-                                )
-                            ]
-                        )
-                    ],
-                    width=4,
-                )
-            )
+    fig.update_layout(
+        title_text=(
+            activity_data.get("name", "Activity Chart (Normalized)") if activity_data else "Activity Chart (Normalized)"
+        ),
+        xaxis_title=x_title,
+        yaxis_title="Normalized Value (%)",
+        height=500,
+        hovermode="x unified",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+    )
 
-            return dbc.Row(summary_cards)
+    return fig
 
-    except Exception as e:
-        return dbc.Alert(f"Error loading summary: {str(e)}", color="danger")
+
+def create_empty_chart_figure(message: str = "No data available"):
+    """Create empty figure with message."""
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message, xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="gray")
+    )
+    fig.update_layout(height=400, showlegend=False, xaxis={"visible": False}, yaxis={"visible": False})
+    return fig
+
+
+def format_duration(total_seconds: int) -> str:
+    """Format duration in seconds to readable string."""
+    if not total_seconds:
+        return "0:00"
+
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    seconds = int(total_seconds % 60)
+
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    else:
+        return f"{minutes}:{seconds:02d}"
+
+
+# Navigation callbacks
+@callback(
+    [
+        Output("prev-activity-btn", "disabled"),
+        Output("prev-activity-btn", "href"),
+        Output("next-activity-btn", "disabled"),
+        Output("next-activity-btn", "href"),
+    ],
+    [Input("activity-navigation-store", "data")],
+)
+def update_navigation_buttons(navigation_data):
+    """Update navigation button states and links."""
+    if not navigation_data:
+        return True, None, True, None
+
+    prev_disabled = navigation_data.get("previous") is None
+    next_disabled = navigation_data.get("next") is None
+
+    prev_href = f"/activity/{navigation_data['previous']}" if not prev_disabled else None
+    next_href = f"/activity/{navigation_data['next']}" if not next_disabled else None
+
+    return prev_disabled, prev_href, next_disabled, next_href
+
+
+# Name editing callbacks
+@callback(
+    [
+        Output("activity-title-display", "style"),
+        Output("activity-title-input", "style"),
+        Output("edit-name-btn", "children"),
+    ],
+    [Input("edit-name-btn", "n_clicks")],
+    prevent_initial_call=True,
+)
+def toggle_name_edit(n_clicks):
+    """Toggle between display and edit mode for activity name."""
+    if n_clicks and n_clicks % 2 == 1:  # Odd clicks = edit mode
+        return (
+            {"display": "none"},
+            {"display": "block"},
+            [html.I(className="fas fa-save me-1"), "Save"],
+        )
+    else:  # Even clicks or initial = display mode
+        return (
+            {"cursor": "pointer", "border-bottom": "1px dashed #ccc"},
+            {"display": "none"},
+            [html.I(className="fas fa-edit me-1"), "Edit Name"],
+        )
 
 
 @callback(
-    Output("activity-charts", "children"),
-    [Input("activity-data-store", "data"), Input("combined-metric-selection", "data")],
-    prevent_initial_call=False,
+    [
+        Output("activity-title-display", "children"),
+        Output("activity-detail-store", "data", allow_duplicate=True),
+    ],
+    [Input("edit-name-btn", "n_clicks")],
+    [
+        State("activity-title-input", "value"),
+        State("activity-detail-store", "data"),
+        State("url", "pathname"),
+    ],
+    prevent_initial_call=True,
 )
-def update_activity_charts(store_data, selected_metrics):
-    """Update activity charts with sample data."""
-    import logging
+def save_activity_name(n_clicks, new_name, activity_data, pathname):
+    """Save the updated activity name to database."""
+    if not n_clicks or n_clicks % 2 == 1 or not new_name or not activity_data:
+        return dash.no_update, dash.no_update
 
-    logger = logging.getLogger(__name__)
-
-    logger.info(f"📊 Chart update triggered - Activity: {store_data}, Metrics: {selected_metrics}")
-
-    if not store_data or "activity_id" not in store_data:
-        return dbc.Alert("No activity data", color="warning")
-
-    activity_id = store_data["activity_id"]
-
+    # Extract activity ID from pathname
     try:
-        if not selected_metrics:
-            selected_metrics = ["heart_rate"]  # Default
+        activity_id = int(pathname.replace("/activity/", ""))
+    except (ValueError, AttributeError):
+        return dash.no_update, dash.no_update
 
-        with session_scope() as session:
-            # Get activity info for sport-specific calculations
-            activity = session.query(Activity).filter_by(id=activity_id).first()
-            if not activity:
-                return dbc.Alert("Activity not found", color="danger")
+    # Update database
+    success = update_activity_name(activity_id, new_name)
+    if success:
+        # Update the stored activity data
+        updated_activity_data = activity_data.copy()
+        updated_activity_data["name"] = new_name
+        return new_name, updated_activity_data
 
-            # Get activity samples
-            samples = session.query(Sample).filter_by(activity_id=activity_id).order_by(Sample.elapsed_time_s).all()
-
-            if not samples:
-                return dbc.Alert("No sample data found for this activity", color="info")
-
-            # Convert to DataFrame with all metrics and sport-specific speed calculation
-            sample_data = []
-            for sample in samples:
-                # Calculate sport-specific speed/pace
-                pace_per_km = None
-
-                if sample.speed_mps and sample.speed_mps > 0:
-                    sport = (activity.sport or "").lower()
-
-                    if sport in ["running", "run"]:
-                        # Running: min/km pace
-                        pace_per_km = (1000 / sample.speed_mps) / 60  # Convert to minutes per km
-                    elif sport in ["swimming", "swim"]:
-                        # Swimming: min/100m pace
-                        pace_per_100m = (100 / sample.speed_mps) / 60  # Convert to minutes per 100m
-                        pace_per_km = pace_per_100m  # Use same field for consistency
-                    else:
-                        # Cycling and others: km/h
-                        speed_kmh = sample.speed_mps * 3.6
-                        pace_per_km = speed_kmh  # Use same field for consistency
-
-                sample_data.append(
-                    {
-                        "time": sample.elapsed_time_s / 60,  # Convert to minutes
-                        # Basic metrics
-                        "heart_rate": sample.heart_rate,
-                        "pace_per_km": pace_per_km,
-                        "speed_mps": sample.speed_mps,
-                        "altitude_m": sample.altitude_m,
-                        "cadence_rpm": sample.cadence_rpm,
-                        "power_w": sample.power_w,
-                        "temperature_c": sample.temperature_c,
-                        # Advanced running dynamics
-                        "vertical_oscillation_mm": sample.vertical_oscillation_mm,
-                        "vertical_ratio": sample.vertical_ratio,
-                        "ground_contact_time_ms": sample.ground_contact_time_ms,
-                        "ground_contact_balance_pct": sample.ground_contact_balance_pct,
-                        "step_length_mm": sample.step_length_mm,
-                        # Power metrics
-                        "air_power_w": sample.air_power_w,
-                        "form_power_w": sample.form_power_w,
-                        # Biomechanics
-                        "leg_spring_stiffness": sample.leg_spring_stiffness,
-                        "impact_loading_rate": sample.impact_loading_rate,
-                        # Environmental
-                        "stryd_temperature_c": sample.stryd_temperature_c,
-                        "stryd_humidity_pct": sample.stryd_humidity_pct,
-                    }
-                )
-
-            df = pd.DataFrame(sample_data)
-
-            # Create multi-axis plot
-            fig = go.Figure()
-
-            # Determine sport-specific pace label
-            sport = (activity.sport or "").lower()
-            if sport in ["running", "run"]:
-                pace_label = "Pace (min/km)"
-                pace_unit = "min/km"
-            elif sport in ["swimming", "swim"]:
-                pace_label = "Pace (min/100m)"
-                pace_unit = "min/100m"
-            else:
-                pace_label = "Speed (km/h)"
-                pace_unit = "km/h"
-
-            # Define colors and labels for each metric (matching the selector)
-            metric_config = {
-                # Basic metrics
-                "heart_rate": {"color": "red", "name": "Heart Rate", "unit": "bpm"},
-                "pace_per_km": {"color": "blue", "name": pace_label.split(" (")[0], "unit": pace_unit},
-                "speed_mps": {"color": "blue", "name": "Speed", "unit": "m/s"},
-                "altitude_m": {"color": "brown", "name": "Altitude", "unit": "m"},
-                "cadence_rpm": {"color": "purple", "name": "Cadence", "unit": "rpm"},
-                "power_w": {"color": "orange", "name": "Power", "unit": "W"},
-                "temperature_c": {"color": "darkgreen", "name": "Temperature", "unit": "°C"},
-                # Advanced running dynamics
-                "vertical_oscillation_mm": {"color": "darkred", "name": "Vertical Oscillation", "unit": "mm"},
-                "vertical_ratio": {"color": "darkblue", "name": "Vertical Ratio", "unit": "%"},
-                "ground_contact_time_ms": {"color": "darkgray", "name": "Ground Contact Time", "unit": "ms"},
-                "ground_contact_balance_pct": {"color": "darkmagenta", "name": "Ground Contact Balance", "unit": "%"},
-                "step_length_mm": {"color": "darkorange", "name": "Step Length", "unit": "mm"},
-                # Power metrics
-                "air_power_w": {"color": "lightblue", "name": "Air Power", "unit": "W"},
-                "form_power_w": {"color": "darkturquoise", "name": "Form Power", "unit": "W"},
-                # Biomechanics
-                "leg_spring_stiffness": {"color": "maroon", "name": "Leg Spring Stiffness", "unit": ""},
-                "impact_loading_rate": {"color": "crimson", "name": "Impact Loading Rate", "unit": ""},
-                # Environmental
-                "stryd_temperature_c": {"color": "forestgreen", "name": "Stryd Temperature", "unit": "°C"},
-                "stryd_humidity_pct": {"color": "steelblue", "name": "Stryd Humidity", "unit": "%"},
-            }
-
-            # Filter out metrics with no data and build traces
-            valid_traces = []
-            axes_used = []
-
-            for i, metric in enumerate(selected_metrics):
-                if metric in metric_config and metric in df.columns:
-                    # Check if data exists and has non-null values
-                    data_series = df[metric].dropna()
-                    if len(data_series) > 0:
-                        # Assign y-axis (y, y2, y3, etc.)
-                        yaxis_ref = "y" if i == 0 else f"y{i+1}"
-
-                        fig.add_trace(
-                            go.Scatter(
-                                x=df["time"],
-                                y=df[metric],
-                                mode="lines",
-                                name=f"{metric_config[metric]['name']} ({metric_config[metric]['unit']})",
-                                line=dict(color=metric_config[metric]["color"], width=2),
-                                yaxis=yaxis_ref,
-                                hovertemplate=(
-                                    f"<b>{metric_config[metric]['name']}</b><br>"
-                                    + "Time: %{x:.1f} min<br>"
-                                    + f"Value: %{{y}} {metric_config[metric]['unit']}<br>"
-                                    + "<extra></extra>"
-                                ),
-                            )
-                        )
-
-                        valid_traces.append({"metric": metric, "yaxis": yaxis_ref, "config": metric_config[metric]})
-                        axes_used.append(yaxis_ref)
-
-            if not valid_traces:
-                return dbc.Alert(
-                    "No data available for the selected metrics. Please select different metrics from the available options.",
-                    color="warning",
-                )
-
-            # Configure layout with proper multi-axis formatting
-            layout_config = {
-                "title": {"text": "Activity Data Over Time", "x": 0.5, "font": {"size": 16}},
-                "xaxis": {
-                    "title": "Time (minutes)",
-                    "showgrid": True,
-                    "gridcolor": "rgba(128,128,128,0.2)",
-                },
-                "height": 600,
-                "hovermode": "x unified",
-                "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "center", "x": 0.5},
-                "margin": {"l": 60, "r": 60, "t": 80, "b": 60},
-            }
-
-            # Configure multiple y-axes
-            for i, trace in enumerate(valid_traces):
-                yaxis_key = "yaxis" if i == 0 else f"yaxis{i+1}"
-
-                axis_config = {
-                    "title": {
-                        "text": f"{trace['config']['name']} ({trace['config']['unit']})",
-                        "font": {"color": trace["config"]["color"]},
-                    },
-                    "tickfont": {"color": trace["config"]["color"]},
-                    "showgrid": i == 0,  # Only show grid for primary axis
-                }
-
-                if i == 0:
-                    # Primary axis (left side)
-                    axis_config["side"] = "left"
-                else:
-                    # Secondary axes (right side)
-                    axis_config["overlaying"] = "y"
-                    axis_config["side"] = "right"
-                    if i > 1:
-                        # Offset additional axes
-                        axis_config["position"] = 1.0 - (i - 1) * 0.08
-
-                layout_config[yaxis_key] = axis_config
-
-            fig.update_layout(**layout_config)
-
-            if not selected_metrics or all(metric not in df.columns for metric in selected_metrics):
-                return dbc.Alert("No data available for selected metrics", color="info")
-
-            return dcc.Graph(figure=fig, style={"height": "500px"})
-
-    except Exception as e:
-        return dbc.Alert(f"Error loading charts: {str(e)}", color="danger")
+    return dash.no_update, dash.no_update
 
 
-@callback(Output("activity-map", "children"), Input("activity-data-store", "data"))
-def update_activity_map(store_data):
-    """Update activity route map."""
-    if not store_data or "activity_id" not in store_data:
-        return dbc.Alert("No activity data", color="warning")
+# Keyboard navigation
+@callback(
+    Output("url", "pathname", allow_duplicate=True),
+    [Input("prev-activity-btn", "n_clicks"), Input("next-activity-btn", "n_clicks")],
+    [State("activity-navigation-store", "data")],
+    prevent_initial_call=True,
+)
+def handle_navigation_clicks(prev_clicks, next_clicks, navigation_data):
+    """Handle navigation button clicks."""
+    if not navigation_data:
+        return dash.no_update
 
-    activity_id = store_data["activity_id"]
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
 
-    try:
-        with session_scope() as session:
-            # Get GPS coordinates from samples
-            samples = (
-                session.query(Sample)
-                .filter_by(activity_id=activity_id)
-                .filter(Sample.latitude.isnot(None), Sample.longitude.isnot(None))
-                .order_by(Sample.elapsed_time_s)
-                .all()
-            )
+    button_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
-            if not samples:
-                return dbc.Alert("No GPS data found for this activity", color="info")
+    if button_id == "prev-activity-btn" and navigation_data.get("previous"):
+        return f"/activity/{navigation_data['previous']}"
+    elif button_id == "next-activity-btn" and navigation_data.get("next"):
+        return f"/activity/{navigation_data['next']}"
 
-            # Create route data
-            lats = [sample.latitude for sample in samples]
-            lons = [sample.longitude for sample in samples]
-
-            if not lats or not lons:
-                return dbc.Alert("No valid GPS coordinates found", color="info")
-
-            # Create map
-            fig = go.Figure()
-
-            # Add route line
-            fig.add_trace(
-                go.Scattermapbox(
-                    mode="lines+markers",
-                    lon=lons,
-                    lat=lats,
-                    marker={"size": 4, "color": "red"},
-                    line={"width": 3, "color": "red"},
-                    name="Route",
-                    hovertemplate="<b>Lat:</b> %{lat}<br><b>Lon:</b> %{lon}<extra></extra>",
-                )
-            )
-
-            # Add start marker
-            fig.add_trace(
-                go.Scattermapbox(
-                    mode="markers",
-                    lon=[lons[0]],
-                    lat=[lats[0]],
-                    marker={"size": 12, "color": "green"},
-                    name="Start",
-                    hovertemplate="<b>Start</b><extra></extra>",
-                )
-            )
-
-            # Add end marker
-            fig.add_trace(
-                go.Scattermapbox(
-                    mode="markers",
-                    lon=[lons[-1]],
-                    lat=[lats[-1]],
-                    marker={"size": 12, "color": "red"},
-                    name="End",
-                    hovertemplate="<b>End</b><extra></extra>",
-                )
-            )
-
-            # Calculate center and zoom
-            center_lat = sum(lats) / len(lats)
-            center_lon = sum(lons) / len(lons)
-
-            fig.update_layout(
-                mapbox_style="open-street-map",
-                mapbox=dict(center=dict(lat=center_lat, lon=center_lon), zoom=12),
-                showlegend=True,
-                height=400,
-                margin={"r": 0, "t": 0, "l": 0, "b": 0},
-            )
-
-            return dcc.Graph(figure=fig)
-
-    except Exception as e:
-        return dbc.Alert(f"Error loading map: {str(e)}", color="danger")
-
-
-@callback(Output("activity-laps", "children"), Input("activity-data-store", "data"))
-def update_activity_laps(store_data):
-    """Update activity lap splits table."""
-    if not store_data or "activity_id" not in store_data:
-        return dbc.Alert("No activity data", color="warning")
-
-    activity_id = store_data["activity_id"]
-
-    try:
-        with session_scope() as session:
-            # Get lap data
-            laps = session.query(Lap).filter_by(activity_id=activity_id).order_by(Lap.lap_index).all()
-
-            if not laps:
-                return dbc.Alert("No lap data available for this activity", color="info")
-
-            # Create lap splits table
-            table_header = [
-                html.Thead(
-                    [
-                        html.Tr(
-                            [
-                                html.Th("Lap", style={"width": "10%"}),
-                                html.Th("Distance", style={"width": "15%"}),
-                                html.Th("Time", style={"width": "15%"}),
-                                html.Th("Avg HR", style={"width": "15%"}),
-                                html.Th("Max HR", style={"width": "15%"}),
-                                html.Th("Avg Power", style={"width": "15%"}),
-                                html.Th("Avg Speed", style={"width": "15%"}),
-                            ]
-                        )
-                    ]
-                )
-            ]
-
-            table_rows = []
-            for lap in laps:
-                # Format lap time
-                if lap.elapsed_time_s:
-                    minutes = int(lap.elapsed_time_s // 60)
-                    seconds = int(lap.elapsed_time_s % 60)
-                    time_str = f"{minutes}:{seconds:02d}"
-                else:
-                    time_str = "N/A"
-
-                # Format distance
-                distance_str = f"{lap.distance_m/1000:.2f} km" if lap.distance_m else "N/A"
-
-                # Format speed/pace
-                speed_mps = lap.avg_speed_mps
-                # Calculate speed if not stored but distance and time available
-                if not speed_mps and lap.distance_m and lap.elapsed_time_s and lap.elapsed_time_s > 0:
-                    speed_mps = lap.distance_m / lap.elapsed_time_s
-
-                if speed_mps:
-                    # Get activity to check sport type
-                    activity = session.query(Activity).filter_by(id=activity_id).first()
-                    if activity and activity.sport == "running":
-                        # Show pace for running
-                        pace_s_per_km = 1000 / speed_mps
-                        pace_min = int(pace_s_per_km // 60)
-                        pace_sec = int(pace_s_per_km % 60)
-                        speed_str = f"{pace_min}:{pace_sec:02d}/km"
-                    else:
-                        # Show speed for other activities
-                        speed_kmh = speed_mps * 3.6
-                        speed_str = f"{speed_kmh:.1f} km/h"
-                else:
-                    speed_str = "N/A"
-
-                table_rows.append(
-                    html.Tr(
-                        [
-                            html.Td(f"{lap.lap_index + 1}"),
-                            html.Td(distance_str),
-                            html.Td(time_str),
-                            html.Td(f"{lap.avg_hr}" if lap.avg_hr else "N/A"),
-                            html.Td(f"{lap.max_hr}" if lap.max_hr else "N/A"),
-                            html.Td(f"{lap.avg_power_w:.0f}W" if lap.avg_power_w else "N/A"),
-                            html.Td(speed_str),
-                        ]
-                    )
-                )
-
-            table_body = [html.Tbody(table_rows)]
-
-            return dbc.Table(
-                table_header + table_body, bordered=True, hover=True, responsive=True, striped=True, className="mb-0"
-            )
-
-    except Exception as e:
-        return dbc.Alert(f"Error loading lap splits: {str(e)}", color="danger")
+    return dash.no_update
