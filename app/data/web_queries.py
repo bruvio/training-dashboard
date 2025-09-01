@@ -299,6 +299,7 @@ def get_activity_by_id(activity_id: int) -> Optional[Dict[str, Any]]:
             "avg_speed_mps": getattr(activity, "avg_speed_mps", None),
             "avg_pace_s_per_km": getattr(activity, "avg_pace_s_per_km", None),
             "calories": getattr(activity, "calories", None),
+            "source": getattr(activity, "source", "unknown"),
             "file_path": activity.file_path,
             "ingested_on": getattr(activity, "ingested_on", None),
         }
@@ -340,6 +341,18 @@ def get_activity_samples(activity_id: int) -> Optional[pd.DataFrame]:
                 "cadence_rpm": sample.cadence_rpm,
                 "speed_mps": sample.speed_mps,
                 "temperature_c": sample.temperature_c,
+                # Advanced running dynamics
+                "vertical_oscillation_mm": sample.vertical_oscillation_mm,
+                "vertical_ratio": sample.vertical_ratio,
+                "ground_contact_time_ms": sample.ground_contact_time_ms,
+                "ground_contact_balance_pct": sample.ground_contact_balance_pct,
+                "step_length_mm": sample.step_length_mm,
+                "air_power_w": sample.air_power_w,
+                "form_power_w": sample.form_power_w,
+                "leg_spring_stiffness": sample.leg_spring_stiffness,
+                "impact_loading_rate": sample.impact_loading_rate,
+                "stryd_temperature_c": sample.stryd_temperature_c,
+                "stryd_humidity_pct": sample.stryd_humidity_pct,
             }
             for sample in samples
         ]

@@ -620,8 +620,10 @@ def update_activity_charts(
         x_axis = df.index
         x_title = "Sample Index"
 
-    # Determine available data types
+    # Dynamically determine available data types based on what's in the data
     data_types = []
+
+    # Standard metrics
     if "speed_mps" in df.columns and df["speed_mps"].notna().any():
         data_types.append(("pace", "Pace", "min/km", "blue"))
     if "heart_rate_bpm" in df.columns and df["heart_rate_bpm"].notna().any():
@@ -632,6 +634,30 @@ def update_activity_charts(
         data_types.append(("elevation", "Elevation", "m", "brown"))
     if "cadence_rpm" in df.columns and df["cadence_rpm"].notna().any():
         data_types.append(("cadence", "Cadence", "rpm", "orange"))
+
+    # Advanced running dynamics - dynamically add if present
+    if "vertical_oscillation_mm" in df.columns and df["vertical_oscillation_mm"].notna().any():
+        data_types.append(("vertical_oscillation", "Vertical Oscillation", "mm", "purple"))
+    if "vertical_ratio" in df.columns and df["vertical_ratio"].notna().any():
+        data_types.append(("vertical_ratio", "Vertical Ratio", "%", "pink"))
+    if "ground_contact_time_ms" in df.columns and df["ground_contact_time_ms"].notna().any():
+        data_types.append(("ground_contact_time", "Ground Contact Time", "ms", "darkred"))
+    if "ground_contact_balance_pct" in df.columns and df["ground_contact_balance_pct"].notna().any():
+        data_types.append(("ground_contact_balance", "GC Balance", "%", "navy"))
+    if "step_length_mm" in df.columns and df["step_length_mm"].notna().any():
+        data_types.append(("step_length", "Step Length", "mm", "teal"))
+    if "form_power_w" in df.columns and df["form_power_w"].notna().any():
+        data_types.append(("form_power", "Form Power", "W", "darkgreen"))
+    if "air_power_w" in df.columns and df["air_power_w"].notna().any():
+        data_types.append(("air_power", "Air Power", "W", "lightblue"))
+    if "leg_spring_stiffness" in df.columns and df["leg_spring_stiffness"].notna().any():
+        data_types.append(("leg_spring_stiffness", "Leg Spring Stiffness", "kN/m", "gold"))
+    if "impact_loading_rate" in df.columns and df["impact_loading_rate"].notna().any():
+        data_types.append(("impact_loading_rate", "Impact Loading Rate", "BW/s", "darkorange"))
+    if "stryd_temperature_c" in df.columns and df["stryd_temperature_c"].notna().any():
+        data_types.append(("stryd_temperature", "Stryd Temperature", "°C", "crimson"))
+    if "stryd_humidity_pct" in df.columns and df["stryd_humidity_pct"].notna().any():
+        data_types.append(("stryd_humidity", "Stryd Humidity", "%", "steelblue"))
 
     if not data_types:
         return create_empty_chart_figure("No chart data available")
@@ -668,6 +694,29 @@ def prepare_chart_data(df: pd.DataFrame, data_types: list, smoothing: str = "non
             prepared_data[data_key] = df["altitude_m"].values
         elif data_key == "cadence" and "cadence_rpm" in df.columns:
             prepared_data[data_key] = df["cadence_rpm"].values
+        # Advanced running dynamics
+        elif data_key == "vertical_oscillation" and "vertical_oscillation_mm" in df.columns:
+            prepared_data[data_key] = df["vertical_oscillation_mm"].values
+        elif data_key == "vertical_ratio" and "vertical_ratio" in df.columns:
+            prepared_data[data_key] = df["vertical_ratio"].values
+        elif data_key == "ground_contact_time" and "ground_contact_time_ms" in df.columns:
+            prepared_data[data_key] = df["ground_contact_time_ms"].values
+        elif data_key == "ground_contact_balance" and "ground_contact_balance_pct" in df.columns:
+            prepared_data[data_key] = df["ground_contact_balance_pct"].values
+        elif data_key == "step_length" and "step_length_mm" in df.columns:
+            prepared_data[data_key] = df["step_length_mm"].values
+        elif data_key == "form_power" and "form_power_w" in df.columns:
+            prepared_data[data_key] = df["form_power_w"].values
+        elif data_key == "air_power" and "air_power_w" in df.columns:
+            prepared_data[data_key] = df["air_power_w"].values
+        elif data_key == "leg_spring_stiffness" and "leg_spring_stiffness" in df.columns:
+            prepared_data[data_key] = df["leg_spring_stiffness"].values
+        elif data_key == "impact_loading_rate" and "impact_loading_rate" in df.columns:
+            prepared_data[data_key] = df["impact_loading_rate"].values
+        elif data_key == "stryd_temperature" and "stryd_temperature_c" in df.columns:
+            prepared_data[data_key] = df["stryd_temperature_c"].values
+        elif data_key == "stryd_humidity" and "stryd_humidity_pct" in df.columns:
+            prepared_data[data_key] = df["stryd_humidity_pct"].values
 
     # Apply smoothing if requested
     if smoothing != "none":
