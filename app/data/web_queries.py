@@ -6,14 +6,17 @@ including session management and query optimization.
 """
 
 from datetime import date, datetime
+import re
 from typing import Any, Dict, List, Optional
 
+from markupsafe import escape
 import pandas as pd
 from sqlalchemy import desc, func, or_, text
+from sqlalchemy.exc import SQLAlchemyError
 
+from ..utils import get_logger, log_error
 from .db import session_scope
 from .models import Activity, Lap, Sample
-from ..utils import get_logger, log_error
 
 logger = get_logger(__name__)
 
@@ -467,8 +470,6 @@ def get_activity_navigation(activity_id: int) -> Dict[str, Optional[int]]:
         }
 
 
-import logging
-
 def update_activity_name(activity_id: int, new_name: str) -> bool:
     """
     Update activity name in database.
@@ -480,21 +481,38 @@ def update_activity_name(activity_id: int, new_name: str) -> bool:
     Returns:
         True if successful, False otherwise
     """
+    # Input validation
+    MAX_NAME_LENGTH = 100
+    if not new_name or not new_name.strip():
+        logger.warning(f"Activity name is empty for activity_id={activity_id}")
+        return False
+
+    if len(new_name) > MAX_NAME_LENGTH:
+        logger.warning(f"Activity name too long ({len(new_name)} chars) for activity_id={activity_id}")
+        return False
+
+    # Remove any HTML tags (basic XSS prevention)
+    sanitized_name = re.sub(r"<[^>]*?>", "", new_name)
+    # Escape any remaining unsafe characters
+    sanitized_name = escape(sanitized_name)
+
     try:
         with session_scope() as session:
-            if (
-                activity := session.query(Activity)
-                .filter(Activity.id == activity_id)
-                .first()
-            ):
-                activity.name = new_name.strip() or None
-                session.commit()
-                logger.info(f"Updated activity {activity_id} name to: {new_name}")
-                return True
-            logger.warning(f"Activity {activity_id} not found for name update")
-            return False
+            activity = session.query(Activity).filter(Activity.id == activity_id).first()
+            if not activity:
+                logger.warning(f"Activity {activity_id} not found for name update")
+                return False
+
+            activity.name = sanitized_name.strip() or None
+            session.commit()
+            logger.info(f"Updated activity {activity_id} name to: {sanitized_name}")
+            return True
+
+    except (SQLAlchemyError, ValueError, TypeError) as e:
+        logger.error(f"Failed to update activity name for activity_id={activity_id}: {e}", exc_info=True)
+        return False
     except Exception as e:
-        logging.error(f"Failed to update activity name for activity_id={activity_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error updating activity name for activity_id={activity_id}: {e}", exc_info=True)
         return False
 
 
@@ -618,5 +636,9 @@ def check_database_connection() -> bool:
         with session_scope() as session:
             session.execute(text("SELECT 1"))
             return True
-    except Exception:
+    except SQLAlchemyError as e:
+        logger.warning(f"Database connection failed: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error checking database connection: {e}")
         return False

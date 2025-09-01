@@ -602,19 +602,21 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
     Research-validated dash-leaflet integration with GPS route visualization.
     """
     if not samples_data or not isinstance(samples_data, list):
-        return [], [51.7565, -1.2492], 13, "No GPS data available for this activity"
+        # No GPS data: use neutral default center and zoom
+        return [], [0, 0], 2, "No GPS data available for this activity"
 
     route_positions = [
         [sample["position_lat"], sample["position_long"]]
         for sample in samples_data
-        if sample.get("position_lat") and sample.get("position_long")
+        if sample.get("position_lat") is not None and sample.get("position_long") is not None
     ]
     if not route_positions:
-        return [], [51.7565, -1.2492], 13, "No GPS data available for this activity"
+        # No valid GPS points: use neutral default center and zoom
+        return [], [0, 0], 2, "No GPS data available for this activity"
 
-    # Calculate optimal center and zoom for the route
-    center = [51.7565, -1.2492]  # Default
-    zoom = 13  # Default
+    # Center map on first GPS point if available
+    center = route_positions[0] if route_positions else [0, 0]
+    zoom = 13 if route_positions else 2
 
     if route_bounds:
         center_lat = route_bounds["center_lat"]
@@ -800,8 +802,9 @@ def prepare_chart_data(df: pd.DataFrame, data_types: list, smoothing: str = "non
                     if len(data) > window:
                         smooth_data = savgol_filter(data, min(window, len(data) // 3 * 2 - 1), 3, mode="nearest")
                         prepared_data[key] = smooth_data
-                except Exception:
-                    # Fallback to simple moving average
+                except (ValueError, IndexError, TypeError):
+                    # Fallback to simple moving average if Savitzky-Golay filter fails
+                    # This can happen with insufficient data points or invalid parameters
                     prepared_data[key] = ndimage.uniform_filter1d(data, size=window, mode="nearest")
 
     return prepared_data
@@ -1122,7 +1125,7 @@ def save_activity_name(n_clicks, new_name, activity_data, pathname):
     except (ValueError, AttributeError):
         return dash.no_update, dash.no_update
 
-    if success := update_activity_name(activity_id, new_name):
+    if success := update_activity_name(activity_id, new_name):  # noqa: F841
         # Update the stored activity data
         updated_activity_data = activity_data.copy()
         updated_activity_data["name"] = new_name

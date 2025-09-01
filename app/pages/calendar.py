@@ -4,11 +4,11 @@ Calendar page - Main activity list and calendar view.
 
 from datetime import datetime, timedelta
 
-
 from dash import Input, Output, callback, dcc, html
 import dash_bootstrap_components as dbc
 
 from app.data.web_queries import get_activities_for_date_range, get_filter_options
+from app.utils import filter_activities_by_distance, parse_duration_to_seconds, sort_activities
 
 # This page uses manual routing - no registration needed
 
@@ -489,31 +489,16 @@ def update_activity_table(start_date, end_date, sport, duration_range, distance_
         )
 
         # Apply duration and distance filters if specified (and not at default range)
-        if (
-            duration_range
-            and len(duration_range) == 2
-            and (duration_range[0] != 0 or duration_range[1] < 180)
-        ):
+        if duration_range and len(duration_range) == 2 and (duration_range[0] != 0 or duration_range[1] < 180):
             min_duration_s = duration_range[0] * 60  # Convert minutes to seconds
             max_duration_s = duration_range[1] * 60
             filtered_activities = []
             for activity in activities_data:
                 duration_str = activity.get("duration_str", "")
-                if duration_str and ":" in duration_str:
-                    try:
-                        # Parse duration string like "59:51" or "1:39:45"
-                        time_parts = duration_str.split(":")
-                        if len(time_parts) == 2:  # MM:SS format
-                            duration_s = int(time_parts[0]) * 60 + int(time_parts[1])
-                        elif len(time_parts) == 3:  # H:MM:SS format
-                            duration_s = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
-                        else:
-                            continue  # Skip if format is unexpected
+                duration_s = parse_duration_to_seconds(duration_str)
 
-                        if min_duration_s <= duration_s <= max_duration_s:
-                            filtered_activities.append(activity)
-                    except (ValueError, IndexError):
-                        # If parsing fails, include the activity to be safe
+                if duration_s > 0:  # Only filter activities with valid duration data
+                    if min_duration_s <= duration_s <= max_duration_s:
                         filtered_activities.append(activity)
                 else:
                     # If no duration data, include the activity to be safe
@@ -523,11 +508,7 @@ def update_activity_table(start_date, end_date, sport, duration_range, distance_
         if distance_range and len(distance_range) == 2 and not (distance_range[0] == 0 and distance_range[1] >= 100):
             min_distance = distance_range[0]
             max_distance = distance_range[1]
-            activities_data = [
-                activity
-                for activity in activities_data
-                if min_distance <= activity.get("distance_km", 0) <= max_distance
-            ]
+            activities_data = filter_activities_by_distance(activities_data, min_distance, max_distance)
 
         if not activities_data:
             return dbc.Alert(
@@ -540,49 +521,8 @@ def update_activity_table(start_date, end_date, sport, duration_range, distance_
                 color="info",
             )
 
-        # Apply sorting
-        def get_sort_key(activity):
-            if sort_by == "date_desc" or sort_by == "date_asc":
-                # Convert start_time string to datetime for proper sorting
-                start_time_str = activity.get("start_time", "")
-                try:
-                    # Try different datetime formats
-                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y"]:
-                        try:
-                            return datetime.strptime(start_time_str, fmt)
-                        except ValueError:
-                            continue
-                    # If parsing fails, return a very old date for consistent sorting
-                    return datetime.min
-                except Exception:
-                    return datetime.min
-            elif sort_by == "distance_desc":
-                return activity.get("distance_km", 0)
-            elif sort_by == "distance_asc":
-                return activity.get("distance_km", 0)
-            elif sort_by == "duration_desc":
-                duration_str = activity.get("duration_str", "0:00")
-                if ":" in duration_str:
-                    time_parts = duration_str.split(":")
-                    if len(time_parts) == 2:  # MM:SS
-                        return int(time_parts[0]) * 60 + int(time_parts[1])
-                    elif len(time_parts) == 3:  # H:MM:SS
-                        return int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
-                return 0
-            elif sort_by == "duration_asc":
-                duration_str = activity.get("duration_str", "0:00")
-                if ":" in duration_str:
-                    time_parts = duration_str.split(":")
-                    if len(time_parts) == 2:  # MM:SS
-                        return int(time_parts[0]) * 60 + int(time_parts[1])
-                    elif len(time_parts) == 3:  # H:MM:SS
-                        return int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
-                return 0
-            return ""
-
-        # Sort activities
-        reverse_sort = sort_by.endswith("_desc")
-        activities_data = sorted(activities_data, key=get_sort_key, reverse=reverse_sort)
+        # Apply sorting using shared helper
+        activities_data = sort_activities(activities_data, sort_by)
 
         # Create activity cards with custom names
         activity_cards = []

@@ -49,7 +49,7 @@ try:
 
     # Import pages to register their callbacks with the app
     sys.path.insert(0, "/app")  # Ensure /app is first for pages import
-    from app.pages import activity_detail, calendar, garmin_login, settings, fit_upload, stats
+    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)
