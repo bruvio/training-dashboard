@@ -469,7 +469,7 @@ def update_activity_name(activity_id: int, new_name: str) -> bool:
         with session_scope() as session:
             activity = session.query(Activity).filter(Activity.id == activity_id).first()
             if activity:
-                activity.name = new_name.strip() if new_name.strip() else None
+                activity.name = new_name.strip() or None
                 session.commit()
                 return True
             return False
