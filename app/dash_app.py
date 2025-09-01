@@ -283,6 +283,7 @@ def display_page(pathname):
         # Garmin Connect sync page
         try:
             from app.pages.garmin_login import layout as garmin_layout
+
             logger.info("Loading Garmin sync page")
             return garmin_layout()
         except Exception as e:
@@ -293,6 +294,7 @@ def display_page(pathname):
         # FIT file upload page
         try:
             from app.pages.fit_upload import layout as upload_layout
+
             logger.info("Loading FIT upload page")
             return upload_layout()
         except Exception as e:
@@ -303,6 +305,7 @@ def display_page(pathname):
         # Settings page
         try:
             from app.pages.settings import layout as settings_layout
+
             logger.info("Loading settings page")
             return settings_layout()
         except Exception as e:
@@ -313,6 +316,7 @@ def display_page(pathname):
         # Statistics page
         try:
             from app.pages.stats import layout as stats_layout
+
             logger.info("Loading statistics page")
             return stats_layout()
         except Exception as e:

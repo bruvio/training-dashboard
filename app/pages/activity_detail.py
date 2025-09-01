@@ -585,7 +585,7 @@ def create_stat_card(title: str, value: str, icon: str, color: str):
     )
 
 
-# Callback for map updates  
+# Callback for map updates
 @callback(
     [
         Output("route-polyline", "positions"),
@@ -615,17 +615,17 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
     # Calculate optimal center and zoom for the route
     center = [51.7565, -1.2492]  # Default
     zoom = 13  # Default
-    
+
     if route_bounds:
         center_lat = route_bounds["center_lat"]
         center_lon = route_bounds["center_lon"]
         center = [center_lat, center_lon]
-        
+
         # Calculate appropriate zoom level based on route bounds for tight fitting
         lat_diff = route_bounds["max_lat"] - route_bounds["min_lat"]
         lon_diff = route_bounds["max_lon"] - route_bounds["min_lon"]
         max_diff = max(lat_diff, lon_diff)
-        
+
         # More aggressive zoom calculation for tight fitting
         if max_diff > 0.5:
             zoom = 10

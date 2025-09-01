@@ -2,14 +2,12 @@
 Calendar page - Main activity list and calendar view.
 """
 
-from datetime import date, datetime, timedelta
-from typing import Dict, List
+from datetime import datetime, timedelta
 
-from dash import Input, Output, State, callback, dcc, html
+
+from dash import Input, Output, callback, dcc, html
 import dash_bootstrap_components as dbc
 
-from app.data.db import session_scope
-from app.data.models import Activity
 from app.data.web_queries import get_activities_for_date_range, get_filter_options
 
 # This page uses manual routing - no registration needed
@@ -178,14 +176,26 @@ def layout():
                                                                 options=[
                                                                     {"label": "Date (Newest)", "value": "date_desc"},
                                                                     {"label": "Date (Oldest)", "value": "date_asc"},
-                                                                    {"label": "Distance (High-Low)", "value": "distance_desc"},
-                                                                    {"label": "Distance (Low-High)", "value": "distance_asc"},
-                                                                    {"label": "Duration (Long-Short)", "value": "duration_desc"},
-                                                                    {"label": "Duration (Short-Long)", "value": "duration_asc"}
+                                                                    {
+                                                                        "label": "Distance (High-Low)",
+                                                                        "value": "distance_desc",
+                                                                    },
+                                                                    {
+                                                                        "label": "Distance (Low-High)",
+                                                                        "value": "distance_asc",
+                                                                    },
+                                                                    {
+                                                                        "label": "Duration (Long-Short)",
+                                                                        "value": "duration_desc",
+                                                                    },
+                                                                    {
+                                                                        "label": "Duration (Short-Long)",
+                                                                        "value": "duration_asc",
+                                                                    },
                                                                 ],
                                                                 value="date_desc",
                                                                 clearable=False,
-                                                                style={"fontSize": "14px"}
+                                                                style={"fontSize": "14px"},
                                                             ),
                                                         ],
                                                         md=2,
@@ -307,7 +317,7 @@ def initialize_filters(pathname):
             distance_max,
             distance_value,
         )
-    except Exception as e:
+    except Exception:
         # Fallback values
         return (
             [{"label": "All Sports", "value": "all"}],
@@ -530,19 +540,19 @@ def update_activity_table(start_date, end_date, sport, duration_range, distance_
         def get_sort_key(activity):
             if sort_by == "date_desc":
                 return activity.get("start_time", "")
-            elif sort_by == "date_asc": 
+            elif sort_by == "date_asc":
                 return activity.get("start_time", "")
             elif sort_by == "distance_desc":
                 return activity.get("distance_km", 0)
             elif sort_by == "distance_asc":
-                return activity.get("distance_km", 0) 
+                return activity.get("distance_km", 0)
             elif sort_by == "duration_desc":
                 duration_str = activity.get("duration_str", "0:00")
                 if ":" in duration_str:
                     time_parts = duration_str.split(":")
                     if len(time_parts) == 2:  # MM:SS
                         return int(time_parts[0]) * 60 + int(time_parts[1])
-                    elif len(time_parts) == 3:  # H:MM:SS  
+                    elif len(time_parts) == 3:  # H:MM:SS
                         return int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
                 return 0
             elif sort_by == "duration_asc":
