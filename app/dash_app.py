@@ -49,9 +49,13 @@ try:
 
     # Import pages to register their callbacks with the app
     sys.path.insert(0, "/app")  # Ensure /app is first for pages import
-    from app.pages import activity_detail, calendar
+    from app.pages import activity_detail, calendar, garmin_login, settings, fit_upload, stats
 
     # Register callbacks for pages that need them
+    garmin_login.register_callbacks(app)
+    settings.register_callbacks(app)
+    fit_upload.register_callbacks(app)
+    stats.register_callbacks(app)
     logger.info("✅ All page modules imported successfully - callbacks registered")
 
 except ImportError as e:
@@ -90,10 +94,16 @@ except ImportError as e:
         fit_upload = importlib.util.module_from_spec(fit_upload_spec)
         fit_upload_spec.loader.exec_module(fit_upload)
 
+        # Load stats module
+        stats_spec = importlib.util.spec_from_file_location("stats", "/app/pages/stats.py")
+        stats = importlib.util.module_from_spec(stats_spec)
+        stats_spec.loader.exec_module(stats)
+
         # Register callbacks for pages that need them
         garmin_login.register_callbacks(app)
         settings.register_callbacks(app)
         fit_upload.register_callbacks(app)
+        stats.register_callbacks(app)
         logger.info("✅ Page modules imported via importlib - callbacks registered")
 
     except Exception as e2:
@@ -268,6 +278,46 @@ def display_page(pathname):
         except Exception as e:
             logger.error(f"Error loading activity detail: {e}")
             return html.Div([html.H2(f"Error loading activity: {str(e)}")])
+
+    elif pathname == "/garmin":
+        # Garmin Connect sync page
+        try:
+            from app.pages.garmin_login import layout as garmin_layout
+            logger.info("Loading Garmin sync page")
+            return garmin_layout()
+        except Exception as e:
+            logger.error(f"Error loading Garmin page: {e}")
+            return html.Div([html.H2(f"Error loading Garmin sync: {str(e)}")])
+
+    elif pathname == "/upload":
+        # FIT file upload page
+        try:
+            from app.pages.fit_upload import layout as upload_layout
+            logger.info("Loading FIT upload page")
+            return upload_layout()
+        except Exception as e:
+            logger.error(f"Error loading upload page: {e}")
+            return html.Div([html.H2(f"Error loading upload page: {str(e)}")])
+
+    elif pathname == "/settings":
+        # Settings page
+        try:
+            from app.pages.settings import layout as settings_layout
+            logger.info("Loading settings page")
+            return settings_layout()
+        except Exception as e:
+            logger.error(f"Error loading settings page: {e}")
+            return html.Div([html.H2(f"Error loading settings: {str(e)}")])
+
+    elif pathname == "/stats":
+        # Statistics page
+        try:
+            from app.pages.stats import layout as stats_layout
+            logger.info("Loading statistics page")
+            return stats_layout()
+        except Exception as e:
+            logger.error(f"Error loading statistics page: {e}")
+            return html.Div([html.H2(f"Error loading statistics: {str(e)}")])
 
     else:
         logger.info(f"Unknown pathname: {pathname}")

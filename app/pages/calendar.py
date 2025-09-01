@@ -169,6 +169,27 @@ def layout():
                                                         ],
                                                         md=3,
                                                     ),
+                                                    # Sort dropdown
+                                                    dbc.Col(
+                                                        [
+                                                            dbc.Label("Sort by:", size="sm"),
+                                                            dcc.Dropdown(
+                                                                id="sort-dropdown",
+                                                                options=[
+                                                                    {"label": "Date (Newest)", "value": "date_desc"},
+                                                                    {"label": "Date (Oldest)", "value": "date_asc"},
+                                                                    {"label": "Distance (High-Low)", "value": "distance_desc"},
+                                                                    {"label": "Distance (Low-High)", "value": "distance_asc"},
+                                                                    {"label": "Duration (Long-Short)", "value": "duration_desc"},
+                                                                    {"label": "Duration (Short-Long)", "value": "duration_asc"}
+                                                                ],
+                                                                value="date_desc",
+                                                                clearable=False,
+                                                                style={"fontSize": "14px"}
+                                                            ),
+                                                        ],
+                                                        md=2,
+                                                    ),
                                                     # Search box
                                                     dbc.Col(
                                                         [
@@ -180,7 +201,7 @@ def layout():
                                                                 debounce=True,
                                                             ),
                                                         ],
-                                                        md=1,
+                                                        md=2,
                                                     ),
                                                 ]
                                             ),
@@ -421,11 +442,12 @@ def update_activity_summary(start_date, end_date, sport, search_term):
         Input("duration-filter", "value"),
         Input("distance-filter", "value"),
         Input("search-input", "value"),
+        Input("sort-dropdown", "value"),
         Input("refresh-activities", "n_clicks"),
     ],
     prevent_initial_call=False,  # Allow initial call
 )
-def update_activity_table(start_date, end_date, sport, duration_range, distance_range, search_term, n_clicks):
+def update_activity_table(start_date, end_date, sport, duration_range, distance_range, search_term, sort_by, n_clicks):
     """Load and display activities in a filtered table format."""
     try:
         # Provide defaults if values are None
@@ -444,6 +466,9 @@ def update_activity_table(start_date, end_date, sport, duration_range, distance_
 
         if search_term is None:
             search_term = ""
+
+        if sort_by is None:
+            sort_by = "date_desc"
 
         # Get filtered activities
         activities_data = get_activities_for_date_range(
@@ -500,6 +525,40 @@ def update_activity_table(start_date, end_date, sport, duration_range, distance_
                 ],
                 color="info",
             )
+
+        # Apply sorting
+        def get_sort_key(activity):
+            if sort_by == "date_desc":
+                return activity.get("start_time", "")
+            elif sort_by == "date_asc": 
+                return activity.get("start_time", "")
+            elif sort_by == "distance_desc":
+                return activity.get("distance_km", 0)
+            elif sort_by == "distance_asc":
+                return activity.get("distance_km", 0) 
+            elif sort_by == "duration_desc":
+                duration_str = activity.get("duration_str", "0:00")
+                if ":" in duration_str:
+                    time_parts = duration_str.split(":")
+                    if len(time_parts) == 2:  # MM:SS
+                        return int(time_parts[0]) * 60 + int(time_parts[1])
+                    elif len(time_parts) == 3:  # H:MM:SS  
+                        return int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
+                return 0
+            elif sort_by == "duration_asc":
+                duration_str = activity.get("duration_str", "0:00")
+                if ":" in duration_str:
+                    time_parts = duration_str.split(":")
+                    if len(time_parts) == 2:  # MM:SS
+                        return int(time_parts[0]) * 60 + int(time_parts[1])
+                    elif len(time_parts) == 3:  # H:MM:SS
+                        return int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
+                return 0
+            return ""
+
+        # Sort activities
+        reverse_sort = sort_by.endswith("_desc")
+        activities_data = sorted(activities_data, key=get_sort_key, reverse=reverse_sort)
 
         # Create activity cards with custom names
         activity_cards = []

@@ -135,8 +135,9 @@ def layout(activity_id: str = None, **kwargs):
                                                                 ],
                                                                 id="activity-map",
                                                                 style={"width": "100%", "height": "400px"},
-                                                                center=[0, 0],
-                                                                zoom=2,
+                                                                center=[51.7565, -1.2492],
+                                                                zoom=13,
+                                                                viewport={"center": [51.7565, -1.2492], "zoom": 13},
                                                             )
                                                         ],
                                                         className="map-container",
@@ -584,11 +585,12 @@ def create_stat_card(title: str, value: str, icon: str, color: str):
     )
 
 
-# Callback for map updates
+# Callback for map updates  
 @callback(
     [
         Output("route-polyline", "positions"),
-        Output("activity-map", "bounds"),
+        Output("activity-map", "center"),
+        Output("activity-map", "zoom"),
         Output("map-status", "children"),
     ],
     [Input("activity-samples-store", "data"), Input("route-bounds-store", "data")],
@@ -600,7 +602,7 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
     Research-validated dash-leaflet integration with GPS route visualization.
     """
     if not samples_data or not isinstance(samples_data, list):
-        return [], None, "No GPS data available for this activity"
+        return [], [51.7565, -1.2492], 13, "No GPS data available for this activity"
 
     route_positions = [
         [sample["position_lat"], sample["position_long"]]
@@ -608,23 +610,37 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
         if sample.get("position_lat") and sample.get("position_long")
     ]
     if not route_positions:
-        return [], None, "No GPS data available for this activity"
+        return [], [51.7565, -1.2492], 13, "No GPS data available for this activity"
 
-    # Calculate map bounds for auto-fitting
-    bounds = None
+    # Calculate optimal center and zoom for the route
+    center = [51.7565, -1.2492]  # Default
+    zoom = 13  # Default
+    
     if route_bounds:
-        # Add small padding to bounds (about 5% on each side)
-        lat_padding = (route_bounds["max_lat"] - route_bounds["min_lat"]) * 0.05
-        lon_padding = (route_bounds["max_lon"] - route_bounds["min_lon"]) * 0.05
-
-        bounds = [
-            [route_bounds["min_lat"] - lat_padding, route_bounds["min_lon"] - lon_padding],
-            [route_bounds["max_lat"] + lat_padding, route_bounds["max_lon"] + lon_padding],
-        ]
+        center_lat = route_bounds["center_lat"]
+        center_lon = route_bounds["center_lon"]
+        center = [center_lat, center_lon]
+        
+        # Calculate appropriate zoom level based on route bounds for tight fitting
+        lat_diff = route_bounds["max_lat"] - route_bounds["min_lat"]
+        lon_diff = route_bounds["max_lon"] - route_bounds["min_lon"]
+        max_diff = max(lat_diff, lon_diff)
+        
+        # More aggressive zoom calculation for tight fitting
+        if max_diff > 0.5:
+            zoom = 10
+        elif max_diff > 0.1:
+            zoom = 12
+        elif max_diff > 0.05:
+            zoom = 14
+        elif max_diff > 0.01:
+            zoom = 15
+        else:
+            zoom = 16
 
     status = f"Route with {len(route_positions)} GPS points"
 
-    return route_positions, bounds, status
+    return route_positions, center, zoom, status
 
 
 # Callback for activity charts
