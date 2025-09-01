@@ -1067,7 +1067,7 @@ def update_navigation_buttons(navigation_data):
     next_disabled = navigation_data.get("next") is None
 
     prev_href = None if prev_disabled else f"/activity/{navigation_data['previous']}"
-    next_href = f"/activity/{navigation_data['next']}" if not next_disabled else None
+    next_href = None if next_disabled else f"/activity/{navigation_data['next']}"
 
     return prev_disabled, prev_href, next_disabled, next_href
 
