@@ -467,8 +467,11 @@ def update_activity_name(activity_id: int, new_name: str) -> bool:
     """
     try:
         with session_scope() as session:
-            activity = session.query(Activity).filter(Activity.id == activity_id).first()
-            if activity:
+            if (
+                activity := session.query(Activity)
+                .filter(Activity.id == activity_id)
+                .first()
+            ):
                 activity.name = new_name.strip() or None
                 session.commit()
                 return True
