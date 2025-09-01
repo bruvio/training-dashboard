@@ -452,6 +452,8 @@ def get_activity_navigation(activity_id: int) -> Dict[str, Optional[int]]:
         }
 
 
+import logging
+
 def update_activity_name(activity_id: int, new_name: str) -> bool:
     """
     Update activity name in database.
@@ -471,7 +473,8 @@ def update_activity_name(activity_id: int, new_name: str) -> bool:
                 session.commit()
                 return True
             return False
-    except Exception:
+    except Exception as e:
+        logging.error(f"Failed to update activity name for activity_id={activity_id}: {e}", exc_info=True)
         return False
 
 
