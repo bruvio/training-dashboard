@@ -13,6 +13,9 @@ from sqlalchemy import desc, func, or_, text
 
 from .db import session_scope
 from .models import Activity, Lap, Sample
+from ..utils import get_logger, log_error
+
+logger = get_logger(__name__)
 
 
 def get_activities_for_date_range(
@@ -427,7 +430,7 @@ def get_activity_laps(activity_id: int) -> List[Dict[str, Any]]:
 
 def get_activity_navigation(activity_id: int) -> Dict[str, Optional[int]]:
     """
-    Get previous/next activity IDs for navigation.
+    Get previous/next activity IDs for navigation based on chronological order.
 
     Args:
         activity_id: Current activity ID
@@ -436,18 +439,30 @@ def get_activity_navigation(activity_id: int) -> Dict[str, Optional[int]]:
         Dict with 'previous' and 'next' activity IDs (None if not available)
     """
     with session_scope() as session:
+        # Get the current activity and its start_time
         current_activity = session.query(Activity).filter(Activity.id == activity_id).first()
         if not current_activity:
+            logger.warning(f"Activity with ID {activity_id} not found")
             return {"previous": None, "next": None}
 
-        # Get previous activity (lower ID, most recent)
-        previous = session.query(Activity).filter(Activity.id < activity_id).order_by(desc(Activity.id)).first()
+        # Find previous activity (chronologically before)
+        previous_activity = (
+            session.query(Activity)
+            .filter(Activity.start_time_utc < current_activity.start_time_utc)
+            .order_by(Activity.start_time_utc.desc())
+            .first()
+        )
 
-        # Get next activity (higher ID, earliest)
-        next_activity = session.query(Activity).filter(Activity.id > activity_id).order_by(Activity.id).first()
+        # Find next activity (chronologically after)
+        next_activity = (
+            session.query(Activity)
+            .filter(Activity.start_time_utc > current_activity.start_time_utc)
+            .order_by(Activity.start_time_utc.asc())
+            .first()
+        )
 
         return {
-            "previous": previous.id if previous else None,
+            "previous": previous_activity.id if previous_activity else None,
             "next": next_activity.id if next_activity else None,
         }
 
@@ -474,7 +489,9 @@ def update_activity_name(activity_id: int, new_name: str) -> bool:
             ):
                 activity.name = new_name.strip() or None
                 session.commit()
+                logger.info(f"Updated activity {activity_id} name to: {new_name}")
                 return True
+            logger.warning(f"Activity {activity_id} not found for name update")
             return False
     except Exception as e:
         logging.error(f"Failed to update activity name for activity_id={activity_id}: {e}", exc_info=True)
@@ -518,6 +535,74 @@ def get_filter_options() -> Dict[str, Any]:
                 "max": (distance_stats.max_distance or 0) / 1000,
             },
         }
+
+
+def get_activity_statistics() -> Dict[str, Any]:
+    """
+    Get activity statistics for the stats page.
+
+    Returns:
+        Dict with total activities, distance, time, and average heart rate
+    """
+    try:
+        with session_scope() as session:
+            stats = (
+                session.query(
+                    func.count(Activity.id).label("total_activities"),
+                    func.sum(Activity.distance_m).label("total_distance_m"),
+                    func.sum(Activity.elapsed_time_s).label("total_time_s"),
+                    func.avg(Activity.avg_hr).label("avg_heart_rate"),
+                )
+                .filter(Activity.distance_m.isnot(None))
+                .first()
+            )
+
+            # Convert to user-friendly format
+            total_distance_km = (stats.total_distance_m or 0) / 1000
+            total_time_s = stats.total_time_s or 0
+            total_time_hours = total_time_s / 3600
+
+            return {
+                "total_activities": stats.total_activities or 0,
+                "total_distance_km": round(total_distance_km, 2),
+                "total_time_hours": round(total_time_hours, 1),
+                "avg_heart_rate": round(stats.avg_heart_rate or 0, 0),
+            }
+    except Exception as e:
+        log_error(e, "Failed to get activity statistics")
+        return {"total_activities": 0, "total_distance_km": 0, "total_time_hours": 0, "avg_heart_rate": 0}
+
+
+def get_activity_trends() -> Dict[str, Any]:
+    """
+    Get activity trends data for charts and visualizations.
+
+    Returns:
+        Dict with monthly activity counts and distance trends
+    """
+    try:
+        with session_scope() as session:
+            # Get monthly activity counts for last 12 months
+            monthly_stats = (
+                session.query(
+                    func.strftime("%Y-%m", Activity.start_time_utc).label("month"),
+                    func.count(Activity.id).label("count"),
+                    func.sum(Activity.distance_m).label("total_distance"),
+                )
+                .filter(Activity.start_time_utc >= datetime.now().replace(month=1, day=1) - pd.DateOffset(years=1))
+                .group_by(func.strftime("%Y-%m", Activity.start_time_utc))
+                .order_by("month")
+                .all()
+            )
+
+            months = [stat.month for stat in monthly_stats]
+            counts = [stat.count for stat in monthly_stats]
+            distances = [(stat.total_distance or 0) / 1000 for stat in monthly_stats]  # Convert to km
+
+            return {"months": months, "activity_counts": counts, "distances_km": distances}
+    except Exception as e:
+        log_error(e, "Failed to get activity trends")
+        return {"months": [], "activity_counts": [], "distances_km": []}
 
 
 def check_database_connection() -> bool:

@@ -542,10 +542,20 @@ def update_activity_table(start_date, end_date, sport, duration_range, distance_
 
         # Apply sorting
         def get_sort_key(activity):
-            if sort_by == "date_desc":
-                return activity.get("start_time", "")
-            elif sort_by == "date_asc":
-                return activity.get("start_time", "")
+            if sort_by == "date_desc" or sort_by == "date_asc":
+                # Convert start_time string to datetime for proper sorting
+                start_time_str = activity.get("start_time", "")
+                try:
+                    # Try different datetime formats
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y"]:
+                        try:
+                            return datetime.strptime(start_time_str, fmt)
+                        except ValueError:
+                            continue
+                    # If parsing fails, return a very old date for consistent sorting
+                    return datetime.min
+                except Exception:
+                    return datetime.min
             elif sort_by == "distance_desc":
                 return activity.get("distance_km", 0)
             elif sort_by == "distance_asc":
