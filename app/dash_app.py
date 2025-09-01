@@ -49,12 +49,9 @@ try:
 
     # Import pages to register their callbacks with the app
     sys.path.insert(0, "/app")  # Ensure /app is first for pages import
-    from pages import activity_detail, calendar, fit_upload, garmin_login, settings
+    from app.pages import activity_detail, calendar
 
     # Register callbacks for pages that need them
-    garmin_login.register_callbacks(app)
-    settings.register_callbacks(app)
-    fit_upload.register_callbacks(app)
     logger.info("✅ All page modules imported successfully - callbacks registered")
 
 except ImportError as e:
@@ -249,7 +246,7 @@ def display_page(pathname):
     if pathname == "/" or pathname is None:
         # Calendar/activity list page
         try:
-            from pages.calendar import layout as calendar_layout
+            from app.pages.calendar import layout as calendar_layout
 
             logger.info("Loading calendar page")
             return calendar_layout()
@@ -262,7 +259,7 @@ def display_page(pathname):
         try:
             activity_id = pathname.split("/activity/")[1]
             logger.info(f"Loading activity detail for ID: {activity_id}")
-            from pages.activity_detail import layout as activity_layout
+            from app.pages.activity_detail import layout as activity_layout
 
             return activity_layout(activity_id)
         except (IndexError, ValueError) as e:
@@ -271,45 +268,6 @@ def display_page(pathname):
         except Exception as e:
             logger.error(f"Error loading activity detail: {e}")
             return html.Div([html.H2(f"Error loading activity: {str(e)}")])
-
-    elif pathname == "/garmin":
-        # Garmin Connect login/sync page
-        try:
-            logger.info("Loading Garmin Connect page")
-            import importlib.util
-
-            spec = importlib.util.spec_from_file_location("garmin_login", "/app/pages/garmin_login.py")
-            garmin_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(garmin_module)
-            return garmin_module.layout()
-        except Exception as e:
-            logger.error(f"Error loading Garmin page: {e}")
-            import traceback
-
-            logger.error(traceback.format_exc())
-            return html.Div([html.H2(f"Error loading Garmin Connect: {str(e)}")])
-
-    elif pathname == "/settings":
-        # Settings page
-        try:
-            logger.info("Loading Settings page")
-            from pages.settings import layout as settings_layout
-
-            return settings_layout()
-        except Exception as e:
-            logger.error(f"Error loading Settings page: {e}")
-            return html.Div([html.H2(f"Error loading Settings: {str(e)}")])
-
-    elif pathname == "/upload":
-        # FIT file upload page
-        try:
-            logger.info("Loading FIT Upload page")
-            from pages.fit_upload import layout as upload_layout
-
-            return upload_layout()
-        except Exception as e:
-            logger.error(f"Error loading Upload page: {e}")
-            return html.Div([html.H2(f"Error loading Upload page: {str(e)}")])
 
     else:
         logger.info(f"Unknown pathname: {pathname}")

@@ -41,7 +41,6 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY app/ ./app/
 COPY ingest/ ./ingest/
 COPY cli/ ./cli/
-COPY pages/ ./pages/
 COPY garmin_client/ ./garmin_client/
 COPY run_tests.py .
 

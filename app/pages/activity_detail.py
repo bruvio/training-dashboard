@@ -22,8 +22,8 @@ from scipy.signal import savgol_filter
 from app.data.web_queries import (
     check_database_connection,
     get_activity_by_id,
-    get_activity_samples,
     get_activity_navigation,
+    get_activity_samples,
     update_activity_name,
 )
 
@@ -119,7 +119,7 @@ def layout(activity_id: str = None, **kwargs):
                                                 [
                                                     html.Div(
                                                         [
-                                                            dl.Map(
+                                                            dl.MapContainer(
                                                                 [
                                                                     dl.TileLayer(
                                                                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -588,8 +588,7 @@ def create_stat_card(title: str, value: str, icon: str, color: str):
 @callback(
     [
         Output("route-polyline", "positions"),
-        Output("activity-map", "center"),
-        Output("activity-map", "zoom"),
+        Output("activity-map", "bounds"),
         Output("map-status", "children"),
     ],
     [Input("activity-samples-store", "data"), Input("route-bounds-store", "data")],
@@ -601,7 +600,7 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
     Research-validated dash-leaflet integration with GPS route visualization.
     """
     if not samples_data or not isinstance(samples_data, list):
-        return [], [0, 0], 2, "No GPS data available for this activity"
+        return [], None, "No GPS data available for this activity"
 
     route_positions = [
         [sample["position_lat"], sample["position_long"]]
@@ -609,36 +608,23 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
         if sample.get("position_lat") and sample.get("position_long")
     ]
     if not route_positions:
-        return [], [0, 0], 2, "No GPS data available for this activity"
+        return [], None, "No GPS data available for this activity"
 
-    # Calculate map center and zoom
+    # Calculate map bounds for auto-fitting
+    bounds = None
     if route_bounds:
-        center_lat = route_bounds["center_lat"]
-        center_lon = route_bounds["center_lon"]
+        # Add small padding to bounds (about 5% on each side)
+        lat_padding = (route_bounds["max_lat"] - route_bounds["min_lat"]) * 0.05
+        lon_padding = (route_bounds["max_lon"] - route_bounds["min_lon"]) * 0.05
 
-        # Calculate appropriate zoom level based on route bounds
-        lat_diff = route_bounds["max_lat"] - route_bounds["min_lat"]
-        lon_diff = route_bounds["max_lon"] - route_bounds["min_lon"]
-        max_diff = max(lat_diff, lon_diff)
+        bounds = [
+            [route_bounds["min_lat"] - lat_padding, route_bounds["min_lon"] - lon_padding],
+            [route_bounds["max_lat"] + lat_padding, route_bounds["max_lon"] + lon_padding],
+        ]
 
-        # Empirical zoom calculation
-        if max_diff > 1.0:
-            zoom = 8
-        elif max_diff > 0.1:
-            zoom = 10
-        elif max_diff > 0.01:
-            zoom = 13
-        else:
-            zoom = 15
-
-        center = [center_lat, center_lon]
-    else:
-        # Fallback to first point
-        center = route_positions[0]
-        zoom = 13
     status = f"Route with {len(route_positions)} GPS points"
 
-    return route_positions, center, zoom, status
+    return route_positions, bounds, status
 
 
 # Callback for activity charts
@@ -836,11 +822,22 @@ def create_subplot_chart(
 ):
     """Create multi-subplot chart layout similar to fitplotter."""
     n_charts = len(data_types)
+
+    # Calculate appropriate vertical spacing based on number of charts
+    if n_charts <= 1:
+        vertical_spacing = 0.3
+    elif n_charts <= 5:
+        vertical_spacing = 0.08
+    else:
+        # For many charts, use maximum allowed spacing
+        max_spacing = 1.0 / (n_charts - 1) if n_charts > 1 else 0.3
+        vertical_spacing = min(0.05, max_spacing * 0.8)  # Use 80% of max to be safe
+
     fig = make_subplots(
         rows=n_charts,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.08,
+        vertical_spacing=vertical_spacing,
         subplot_titles=[f"{display_name} ({unit})" for _, display_name, unit, _ in data_types],
     )
 
