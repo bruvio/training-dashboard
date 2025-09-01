@@ -585,10 +585,17 @@ def get_activity_statistics() -> Dict[str, Any]:
                 "total_distance_km": round(total_distance_km, 2),
                 "total_time_hours": round(total_time_hours, 1),
                 "avg_heart_rate": round(stats.avg_heart_rate or 0, 0),
+                "stats_failed": False,
             }
     except Exception as e:
         log_error(e, "Failed to get activity statistics")
-        return {"total_activities": 0, "total_distance_km": 0, "total_time_hours": 0, "avg_heart_rate": 0}
+        return {
+            "total_activities": 0,
+            "total_distance_km": 0,
+            "total_time_hours": 0,
+            "avg_heart_rate": 0,
+            "stats_failed": True,
+        }
 
 
 def get_activity_trends() -> Dict[str, Any]:
