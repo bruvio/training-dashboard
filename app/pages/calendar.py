@@ -489,7 +489,11 @@ def update_activity_table(start_date, end_date, sport, duration_range, distance_
         )
 
         # Apply duration and distance filters if specified (and not at default range)
-        if duration_range and len(duration_range) == 2 and not (duration_range[0] == 0 and duration_range[1] >= 180):
+        if (
+            duration_range
+            and len(duration_range) == 2
+            and (duration_range[0] != 0 or duration_range[1] < 180)
+        ):
             min_duration_s = duration_range[0] * 60  # Convert minutes to seconds
             max_duration_s = duration_range[1] * 60
             filtered_activities = []
