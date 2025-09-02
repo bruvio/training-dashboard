@@ -1,13 +1,17 @@
 """
 Sport-specific chart generation utilities for activity visualization.
 
-Creates charts optimized for each sport type with relevant metrics.
+Generates a single interactive chart where users can:
+- Toggle metrics dynamically
+- Switch between time/distance as X-axis
+- View vertical lap markers
+- Filter data to a selected lap
 """
 
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+
 
 from .sport_metrics import (
     SportMetricsMapper,
@@ -18,80 +22,74 @@ from .sport_metrics import (
 
 
 class SportChartGenerator:
-    """Generates sport-specific charts based on available data."""
+    """Generates interactive sport-specific charts with overlays and controls."""
 
     @classmethod
-    def create_sport_specific_charts(
+    def create_sport_specific_chart(
         cls,
         sport: str,
         samples_df: pd.DataFrame,
         activity_data: Dict,
         sub_sport: Optional[str] = None,
         smoothing: str = "light",
+        lap_index: Optional[int] = None,
     ) -> go.Figure:
         """
-        Create charts optimized for the specific sport.
+        Create a single overlayed interactive chart.
 
         Args:
             sport: Sport type
             samples_df: Activity samples DataFrame
             activity_data: Activity metadata
-            sub_sport: Sub-sport type
+            sub_sport: Optional sub-sport
             smoothing: Smoothing level
-
-        Returns:
-            Plotly figure with sport-specific charts
+            lap_index: If provided, filter data to a specific lap
         """
-        # Get available metrics for this sport
         available_metrics = SportMetricsMapper.get_available_metrics(sport, samples_df, activity_data, sub_sport)
-
         if not available_metrics:
-            return cls._create_empty_figure("No metrics available for this activity")
+            return cls._create_empty_figure("No metrics available")
 
-        # Prepare time axis
+        # Filter by lap if requested
+        if lap_index is not None and "lap_index" in samples_df.columns:
+            samples_df = samples_df[samples_df["lap_index"] == lap_index]
+
+        # Choose default x-axis (time)
         x_axis, x_title = cls._prepare_time_axis(samples_df)
-
-        # Prepare metric data with sport-specific calculations
         prepared_data = cls._prepare_sport_data(sport, samples_df, available_metrics, smoothing)
 
-        # Create sport-specific chart layout
-        return cls._create_sport_chart_layout(sport, x_axis, x_title, prepared_data, available_metrics, activity_data)
+        return cls._create_overlay_figure(
+            samples_df, x_axis, x_title, prepared_data, available_metrics, activity_data
+        )
+
+    # ---------- Data preparation ----------
 
     @classmethod
-    def _prepare_time_axis(cls, samples_df: pd.DataFrame) -> Tuple[pd.Series, str]:
-        """Prepare time axis for charts."""
-        if "elapsed_time_s" in samples_df.columns:
-            x_axis = samples_df["elapsed_time_s"] / 60  # Convert to minutes
-            x_title = "Time (minutes)"
-        else:
-            x_axis = pd.Series(range(len(samples_df)))
-            x_title = "Sample Index"
-        return x_axis, x_title
+    def _prepare_time_axis(cls, df: pd.DataFrame) -> Tuple[pd.Series, str]:
+        if "elapsed_time_s" in df.columns:
+            return df["elapsed_time_s"] / 60, "Time (minutes)"
+        return pd.Series(range(len(df))), "Sample Index"
+
+    @classmethod
+    def _prepare_distance_axis(cls, df: pd.DataFrame) -> Tuple[pd.Series, str]:
+        if "distance_m" in df.columns:
+            return df["distance_m"] / 1000, "Distance (km)"
+        return pd.Series(range(len(df))), "Sample Index"
 
     @classmethod
     def _prepare_sport_data(
-        cls, sport: str, samples_df: pd.DataFrame, available_metrics: List[Dict], smoothing: str = "light"
+        cls, sport: str, df: pd.DataFrame, available_metrics: List[Dict], smoothing: str
     ) -> Dict[str, pd.Series]:
-        """Prepare metric data with sport-specific calculations."""
-        prepared_data = {}
-
+        prepared = {}
         for metric in available_metrics:
-            key = metric["key"]
-            data = cls._get_metric_data(key, samples_df)
-
+            data = cls._get_metric_data(metric["key"], df)
             if data is not None:
-                # Apply smoothing if requested
                 if smoothing != "none":
                     data = cls._apply_smoothing(data, smoothing)
-                prepared_data[key] = data
-
-        return prepared_data
+                prepared[metric["key"]] = data
+        return prepared
 
     @classmethod
-    def _get_metric_data(cls, metric_key: str, samples_df: pd.DataFrame) -> Optional[pd.Series]:
-        """Extract metric data from samples DataFrame."""
-
-        # Direct column mappings
+    def _get_metric_data(cls, key: str, df: pd.DataFrame) -> Optional[pd.Series]:
         column_mapping = {
             "heart_rate": "heart_rate_bpm",
             "power": "power_w",
@@ -102,250 +100,124 @@ class SportChartGenerator:
             "vertical_oscillation": "vertical_oscillation_mm",
             "ground_contact_time": "ground_contact_time_ms",
         }
-
-        # Check direct mappings first
-        if metric_key in column_mapping:
-            col_name = column_mapping[metric_key]
-            if col_name in samples_df.columns:
-                return samples_df[col_name]
-
-        # Calculated metrics
-        if metric_key == "pace" and "speed_mps" in samples_df.columns:
-            return calculate_running_pace(samples_df["speed_mps"])
-
-        if metric_key == "pace_per_100m" and "speed_mps" in samples_df.columns:
-            return calculate_swim_pace_per_100m(samples_df["speed_mps"])
-
-        if metric_key == "stride_length" and "step_length_mm" in samples_df.columns:
-            return calculate_stride_length(samples_df["step_length_mm"])
-
+        if key in column_mapping and column_mapping[key] in df.columns:
+            return df[column_mapping[key]]
+        if key == "pace" and "speed_mps" in df.columns:
+            return calculate_running_pace(df["speed_mps"])
+        if key == "pace_per_100m" and "speed_mps" in df.columns:
+            return calculate_swim_pace_per_100m(df["speed_mps"])
+        if key == "stride_length" and "step_length_mm" in df.columns:
+            return calculate_stride_length(df["step_length_mm"])
         return None
 
     @classmethod
-    def _apply_smoothing(cls, data: pd.Series, smoothing: str) -> pd.Series:
-        """Apply smoothing to data series."""
+    def _apply_smoothing(cls, data: pd.Series, level: str) -> pd.Series:
         if data.isna().all() or len(data) < 5:
             return data
-
         window_sizes = {"light": 5, "medium": 15, "heavy": 31}
-        window = window_sizes.get(smoothing, 5)
+        return data.rolling(window=window_sizes.get(level, 5), center=True, min_periods=1).mean()
 
-        try:
-            # Use rolling mean for smoothing
-            smoothed = data.rolling(window=window, center=True, min_periods=1).mean()
-            return smoothed
-        except Exception:
-            return data  # Return original if smoothing fails
+    # ---------- Figure creation ----------
 
     @classmethod
-    def _create_sport_chart_layout(
+    def _create_overlay_figure(
         cls,
-        sport: str,
+        df: pd.DataFrame,
         x_axis: pd.Series,
         x_title: str,
         prepared_data: Dict[str, pd.Series],
         available_metrics: List[Dict],
         activity_data: Dict,
     ) -> go.Figure:
-        """Create sport-specific chart layout."""
+        fig = go.Figure()
 
-        sport_normalized = SportMetricsMapper._normalize_sport_name(sport)
-
-        if sport_normalized == "swimming":
-            return cls._create_swimming_charts(x_axis, x_title, prepared_data, available_metrics, activity_data)
-        elif sport_normalized == "cycling":
-            return cls._create_cycling_charts(x_axis, x_title, prepared_data, available_metrics, activity_data)
-        elif sport_normalized == "running":
-            return cls._create_running_charts(x_axis, x_title, prepared_data, available_metrics, activity_data)
-        else:
-            return cls._create_generic_charts(x_axis, x_title, prepared_data, available_metrics, activity_data)
-
-    @classmethod
-    def _create_swimming_charts(
-        cls,
-        x_axis: pd.Series,
-        x_title: str,
-        prepared_data: Dict[str, pd.Series],
-        available_metrics: List[Dict],
-        activity_data: Dict,
-    ) -> go.Figure:
-        """Create swimming-specific chart layout."""
-
-        # Priority order for swimming charts
-        swim_priority = ["pace_per_100m", "heart_rate", "stroke_rate", "temperature", "swolf"]
-
-        # Filter and order available metrics by swimming priority
-        ordered_metrics = []
-        for priority_key in swim_priority:
-            for metric in available_metrics:
-                if metric["key"] == priority_key and priority_key in prepared_data:
-                    ordered_metrics.append(metric)
-                    break
-
-        # Add any remaining metrics
+        # Add metric traces
         for metric in available_metrics:
-            if metric not in ordered_metrics and metric["key"] in prepared_data:
-                ordered_metrics.append(metric)
-
-        return cls._create_subplot_figure(
-            x_axis, x_title, prepared_data, ordered_metrics, activity_data, title_prefix="🏊 Swimming"
-        )
-
-    @classmethod
-    def _create_cycling_charts(
-        cls,
-        x_axis: pd.Series,
-        x_title: str,
-        prepared_data: Dict[str, pd.Series],
-        available_metrics: List[Dict],
-        activity_data: Dict,
-    ) -> go.Figure:
-        """Create cycling-specific chart layout."""
-
-        # Priority order for cycling charts
-        cycling_priority = ["power", "heart_rate", "speed", "cadence", "elevation"]
-
-        # Filter and order available metrics by cycling priority
-        ordered_metrics = []
-        for priority_key in cycling_priority:
-            for metric in available_metrics:
-                if metric["key"] == priority_key and priority_key in prepared_data:
-                    ordered_metrics.append(metric)
-                    break
-
-        # Add any remaining metrics
-        for metric in available_metrics:
-            if metric not in ordered_metrics and metric["key"] in prepared_data:
-                ordered_metrics.append(metric)
-
-        return cls._create_subplot_figure(
-            x_axis, x_title, prepared_data, ordered_metrics, activity_data, title_prefix="🚴 Cycling"
-        )
-
-    @classmethod
-    def _create_running_charts(
-        cls,
-        x_axis: pd.Series,
-        x_title: str,
-        prepared_data: Dict[str, pd.Series],
-        available_metrics: List[Dict],
-        activity_data: Dict,
-    ) -> go.Figure:
-        """Create running-specific chart layout."""
-
-        # Priority order for running charts
-        running_priority = ["pace", "heart_rate", "cadence", "stride_length", "elevation", "power"]
-
-        # Filter and order available metrics by running priority
-        ordered_metrics = []
-        for priority_key in running_priority:
-            for metric in available_metrics:
-                if metric["key"] == priority_key and priority_key in prepared_data:
-                    ordered_metrics.append(metric)
-                    break
-
-        # Add any remaining metrics
-        for metric in available_metrics:
-            if metric not in ordered_metrics and metric["key"] in prepared_data:
-                ordered_metrics.append(metric)
-
-        return cls._create_subplot_figure(
-            x_axis, x_title, prepared_data, ordered_metrics, activity_data, title_prefix="🏃 Running"
-        )
-
-    @classmethod
-    def _create_generic_charts(
-        cls,
-        x_axis: pd.Series,
-        x_title: str,
-        prepared_data: Dict[str, pd.Series],
-        available_metrics: List[Dict],
-        activity_data: Dict,
-    ) -> go.Figure:
-        """Create generic chart layout for unknown sports."""
-
-        return cls._create_subplot_figure(
-            x_axis, x_title, prepared_data, available_metrics, activity_data, title_prefix="⚽ Activity"
-        )
-
-    @classmethod
-    def _create_subplot_figure(
-        cls,
-        x_axis: pd.Series,
-        x_title: str,
-        prepared_data: Dict[str, pd.Series],
-        ordered_metrics: List[Dict],
-        activity_data: Dict,
-        title_prefix: str = "Activity",
-    ) -> go.Figure:
-        """Create subplot figure with ordered metrics."""
-
-        n_charts = len(ordered_metrics)
-        if n_charts == 0:
-            return cls._create_empty_figure("No data available")
-
-        # Calculate vertical spacing
-        if n_charts <= 1:
-            vertical_spacing = 0.3
-        elif n_charts <= 5:
-            vertical_spacing = 0.08
-        else:
-            vertical_spacing = max(0.05, 0.8 / (n_charts - 1))
-
-        # Create subplot titles
-        subplot_titles = [f"{metric['name']} ({metric['unit']})" for metric in ordered_metrics]
-
-        fig = make_subplots(
-            rows=n_charts, cols=1, shared_xaxes=True, vertical_spacing=vertical_spacing, subplot_titles=subplot_titles
-        )
-
-        # Add traces for each metric
-        for i, metric in enumerate(ordered_metrics, 1):
             key = metric["key"]
-            if key in prepared_data:
-                y_data = prepared_data[key]
-                valid_mask = ~y_data.isna()
+            if key not in prepared_data:
+                continue
+            y_data = prepared_data[key]
+            valid_mask = ~y_data.isna()
+            if valid_mask.sum() == 0:
+                continue
 
-                if valid_mask.sum() > 0:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x_axis[valid_mask],
-                            y=y_data[valid_mask],
-                            mode="lines",
-                            name=metric["name"],
-                            line=dict(color=metric["color"], width=2),
-                            hovertemplate=(
-                                f"<b>{metric['name']}</b><br>"
-                                f"Time: %{{x:.1f}} min<br>"
-                                f"{metric['name']}: %{{y:.1f}} {metric['unit']}"
-                                "<extra></extra>"
+            fig.add_trace(
+                go.Scatter(
+                    x=x_axis[valid_mask],
+                    y=y_data[valid_mask],
+                    mode="lines",
+                    name=f"{metric['name']} ({metric['unit']})",
+                    line=dict(color=metric["color"], width=2),
+                    hovertemplate=(
+                        f"<b>{metric['name']}</b><br>"
+                        f"{x_title}: %{{x:.2f}}<br>"
+                        f"Value: %{{y:.1f}} {metric['unit']}<extra></extra>"
+                    ),
+                )
+            )
+
+        # Add vertical lap markers if available
+        if "lap_index" in df.columns and "elapsed_time_s" in df.columns:
+            lap_starts = df.groupby("lap_index")["elapsed_time_s"].min() / 60
+            for lap_idx, t_start in lap_starts.items():
+                fig.add_vline(
+                    x=t_start,
+                    line_dash="dot",
+                    line_color="gray",
+                    annotation_text=f"Lap {lap_idx+1}",
+                    annotation_position="top left"
+                )
+
+        # Add dropdown for x-axis selection
+        if "distance_m" in df.columns:
+            time_axis, time_label = cls._prepare_time_axis(df)
+            distance_axis, dist_label = cls._prepare_distance_axis(df)
+
+            for i, metric in enumerate(available_metrics):
+                key = metric["key"]
+                if key in prepared_data:
+                    y_data = prepared_data[key]
+                    valid_mask = ~y_data.isna()
+                    fig.data[i].update(x=time_axis[valid_mask])  # default is time
+
+            fig.update_layout(
+                updatemenus=[
+                    dict(
+                        buttons=[
+                            dict(
+                                label="Time",
+                                method="update",
+                                args=[{"x": [time_axis]}, {"xaxis": {"title": time_label}}],
                             ),
-                            showlegend=False,
-                        ),
-                        row=i,
-                        col=1,
+                            dict(
+                                label="Distance",
+                                method="update",
+                                args=[{"x": [distance_axis]}, {"xaxis": {"title": dist_label}}],
+                            ),
+                        ],
+                        direction="down",
+                        showactive=True,
+                        x=1.05,
+                        xanchor="left",
+                        y=1.15,
+                        yanchor="top",
                     )
+                ]
+            )
 
-                    # Update y-axis for this subplot
-                    fig.update_yaxes(title_text=metric["unit"], row=i, col=1)
-
-        # Update layout
-        fig.update_xaxes(title_text=x_title, row=n_charts, col=1)
         fig.update_layout(
-            height=150 * n_charts + 100,
-            title_text=f"{title_prefix} - {activity_data.get('name', 'Activity Charts')}",
-            showlegend=False,
+            title=f"Interactive Activity Chart - {activity_data.get('name', 'Activity')}",
+            xaxis_title=x_title,
             hovermode="x unified",
+            height=600,
+            legend=dict(orientation="h", y=-0.25, x=0, xanchor="left"),
         )
 
         return fig
 
     @classmethod
-    def _create_empty_figure(cls, message: str = "No data available") -> go.Figure:
-        """Create empty figure with message."""
+    def _create_empty_figure(cls, message: str) -> go.Figure:
         fig = go.Figure()
-        fig.add_annotation(
-            text=message, xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="gray")
-        )
-        fig.update_layout(height=400, showlegend=False, xaxis={"visible": False}, yaxis={"visible": False})
+        fig.add_annotation(text=message, x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="gray"))
+        fig.update_layout(height=400, xaxis={"visible": False}, yaxis={"visible": False})
         return fig

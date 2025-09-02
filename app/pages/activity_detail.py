@@ -855,7 +855,7 @@ def update_activity_charts(
 
     # Generate sport-specific chart using the new utility
     try:
-        figure = SportChartGenerator.create_sport_specific_charts(
+        figure = SportChartGenerator.create_sport_specific_chart(
             sport=sport, samples_df=df, activity_data=activity_data, sub_sport=sub_sport, smoothing=smoothing
         )
         return dcc.Graph(figure=figure)
