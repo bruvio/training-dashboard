@@ -858,12 +858,21 @@ def update_activity_charts(
         figure = SportChartGenerator.create_sport_specific_chart(
             sport=sport, samples_df=df, activity_data=activity_data, sub_sport=sub_sport, smoothing=smoothing
         )
-        return dcc.Graph(figure=figure)
+        return dcc.Graph(
+            id="activity-chart",
+            figure=figure,
+            config={"displayModeBar": True, "responsive": True},
+            style={"height": "80vh", "width": "100%"},
+        )
 
     except Exception as e:
         # Fallback to empty chart with error message
         error_msg = f"Error generating charts: {str(e)}"
         return dcc.Graph(figure=create_empty_chart_figure(error_msg))
+
+
+# Note: Clientside callback for Y-axis visibility will be registered in dash_app.py
+# to avoid circular import issues
 
 
 def prepare_chart_data(df: pd.DataFrame, data_types: list, smoothing: str = "none"):

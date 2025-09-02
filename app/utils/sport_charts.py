@@ -120,71 +120,74 @@ class SportChartGenerator:
     @classmethod
     def _assign_metrics_to_yaxes(cls, available_metrics: List[Dict]) -> Dict[str, str]:
         """
-        Assign metrics to different Y-axes based on unit types to prevent overlapping labels.
+        Assign each metric to its own Y-axis for truly individual toggling.
         Returns a mapping of metric_key -> yaxis_name.
         """
-        # Group metrics by unit type to minimize Y-axis overlap
-        unit_groups = {}
-        for metric in available_metrics:
-            unit = metric.get("unit", "")
-            if unit not in unit_groups:
-                unit_groups[unit] = []
-            unit_groups[unit].append(metric["key"])
-
-        # Assign Y-axes: try to put similar units together, separate different units
         yaxis_assignments = {}
-        yaxis_counter = 1
 
-        for unit, metric_keys in unit_groups.items():
-            if yaxis_counter == 1:
+        for i, metric in enumerate(available_metrics):
+            key = metric["key"]
+            if i == 0:
                 yaxis_name = "y"
             else:
-                yaxis_name = f"y{yaxis_counter}"
-
-            # Assign all metrics with same unit to same Y-axis
-            for key in metric_keys:
-                yaxis_assignments[key] = yaxis_name
-
-            yaxis_counter += 1
+                yaxis_name = f"y{i+1}"
+            yaxis_assignments[key] = yaxis_name
 
         return yaxis_assignments
 
     @classmethod
     def _create_yaxis_config(cls, available_metrics: List[Dict], yaxis_assignments: Dict[str, str]) -> Dict:
         """
-        Create Y-axis configuration to display each unit type without overlapping.
+        Create Y-axis configuration for individual metrics with proper positioning and color coordination.
         """
-        # Group metrics by assigned Y-axis
-        yaxis_groups = {}
-        for metric in available_metrics:
+        yaxis_config = {}
+        sides = ["left", "right"]  # Alternate sides
+
+        # Calculate positioning to prevent overlapping
+        left_count = 0
+        right_count = 0
+
+        for i, metric in enumerate(available_metrics):
             key = metric["key"]
             yaxis_name = yaxis_assignments.get(key, "y")
-            if yaxis_name not in yaxis_groups:
-                yaxis_groups[yaxis_name] = []
-            yaxis_groups[yaxis_name].append(metric)
-
-        yaxis_config = {}
-        sides = ["left", "right"]  # Alternate sides for better visibility
-
-        for i, (yaxis_name, metrics) in enumerate(yaxis_groups.items()):
-            # Get unique units for this Y-axis
-            units = sorted(set(metric["unit"] for metric in metrics))
-            title = " / ".join(units) if units else "Metrics"
-
             side = sides[i % len(sides)]
 
+            # Calculate position to prevent overlapping
+            if side == "left":
+                position = 0.05 + (left_count * 0.08)  # Start at 5% from left, space by 8%
+                left_count += 1
+            else:
+                position = 0.95 - (right_count * 0.08)  # Start at 95% from left, space by 8%
+                right_count += 1
+
             config = {
-                "title": title,
+                "title": dict(
+                    text=f"{metric['name']} ({metric['unit']})",
+                    font=dict(color=metric["color"], size=12),  # Match trace color
+                ),
                 "side": side,
-                "showgrid": i == 0,  # Only show grid on first axis to avoid clutter
-                "gridcolor": "rgba(128,128,128,0.2)",
+                "position": position,
+                "showgrid": i == 0,  # Only show grid on first axis
+                "gridcolor": "rgba(128,128,128,0.1)",
+                "tickfont": dict(color=metric["color"], size=10),  # Match trace color
+                "linecolor": metric["color"],  # Y-axis line color matches trace
+                "linewidth": 2,
+                "visible": True,  # Initially visible
+                "showticklabels": True,  # Show tick labels initially
             }
 
             # For secondary axes, add overlaying
             if yaxis_name != "y":
                 config["overlaying"] = "y"
+                config["anchor"] = "free"  # Allow free positioning
 
-            yaxis_config[yaxis_name] = config
+            # Convert yaxis_name to proper layout key
+            if yaxis_name == "y":
+                layout_key = "yaxis"
+            else:
+                # Convert y2, y3, y4 to yaxis2, yaxis3, yaxis4
+                layout_key = f"yaxis{yaxis_name[1:]}"
+            yaxis_config[layout_key] = config
 
         return yaxis_config
 
@@ -244,12 +247,13 @@ class SportChartGenerator:
                     x=x_axis[valid_mask],
                     y=y_data[valid_mask],
                     mode="lines",
-                    name=f"{metric['name']} ({metric['unit']})",  # Individual legend items
+                    name=metric["name"],  # Clean name without units (units shown on Y-axis)
                     line=dict(color=metric["color"], width=2),
                     hovertemplate=hover_template,
                     customdata=customdata,
-                    yaxis=yaxis_name,  # Assigned Y-axis to prevent overlapping
-                    visible=True,  # All metrics individually toggleable via legend
+                    yaxis=yaxis_name,  # Each metric gets its own Y-axis
+                    visible=True,  # Individual toggleable - NO legendgroup parameter
+                    showlegend=True,  # Ensure it shows in legend for individual control
                 )
             )
 
@@ -321,27 +325,48 @@ class SportChartGenerator:
         # Configure dynamic Y-axis layout to prevent overlapping unit labels
         yaxis_config = cls._create_yaxis_config(available_metrics, yaxis_assignments)
 
+        # Calculate margin based on number of metrics to accommodate Y-axes
+        num_metrics = len(available_metrics)
+        left_margin = 60 + (num_metrics // 2) * 60  # Space for left side Y-axes
+        right_margin = 60 + ((num_metrics + 1) // 2) * 60  # Space for right side Y-axes
+
         fig.update_layout(
             title=f"Interactive Activity Chart - {activity_data.get('name', 'Activity')}",
             xaxis_title=x_title,
             xaxis=dict(
-                showgrid=True,
-                gridcolor="rgba(128,128,128,0.2)",
+                showgrid=True, gridcolor="rgba(128,128,128,0.1)", domain=[0.1, 0.9]  # Use most of the available space
             ),
             hovermode="x unified",
-            height=600,
-            margin=dict(t=80, r=80),  # Extra right margin for secondary axis labels
+            height=800,  # Reasonable height for most screens
+            autosize=True,  # Auto-resize to container
+            margin=dict(t=60, l=left_margin, r=right_margin, b=40),
             legend=dict(
-                orientation="v",  # Vertical for individual metric control
+                orientation="v",  # Vertical for easy individual clicking
                 y=1,
-                x=1.02,
+                x=1.02,  # Position to the right of the chart
                 xanchor="left",
                 yanchor="top",
-                bgcolor="rgba(255,255,255,0.9)",
+                bgcolor="rgba(255,255,255,0.95)",
                 bordercolor="rgba(0,0,0,0.3)",
                 borderwidth=1,
+                font=dict(size=12),
+                itemclick="toggle",  # Enable individual trace toggling
+                itemdoubleclick="toggleothers",  # Double-click to isolate trace
             ),
             **yaxis_config,
+        )
+
+        # Add JavaScript to handle Y-axis visibility when traces are toggled
+        # This creates a mapping between trace names and their Y-axes for dynamic control
+        trace_yaxis_mapping = {}
+        for i, metric in enumerate(available_metrics):
+            key = metric["key"]
+            yaxis_name = yaxis_assignments.get(key, "y")
+            trace_yaxis_mapping[metric["name"]] = yaxis_name.replace("y", "yaxis") if yaxis_name != "y" else "yaxis"
+
+        # Store the mapping as a custom property for frontend JavaScript access
+        fig.layout.update(
+            {"uirevision": "constant", "meta": trace_yaxis_mapping}  # Preserve UI state  # Store mapping for JavaScript
         )
 
         return fig
