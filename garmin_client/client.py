@@ -12,10 +12,12 @@ from pathlib import Path
 from typing import Dict, Optional, Union
 import pickle
 import base64
+import threading
 
 try:
     from garminconnect import Garmin
     import garth
+    import garth.sso as garth_sso
     from garth.exc import GarthException
 
     GARMIN_CONNECT_AVAILABLE = True
@@ -131,6 +133,48 @@ class GarminConnectClient:
             self.credentials_file.unlink()
             logger.info("Credentials cleared")
 
+    def _login_with_timeout(self, email: str, password: str, timeout: int = 30):
+        """
+        Perform garth.login with timeout protection.
+
+        Args:
+            email: Garmin Connect email
+            password: Garmin Connect password
+            timeout: Timeout in seconds (default: 30)
+
+        Returns:
+            Tuple of (result1, result2) or (None, None) if timeout/error
+        """
+        result = {"result1": None, "result2": None, "exception": None}
+
+        def target():
+            try:
+                logger.info(f"Starting garth.login for {email}")
+                result1, result2 = garth.login(email, password, return_on_mfa=True)
+                result["result1"] = result1
+                result["result2"] = result2
+                logger.info(f"garth.login completed with result: {result1}")
+            except Exception as e:
+                logger.error(f"garth.login failed with exception: {e}")
+                result["exception"] = e
+
+        thread = threading.Thread(target=target)
+        thread.daemon = True
+        thread.start()
+
+        # Wait for completion or timeout
+        thread.join(timeout)
+
+        if thread.is_alive():
+            logger.error(f"garth.login timed out after {timeout} seconds")
+            # Note: We can't forcefully kill the thread, but we can return timeout status
+            return None, "TIMEOUT"
+
+        if result["exception"]:
+            raise result["exception"]
+
+        return result["result1"], result["result2"]
+
     def authenticate(
         self, email: str = None, password: str = None, mfa_callback=None, mfa_context=None, remember_me: bool = False
     ) -> Union[bool, str, dict]:
@@ -155,11 +199,13 @@ class GarminConnectClient:
             logger.error("garminconnect library not available")
             return {"status": "FAILED"}
 
+        # Store credentials immediately if remember_me is enabled and credentials provided
+        if remember_me and email and password:
+            self.store_credentials(email, password)
+            logger.info("Credentials stored (remember me enabled)")
+
         # Load stored credentials if not provided
-        if email and password:
-            if remember_me:
-                self.store_credentials(email, password)
-        else:
+        if not (email and password):
             credentials = self.load_credentials()
             if not credentials:
                 logger.error("No credentials provided or stored")
@@ -175,9 +221,10 @@ class GarminConnectClient:
             logger.info("Resumed existing garth session")
             self._api = Garmin()
             self._authenticated = True
+
             return {"status": "SUCCESS"}
-        except (GarthException, FileNotFoundError):
-            logger.info("No valid garth session found, performing fresh login")
+        except (GarthException, FileNotFoundError, json.JSONDecodeError, NotADirectoryError) as e:
+            logger.info(f"No valid garth session found, performing fresh login. Error: {e}")
 
         try:
             if mfa_context and mfa_callback:
@@ -189,31 +236,45 @@ class GarminConnectClient:
                     return {"status": "MFA_REQUIRED", "mfa_context": mfa_context}
 
                 try:
-                    garth.resume_login(mfa_context, mfa_code)
+                    garth_sso.resume_login(mfa_context, mfa_code)
                     logger.info("MFA authentication successful")
                 except Exception as e:
                     logger.error(f"MFA authentication failed: {e}")
                     return {"status": "MFA_FAILED"}
 
             else:
-                # First-time login attempt
+                # First-time login attempt with timeout protection
                 logger.info(f"Authenticating as {email}")
-                result1, result2 = garth.login(email, password, return_on_mfa=True)
+                result1, result2 = self._login_with_timeout(email, password, timeout=30)
+
+                # Handle timeout case
+                if result2 == "TIMEOUT":
+                    logger.error("Authentication timed out - likely server/network issue")
+                    return {"status": "FAILED"}
 
                 if result1 == "needs_mfa":
+                    logger.info("MFA required for authentication")
                     if not mfa_callback:
-                        # serialize result2 to base64 string for safe storage
-                        mfa_context_serialized = base64.b64encode(pickle.dumps(result2)).decode("utf-8")
-                        return {"status": "MFA_REQUIRED", "mfa_context": mfa_context_serialized}
+                        try:
+                            # serialize result2 to base64 string for safe storage
+                            logger.debug(f"Serializing MFA context: {type(result2)}")
+                            mfa_context_serialized = base64.b64encode(pickle.dumps(result2)).decode("utf-8")
+                            logger.info("MFA context serialized successfully")
+                            return {"status": "MFA_REQUIRED", "mfa_context": mfa_context_serialized}
+                        except Exception as pickle_error:
+                            logger.error(f"Failed to serialize MFA context: {pickle_error}")
+                            # Fallback: return MFA_REQUIRED without context (user will need to restart auth)
+                            return {"status": "MFA_REQUIRED", "mfa_context": None}
 
                     # MFA callback available - collect and try to resume immediately
                     mfa_code = mfa_callback()
                     if not mfa_code:
                         logger.warning("MFA code required but not provided by callback")
-                        return {"status": "MFA_REQUIRED", "mfa_context": result2}
+                        mfa_context_serialized = base64.b64encode(pickle.dumps(result2)).decode("utf-8")
+                        return {"status": "MFA_REQUIRED", "mfa_context": mfa_context_serialized}
 
                     try:
-                        garth.resume_login(result2, mfa_code)
+                        garth_sso.resume_login(result2, mfa_code)
                         logger.info("MFA authentication successful")
                     except Exception as e:
                         logger.error(f"MFA authentication failed: {e}")

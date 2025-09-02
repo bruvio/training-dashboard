@@ -231,8 +231,14 @@ def register_callbacks(app):
 
         client = GarminConnectClient()
         result = client.authenticate(email, password, remember_me=remember_me)
+        
+        # Debug logging to track what's happening
+        logger.info(f"Authentication result: {result}")
+        logger.info(f"Result type: {type(result)}")
+        logger.info(f"Result keys: {result.keys() if isinstance(result, dict) else 'Not a dict'}")
 
         if result["status"] == "MFA_REQUIRED":
+            logger.info("🔐 MFA_REQUIRED status detected, creating MFA dialog")
             mfa_content = [
                 dbc.Alert(
                     "Multi-Factor Authentication required. Please enter your MFA code.", color="info", className="mb-3"
