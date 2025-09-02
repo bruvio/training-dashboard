@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import dash
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, State, callback, dcc, html
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 import numpy as np
@@ -19,7 +19,263 @@ from plotly.subplots import make_subplots
 from scipy import ndimage
 from scipy.signal import savgol_filter
 
-from app.data.web_queries import check_database_connection, get_activity_by_id, get_activity_samples
+from app.data.web_queries import (
+    check_database_connection,
+    get_activity_by_id,
+    get_activity_laps,
+    get_activity_navigation,
+    get_activity_samples,
+    update_activity_name,
+)
+from app.utils import extract_valid_route_positions
+
+
+# Sub-layout helper functions for better modularity
+def create_navigation_section():
+    """Create navigation buttons section."""
+    return dbc.Row(
+        [
+            dbc.Col(
+                [
+                    dbc.ButtonGroup(
+                        [
+                            dbc.Button(
+                                [html.I(className="fas fa-chevron-left")],
+                                id="prev-activity-btn",
+                                color="outline-primary",
+                                size="sm",
+                                disabled=True,
+                                title="Previous Activity",
+                            ),
+                            dbc.Button(
+                                [
+                                    html.I(className="fas fa-arrow-left me-2"),
+                                    "Back to Activities",
+                                ],
+                                href="/",
+                                color="secondary",
+                                outline=True,
+                                size="sm",
+                            ),
+                            dbc.Button(
+                                [html.I(className="fas fa-chevron-right")],
+                                id="next-activity-btn",
+                                color="outline-primary",
+                                size="sm",
+                                disabled=True,
+                                title="Next Activity",
+                            ),
+                        ],
+                        className="mb-3",
+                    )
+                ]
+            )
+        ]
+    )
+
+
+def create_route_map_section():
+    """Create route map card section."""
+    return dbc.Col(
+        [
+            dbc.Card(
+                [
+                    dbc.CardHeader(
+                        [
+                            html.H5(
+                                [html.I(className="fas fa-map me-2"), "Route Map"],
+                                className="mb-0",
+                            )
+                        ]
+                    ),
+                    dbc.CardBody(
+                        [
+                            html.Div(
+                                [
+                                    dl.MapContainer(
+                                        [
+                                            dl.TileLayer(
+                                                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                                                attribution="&copy; OpenStreetMap contributors",
+                                            ),
+                                            dl.Polyline(
+                                                id="route-polyline",
+                                                positions=[],
+                                                color="red",
+                                                weight=3,
+                                                opacity=0.8,
+                                            ),
+                                        ],
+                                        id="activity-map",
+                                        style={"width": "100%", "height": "400px"},
+                                        center=[51.7565, -1.2492],
+                                        zoom=13,
+                                        viewport={
+                                            "center": [51.7565, -1.2492],
+                                            "zoom": 13,
+                                        },
+                                    )
+                                ],
+                                id="map-container",
+                                className="map-container",
+                            ),
+                            html.Div(id="map-status", className="mt-2 text-muted small"),
+                        ],
+                        className="p-0",
+                    ),
+                ]
+            )
+        ],
+        lg=8,
+        md=12,
+    )
+
+
+def create_activity_summary_section():
+    """Create activity summary card section."""
+    return dbc.Col(
+        [
+            dbc.Card(
+                [
+                    dbc.CardHeader(
+                        [
+                            html.H5(
+                                [
+                                    html.I(className="fas fa-chart-bar me-2"),
+                                    "Activity Summary",
+                                ],
+                                className="mb-0",
+                            )
+                        ]
+                    ),
+                    dbc.CardBody([html.Div(id="activity-summary")]),
+                ]
+            )
+        ],
+        lg=4,
+        md=12,
+    )
+
+
+def create_charts_section():
+    """Create activity charts section."""
+    return dbc.Row(
+        [
+            dbc.Col(
+                [
+                    dbc.Card(
+                        [
+                            dbc.CardHeader(
+                                [
+                                    dbc.Row(
+                                        [
+                                            dbc.Col(
+                                                [
+                                                    html.H5(
+                                                        [
+                                                            html.I(className="fas fa-chart-line me-2"),
+                                                            "Activity Charts",
+                                                        ],
+                                                        className="mb-0",
+                                                    ),
+                                                ],
+                                                width="auto",
+                                            ),
+                                            dbc.Col(
+                                                [
+                                                    dbc.ButtonGroup(
+                                                        [
+                                                            dbc.Button(
+                                                                "Heart Rate",
+                                                                id="chart-hr-btn",
+                                                                color="primary",
+                                                                size="sm",
+                                                            ),
+                                                            dbc.Button(
+                                                                "Speed",
+                                                                id="chart-speed-btn",
+                                                                color="outline-primary",
+                                                                size="sm",
+                                                            ),
+                                                            dbc.Button(
+                                                                "Elevation",
+                                                                id="chart-elevation-btn",
+                                                                color="outline-primary",
+                                                                size="sm",
+                                                            ),
+                                                            dbc.Button(
+                                                                "Power",
+                                                                id="chart-power-btn",
+                                                                color="outline-primary",
+                                                                size="sm",
+                                                            ),
+                                                        ],
+                                                        id="chart-type-buttons",
+                                                        className="ms-auto",
+                                                    )
+                                                ],
+                                                width="auto",
+                                            ),
+                                        ],
+                                        justify="between",
+                                        align="center",
+                                    )
+                                ]
+                            ),
+                            dbc.CardBody(
+                                [
+                                    dbc.Row(
+                                        [
+                                            dbc.Col(
+                                                [
+                                                    html.Label(
+                                                        "Smoothing:",
+                                                        className="form-label small",
+                                                    ),
+                                                    dcc.Dropdown(
+                                                        id="smoothing-dropdown",
+                                                        options=[
+                                                            {
+                                                                "label": "None",
+                                                                "value": "none",
+                                                            },
+                                                            {
+                                                                "label": "Light",
+                                                                "value": "light",
+                                                            },
+                                                            {
+                                                                "label": "Medium",
+                                                                "value": "medium",
+                                                            },
+                                                            {
+                                                                "label": "Heavy",
+                                                                "value": "heavy",
+                                                            },
+                                                        ],
+                                                        value="light",
+                                                        clearable=False,
+                                                        className="mb-3",
+                                                    ),
+                                                ],
+                                                width=3,
+                                            )
+                                        ]
+                                    ),
+                                    dcc.Loading(
+                                        [html.Div(id="activity-charts-container")],
+                                        type="graph",
+                                        color="#0d6efd",
+                                    ),
+                                ]
+                            ),
+                        ]
+                    )
+                ]
+            )
+        ],
+        className="mb-4",
+    )
+
 
 # Register this page with dynamic routing (Dash 2.17+ pattern)
 dash.register_page(
@@ -48,222 +304,39 @@ def layout(activity_id: str = None, **kwargs):
             dcc.Store(id="activity-samples-store", data=[]),
             dcc.Store(id="activity-laps-store", data=[]),
             dcc.Store(id="route-bounds-store", data={}),
+            dcc.Store(id="activity-navigation-store", data={}),
             # Loading states
             dcc.Loading(
                 id="loading-activity-detail",
                 type="default",
                 children=[
-                    # Back button and header
-                    dbc.Row(
-                        [
-                            dbc.Col(
-                                [
-                                    dbc.Button(
-                                        [html.I(className="fas fa-arrow-left me-2"), "Back to Activities"],
-                                        href="/",
-                                        color="secondary",
-                                        outline=True,
-                                        size="sm",
-                                        className="mb-3",
-                                    )
-                                ]
-                            )
-                        ]
-                    ),
+                    # Navigation section
+                    create_navigation_section(),
                     # Activity header
                     dbc.Row([dbc.Col([html.Div(id="activity-header")])], className="mb-4"),
                     # Main content row - Map and Summary
                     dbc.Row(
                         [
-                            # Map column
-                            dbc.Col(
-                                [
-                                    dbc.Card(
-                                        [
-                                            dbc.CardHeader(
-                                                [
-                                                    html.H5(
-                                                        [html.I(className="fas fa-map me-2"), "Route Map"],
-                                                        className="mb-0",
-                                                    )
-                                                ]
-                                            ),
-                                            dbc.CardBody(
-                                                [
-                                                    html.Div(
-                                                        [
-                                                            dl.Map(
-                                                                [
-                                                                    dl.TileLayer(
-                                                                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                                                                        attribution="&copy; OpenStreetMap contributors",
-                                                                    ),
-                                                                    dl.Polyline(
-                                                                        id="route-polyline",
-                                                                        positions=[],
-                                                                        color="red",
-                                                                        weight=3,
-                                                                        opacity=0.8,
-                                                                    ),
-                                                                ],
-                                                                id="activity-map",
-                                                                style={"width": "100%", "height": "400px"},
-                                                                center=[0, 0],
-                                                                zoom=2,
-                                                            )
-                                                        ],
-                                                        className="map-container",
-                                                    ),
-                                                    html.Div(id="map-status", className="mt-2 text-muted small"),
-                                                ],
-                                                className="p-0",
-                                            ),
-                                        ]
-                                    )
-                                ],
-                                lg=8,
-                                md=12,
-                            ),
-                            # Summary statistics column
-                            dbc.Col(
-                                [
-                                    dbc.Card(
-                                        [
-                                            dbc.CardHeader(
-                                                [
-                                                    html.H5(
-                                                        [html.I(className="fas fa-chart-bar me-2"), "Activity Summary"],
-                                                        className="mb-0",
-                                                    )
-                                                ]
-                                            ),
-                                            dbc.CardBody([html.Div(id="activity-summary")]),
-                                        ]
-                                    )
-                                ],
-                                lg=4,
-                                md=12,
-                            ),
+                            create_route_map_section(),
+                            create_activity_summary_section(),
                         ],
                         className="mb-4",
                     ),
                     # Charts section
+                    create_charts_section(),
+                    # Laps section
+                    create_laps_section(),
+                    # Bottom section with refresh timestamp
                     dbc.Row(
                         [
                             dbc.Col(
                                 [
-                                    dbc.Card(
+                                    html.P(
                                         [
-                                            dbc.CardHeader(
-                                                [
-                                                    dbc.Row(
-                                                        [
-                                                            dbc.Col(
-                                                                [
-                                                                    html.H5(
-                                                                        [
-                                                                            html.I(className="fas fa-chart-line me-2"),
-                                                                            "Activity Charts",
-                                                                        ],
-                                                                        className="mb-0",
-                                                                    ),
-                                                                    dbc.Badge(
-                                                                        "Interactive", color="info", className="ms-2"
-                                                                    ),
-                                                                ],
-                                                                width="auto",
-                                                            ),
-                                                            dbc.Col(
-                                                                [
-                                                                    dbc.Row(
-                                                                        [
-                                                                            dbc.Col(
-                                                                                [
-                                                                                    dbc.Label(
-                                                                                        "Chart Type:",
-                                                                                        size="sm",
-                                                                                        className="me-2",
-                                                                                    ),
-                                                                                    dbc.Select(
-                                                                                        id="chart-type-selector",
-                                                                                        options=[
-                                                                                            {
-                                                                                                "label": "Multi-subplot (Default)",
-                                                                                                "value": "subplots",
-                                                                                            },
-                                                                                            {
-                                                                                                "label": "Single Chart - Dual Y-axis",
-                                                                                                "value": "dual_y",
-                                                                                            },
-                                                                                            {
-                                                                                                "label": "Overlay - Single Y-axis",
-                                                                                                "value": "overlay",
-                                                                                            },
-                                                                                        ],
-                                                                                        value="subplots",
-                                                                                        size="sm",
-                                                                                    ),
-                                                                                ],
-                                                                                width=6,
-                                                                            ),
-                                                                            dbc.Col(
-                                                                                [
-                                                                                    dbc.Label(
-                                                                                        "Smoothing:",
-                                                                                        size="sm",
-                                                                                        className="me-2",
-                                                                                    ),
-                                                                                    dbc.Select(
-                                                                                        id="smoothing-selector",
-                                                                                        options=[
-                                                                                            {
-                                                                                                "label": "None",
-                                                                                                "value": "none",
-                                                                                            },
-                                                                                            {
-                                                                                                "label": "Light",
-                                                                                                "value": "light",
-                                                                                            },
-                                                                                            {
-                                                                                                "label": "Medium",
-                                                                                                "value": "medium",
-                                                                                            },
-                                                                                            {
-                                                                                                "label": "Heavy",
-                                                                                                "value": "heavy",
-                                                                                            },
-                                                                                        ],
-                                                                                        value="none",
-                                                                                        size="sm",
-                                                                                    ),
-                                                                                ],
-                                                                                width=6,
-                                                                            ),
-                                                                        ]
-                                                                    )
-                                                                ],
-                                                                className="ms-auto",
-                                                            ),
-                                                        ],
-                                                        className="align-items-center",
-                                                    ),
-                                                ]
-                                            ),
-                                            dbc.CardBody(
-                                                [
-                                                    dcc.Graph(
-                                                        id="activity-charts",
-                                                        className="chart-container",
-                                                        config={
-                                                            "displayModeBar": True,
-                                                            "displaylogo": False,
-                                                            "modeBarButtonsToRemove": ["pan2d", "lasso2d"],
-                                                        },
-                                                    )
-                                                ],
-                                                className="p-2",
-                                            ),
-                                        ]
+                                            html.I(className="fas fa-clock me-1"),
+                                            "Data refreshes automatically when activity details are updated",
+                                        ],
+                                        className="text-muted small text-center mb-0",
                                     )
                                 ]
                             )
@@ -278,6 +351,36 @@ def layout(activity_id: str = None, **kwargs):
     )
 
 
+def create_laps_section():
+    """Create activity laps/intervals table section."""
+    return dbc.Row(
+        [
+            dbc.Col(
+                [
+                    dbc.Card(
+                        [
+                            dbc.CardHeader(
+                                [
+                                    html.H5(
+                                        [
+                                            html.I(className="fas fa-table me-2"),
+                                            "Laps / Intervals",
+                                        ],
+                                        className="mb-0",
+                                    )
+                                ]
+                            ),
+                            dbc.CardBody([html.Div(id="laps-table-container")]),
+                        ]
+                    )
+                ],
+                width=12,
+            )
+        ],
+        className="mb-4",
+    )
+
+
 def create_error_layout(error_message: str):
     """Create error layout for failed loads."""
     return dbc.Container(
@@ -289,7 +392,10 @@ def create_error_layout(error_message: str):
                             dbc.Alert(
                                 [
                                     html.H4(
-                                        [html.I(className="fas fa-exclamation-triangle me-2"), "Error Loading Activity"]
+                                        [
+                                            html.I(className="fas fa-exclamation-triangle me-2"),
+                                            "Error Loading Activity",
+                                        ]
                                     ),
                                     html.P(error_message),
                                     dbc.Button("Back to Activities", href="/", color="primary"),
@@ -313,6 +419,7 @@ def create_error_layout(error_message: str):
         Output("activity-samples-store", "data"),
         Output("activity-laps-store", "data"),
         Output("route-bounds-store", "data"),
+        Output("activity-navigation-store", "data"),
         Output("error-state", "children"),
         Output("error-state", "style"),
     ],
@@ -329,22 +436,54 @@ def load_activity_data(pathname: str):
     try:
         # Extract activity ID from URL
         if not pathname or not pathname.startswith("/activity/"):
-            return None, None, None, None, create_error_layout("Invalid activity URL"), {"display": "block"}
+            return (
+                None,
+                None,
+                None,
+                None,
+                None,
+                create_error_layout("Invalid activity URL"),
+                {"display": "block"},
+            )
 
         activity_id_str = pathname.replace("/activity/", "")
         try:
             activity_id = int(activity_id_str)
         except ValueError:
-            return None, None, None, None, create_error_layout("Invalid activity ID"), {"display": "block"}
+            return (
+                None,
+                None,
+                None,
+                None,
+                None,
+                create_error_layout("Invalid activity ID"),
+                {"display": "block"},
+            )
 
         # Check database connection
         if not check_database_connection():
-            return None, None, None, None, create_error_layout("Database connection failed"), {"display": "block"}
+            return (
+                None,
+                None,
+                None,
+                None,
+                None,
+                create_error_layout("Database connection failed"),
+                {"display": "block"},
+            )
 
         # Load activity details
         activity = get_activity_by_id(activity_id)
         if not activity:
-            return None, None, None, None, create_error_layout("Activity not found"), {"display": "block"}
+            return (
+                None,
+                None,
+                None,
+                None,
+                None,
+                create_error_layout("Activity not found"),
+                {"display": "block"},
+            )
 
         # Load sample data
         samples_df = get_activity_samples(activity_id)
@@ -371,11 +510,30 @@ def load_activity_data(pathname: str):
 
         laps_data = get_activity_laps(activity_id)
 
-        return activity, samples_data, laps_data, route_bounds, None, {"display": "none"}
+        # Load navigation data
+        navigation_data = get_activity_navigation(activity_id)
+
+        return (
+            activity,
+            samples_data,
+            laps_data,
+            route_bounds,
+            navigation_data,
+            None,
+            {"display": "none"},
+        )
 
     except Exception as e:
         error_msg = f"Unexpected error loading activity: {str(e)}"
-        return None, None, None, None, create_error_layout(error_msg), {"display": "block"}
+        return (
+            None,
+            None,
+            None,
+            None,
+            None,
+            create_error_layout(error_msg),
+            {"display": "block"},
+        )
 
 
 # Callback for activity header
@@ -398,7 +556,13 @@ def update_activity_header(activity_data: Optional[Dict[str, Any]]):
             start_time_str = str(activity_data["start_time"])
 
     # Sport emoji mapping
-    sport_emoji_map = {"running": "🏃", "cycling": "🚴", "swimming": "🏊", "hiking": "🥾", "walking": "🚶"}
+    sport_emoji_map = {
+        "running": "🏃",
+        "cycling": "🚴",
+        "swimming": "🏊",
+        "hiking": "🥾",
+        "walking": "🚶",
+    }
 
     sport = activity_data.get("sport", "unknown")
     sport_emoji = sport_emoji_map.get(sport, "⚽")
@@ -407,23 +571,72 @@ def update_activity_header(activity_data: Optional[Dict[str, Any]]):
         [
             dbc.CardBody(
                 [
-                    html.H2(
+                    dbc.Row(
                         [
-                            sport_emoji,
-                            " ",
-                            activity_data.get("name", f"{sport.title()} Activity"),
-                            dbc.Badge(
-                                activity_data.get("source", "unknown").upper(), color="secondary", className="ms-3"
+                            dbc.Col(
+                                [
+                                    html.Div(
+                                        [
+                                            html.H2(
+                                                [
+                                                    sport_emoji,
+                                                    " ",
+                                                    html.Span(
+                                                        activity_data.get(
+                                                            "name",
+                                                            f"{sport.title()} Activity",
+                                                        ),
+                                                        id="activity-title-display",
+                                                        style={
+                                                            "cursor": "pointer",
+                                                            "border-bottom": "1px dashed #ccc",
+                                                        },
+                                                    ),
+                                                    dbc.Badge(
+                                                        activity_data.get("source", "unknown").upper(),
+                                                        color="secondary",
+                                                        className="ms-3",
+                                                    ),
+                                                ],
+                                                className="mb-3",
+                                            ),
+                                            dbc.Input(
+                                                id="activity-title-input",
+                                                value=activity_data.get("name", f"{sport.title()} Activity"),
+                                                style={"display": "none"},
+                                                className="mb-3",
+                                                placeholder="Enter activity name",
+                                            ),
+                                        ]
+                                    )
+                                ]
                             ),
-                        ],
-                        className="mb-3",
+                            dbc.Col(
+                                [
+                                    dbc.Button(
+                                        [
+                                            html.I(className="fas fa-edit me-1"),
+                                            "Edit Name",
+                                        ],
+                                        id="edit-name-btn",
+                                        color="outline-primary",
+                                        size="sm",
+                                        className="float-end",
+                                    )
+                                ],
+                                width="auto",
+                            ),
+                        ]
                     ),
                     dbc.Row(
                         [
                             dbc.Col(
                                 [
                                     html.P(
-                                        [html.I(className="fas fa-calendar me-2"), start_time_str],
+                                        [
+                                            html.I(className="fas fa-calendar me-2"),
+                                            start_time_str,
+                                        ],
                                         className="text-muted mb-2",
                                     )
                                 ],
@@ -463,7 +676,12 @@ def update_activity_summary(activity_data: Optional[Dict[str, Any]]):
     # Distance
     if activity_data.get("total_distance_km"):
         summary_cards.append(
-            create_stat_card("Distance", f"{activity_data['total_distance_km']:.2f} km", "fas fa-route", "primary")
+            create_stat_card(
+                "Distance",
+                f"{activity_data['total_distance_km']:.2f} km",
+                "fas fa-route",
+                "primary",
+            )
         )
 
     # Duration
@@ -473,19 +691,34 @@ def update_activity_summary(activity_data: Optional[Dict[str, Any]]):
     # Average Heart Rate
     if activity_data.get("avg_hr"):
         summary_cards.append(
-            create_stat_card("Avg HR", f"{int(activity_data['avg_hr'])} bpm", "fas fa-heartbeat", "danger")
+            create_stat_card(
+                "Avg HR",
+                f"{int(activity_data['avg_hr'])} bpm",
+                "fas fa-heartbeat",
+                "danger",
+            )
         )
 
     # Average Power
     if activity_data.get("avg_power_w"):
         summary_cards.append(
-            create_stat_card("Avg Power", f"{int(activity_data['avg_power_w'])} W", "fas fa-bolt", "warning")
+            create_stat_card(
+                "Avg Power",
+                f"{int(activity_data['avg_power_w'])} W",
+                "fas fa-bolt",
+                "warning",
+            )
         )
 
     # Elevation Gain
     if activity_data.get("elevation_gain_m"):
         summary_cards.append(
-            create_stat_card("Elevation", f"{int(activity_data['elevation_gain_m'])} m", "fas fa-mountain", "success")
+            create_stat_card(
+                "Elevation",
+                f"{int(activity_data['elevation_gain_m'])} m",
+                "fas fa-mountain",
+                "success",
+            )
         )
 
     # Calories
@@ -523,6 +756,7 @@ def create_stat_card(title: str, value: str, icon: str, color: str):
         Output("activity-map", "center"),
         Output("activity-map", "zoom"),
         Output("map-status", "children"),
+        Output("map-container", "style"),
     ],
     [Input("activity-samples-store", "data"), Input("route-bounds-store", "data")],
 )
@@ -533,63 +767,126 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
     Research-validated dash-leaflet integration with GPS route visualization.
     """
     if not samples_data or not isinstance(samples_data, list):
-        return [], [0, 0], 2, "No GPS data available for this activity"
+        # No GPS data: hide map and show placeholder message
+        return (
+            None,
+            None,
+            None,
+            html.Div(
+                [
+                    html.I(className="fas fa-map-marker-alt me-2"),
+                    "No GPS data available for this activity",
+                ],
+                className="text-muted text-center p-4",
+            ),
+            {"display": "none"},
+        )
 
-    route_positions = [
-        [sample["position_lat"], sample["position_long"]]
-        for sample in samples_data
-        if sample.get("position_lat") and sample.get("position_long")
-    ]
+    # Extract valid GPS positions with robust validation
+    route_positions = extract_valid_route_positions(samples_data)
+
     if not route_positions:
-        return [], [0, 0], 2, "No GPS data available for this activity"
+        # No valid GPS points: hide map and show placeholder message
+        return (
+            None,
+            None,
+            None,
+            html.Div(
+                [
+                    html.I(className="fas fa-exclamation-triangle me-2"),
+                    "No valid GPS coordinates found for this activity",
+                ],
+                className="text-warning text-center p-4",
+            ),
+            {"display": "none"},
+        )
 
-    # Calculate map center and zoom
+    # Center map on first GPS point with appropriate zoom
+    center = route_positions[0]
+    zoom = 13
+
     if route_bounds:
         center_lat = route_bounds["center_lat"]
         center_lon = route_bounds["center_lon"]
+        center = [center_lat, center_lon]
 
-        # Calculate appropriate zoom level based on route bounds
+        # Calculate appropriate zoom level based on route bounds for tight fitting
         lat_diff = route_bounds["max_lat"] - route_bounds["min_lat"]
         lon_diff = route_bounds["max_lon"] - route_bounds["min_lon"]
         max_diff = max(lat_diff, lon_diff)
 
-        # Empirical zoom calculation
-        if max_diff > 1.0:
-            zoom = 8
-        elif max_diff > 0.1:
+        # More aggressive zoom calculation for tight fitting
+        if max_diff > 0.5:
             zoom = 10
+        elif max_diff > 0.1:
+            zoom = 12
+        elif max_diff > 0.05:
+            zoom = 14
         elif max_diff > 0.01:
-            zoom = 13
-        else:
             zoom = 15
+        else:
+            zoom = 16
 
-        center = [center_lat, center_lon]
-    else:
-        # Fallback to first point
-        center = route_positions[0]
-        zoom = 13
     status = f"Route with {len(route_positions)} GPS points"
 
-    return route_positions, center, zoom, status
+    return route_positions, center, zoom, status, {"display": "block"}
+
+
+# Callback for chart button states
+@callback(
+    [
+        Output("chart-hr-btn", "color"),
+        Output("chart-speed-btn", "color"),
+        Output("chart-elevation-btn", "color"),
+        Output("chart-power-btn", "color"),
+    ],
+    [
+        Input("chart-hr-btn", "n_clicks"),
+        Input("chart-speed-btn", "n_clicks"),
+        Input("chart-elevation-btn", "n_clicks"),
+        Input("chart-power-btn", "n_clicks"),
+    ],
+    prevent_initial_call=False,
+)
+def update_chart_button_states(hr_clicks, speed_clicks, elevation_clicks, power_clicks):
+    """Update chart button states based on clicks."""
+    # Default active buttons (heart rate and speed are active by default)
+    hr_active = (hr_clicks or 0) % 2 == 0  # Start active, toggle on click
+    speed_active = (speed_clicks or 0) % 2 == 0  # Start active, toggle on click
+    elevation_active = (elevation_clicks or 0) % 2 == 1  # Start inactive, toggle on click
+    power_active = (power_clicks or 0) % 2 == 1  # Start inactive, toggle on click
+
+    return (
+        "primary" if hr_active else "outline-primary",
+        "primary" if speed_active else "outline-primary",
+        "primary" if elevation_active else "outline-primary",
+        "primary" if power_active else "outline-primary",
+    )
 
 
 # Callback for activity charts
 @callback(
-    Output("activity-charts", "figure"),
+    Output("activity-charts-container", "children"),
     [
         Input("activity-samples-store", "data"),
         Input("activity-detail-store", "data"),
         Input("activity-laps-store", "data"),
-        Input("chart-type-selector", "value"),
-        Input("smoothing-selector", "value"),
+        Input("smoothing-dropdown", "value"),
+        Input("chart-hr-btn", "color"),
+        Input("chart-speed-btn", "color"),
+        Input("chart-elevation-btn", "color"),
+        Input("chart-power-btn", "color"),
     ],
 )
 def update_activity_charts(
     samples_data: Optional[List[Dict]],
     activity_data: Optional[Dict],
     laps_data: Optional[List[Dict]] = None,
-    chart_type: str = "subplots",
     smoothing: str = "none",
+    hr_color: str = "primary",
+    speed_color: str = "primary",
+    elevation_color: str = "outline-primary",
+    power_color: str = "outline-primary",
 ):
     """
     Create fitplotter-style interactive charts with multiple view modes.
@@ -598,13 +895,13 @@ def update_activity_charts(
     inspired by the fitplotter library.
     """
     if not samples_data or not isinstance(samples_data, list):
-        return create_empty_chart_figure()
+        return dcc.Graph(figure=create_empty_chart_figure())
 
     # Convert to DataFrame for easier processing
     df = pd.DataFrame(samples_data)
 
     if df.empty:
-        return create_empty_chart_figure()
+        return dcc.Graph(figure=create_empty_chart_figure())
 
     # Apply intelligent downsampling for performance
     if len(df) > 5000:
@@ -620,18 +917,20 @@ def update_activity_charts(
         x_axis = df.index
         x_title = "Sample Index"
 
-    # Dynamically determine available data types based on what's in the data
+    # Dynamically determine available data types based on what's in the data AND button states
     data_types = []
 
-    # Standard metrics
-    if "speed_mps" in df.columns and df["speed_mps"].notna().any():
+    # Standard metrics - only add if button is active (primary color)
+    if speed_color == "primary" and "speed_mps" in df.columns and df["speed_mps"].notna().any():
         data_types.append(("pace", "Pace", "min/km", "blue"))
-    if "heart_rate_bpm" in df.columns and df["heart_rate_bpm"].notna().any():
+    if hr_color == "primary" and "heart_rate_bpm" in df.columns and df["heart_rate_bpm"].notna().any():
         data_types.append(("heart_rate", "Heart Rate", "bpm", "red"))
-    if "power_w" in df.columns and df["power_w"].notna().any():
+    if power_color == "primary" and "power_w" in df.columns and df["power_w"].notna().any():
         data_types.append(("power", "Power", "W", "green"))
-    if "altitude_m" in df.columns and df["altitude_m"].notna().any():
+    if elevation_color == "primary" and "altitude_m" in df.columns and df["altitude_m"].notna().any():
         data_types.append(("elevation", "Elevation", "m", "brown"))
+
+    # Always include cadence if available (not controlled by buttons currently)
     if "cadence_rpm" in df.columns and df["cadence_rpm"].notna().any():
         data_types.append(("cadence", "Cadence", "rpm", "orange"))
 
@@ -660,18 +959,13 @@ def update_activity_charts(
         data_types.append(("stryd_humidity", "Stryd Humidity", "%", "steelblue"))
 
     if not data_types:
-        return create_empty_chart_figure("No chart data available")
+        return dcc.Graph(figure=create_empty_chart_figure("No chart data available"))
 
     # Prepare data with smoothing
     prepared_data = prepare_chart_data(df, data_types, smoothing)
 
-    # Create charts based on selected type
-    if chart_type == "dual_y":
-        return create_dual_y_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
-    elif chart_type == "overlay":
-        return create_overlay_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
-    else:
-        return create_subplot_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data)
+    # Create charts (default to subplot view)
+    return dcc.Graph(figure=create_subplot_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data))
 
 
 def prepare_chart_data(df: pd.DataFrame, data_types: list, smoothing: str = "none"):
@@ -730,8 +1024,9 @@ def prepare_chart_data(df: pd.DataFrame, data_types: list, smoothing: str = "non
                     if len(data) > window:
                         smooth_data = savgol_filter(data, min(window, len(data) // 3 * 2 - 1), 3, mode="nearest")
                         prepared_data[key] = smooth_data
-                except Exception:
-                    # Fallback to simple moving average
+                except (ValueError, IndexError, TypeError):
+                    # Fallback to simple moving average if Savitzky-Golay filter fails
+                    # This can happen with insufficient data points or invalid parameters
                     prepared_data[key] = ndimage.uniform_filter1d(data, size=window, mode="nearest")
 
     return prepared_data
@@ -768,11 +1063,22 @@ def create_subplot_chart(
 ):
     """Create multi-subplot chart layout similar to fitplotter."""
     n_charts = len(data_types)
+
+    # Calculate appropriate vertical spacing based on number of charts
+    if n_charts <= 1:
+        vertical_spacing = 0.3
+    elif n_charts <= 5:
+        vertical_spacing = 0.08
+    else:
+        # For many charts, use maximum allowed spacing
+        max_spacing = 1.0 / (n_charts - 1) if n_charts > 1 else 0.3
+        vertical_spacing = min(0.05, max_spacing * 0.8)  # Use 80% of max to be safe
+
     fig = make_subplots(
         rows=n_charts,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.08,
+        vertical_spacing=vertical_spacing,
         subplot_titles=[f"{display_name} ({unit})" for _, display_name, unit, _ in data_types],
     )
 
@@ -946,7 +1252,13 @@ def create_empty_chart_figure(message: str = "No data available"):
     """Create empty figure with message."""
     fig = go.Figure()
     fig.add_annotation(
-        text=message, xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="gray")
+        text=message,
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font=dict(size=16, color="gray"),
     )
     fig.update_layout(height=400, showlegend=False, xaxis={"visible": False}, yaxis={"visible": False})
     return fig
@@ -965,3 +1277,223 @@ def format_duration(total_seconds: int) -> str:
         return f"{hours}:{minutes:02d}:{seconds:02d}"
     else:
         return f"{minutes}:{seconds:02d}"
+
+
+# Navigation callbacks
+@callback(
+    [
+        Output("prev-activity-btn", "disabled"),
+        Output("prev-activity-btn", "href"),
+        Output("next-activity-btn", "disabled"),
+        Output("next-activity-btn", "href"),
+    ],
+    [Input("activity-navigation-store", "data")],
+)
+def update_navigation_buttons(navigation_data):
+    """Update navigation button states and links."""
+    if not navigation_data:
+        return True, None, True, None
+
+    prev_disabled = navigation_data.get("previous") is None
+    next_disabled = navigation_data.get("next") is None
+
+    prev_href = None if prev_disabled else f"/activity/{navigation_data['previous']}"
+    next_href = None if next_disabled else f"/activity/{navigation_data['next']}"
+
+    return prev_disabled, prev_href, next_disabled, next_href
+
+
+# Name editing callbacks
+@callback(
+    [
+        Output("activity-title-display", "style"),
+        Output("activity-title-input", "style"),
+        Output("edit-name-btn", "children"),
+    ],
+    [Input("edit-name-btn", "n_clicks")],
+    prevent_initial_call=True,
+)
+def toggle_name_edit(n_clicks):
+    """Toggle between display and edit mode for activity name."""
+    if n_clicks and n_clicks % 2 == 1:  # Odd clicks = edit mode
+        return (
+            {"display": "none"},
+            {"display": "block"},
+            [html.I(className="fas fa-save me-1"), "Save"],
+        )
+    else:  # Even clicks or initial = display mode
+        return (
+            {"cursor": "pointer", "border-bottom": "1px dashed #ccc"},
+            {"display": "none"},
+            [html.I(className="fas fa-edit me-1"), "Edit Name"],
+        )
+
+
+@callback(
+    [
+        Output("activity-title-display", "children"),
+        Output("activity-detail-store", "data", allow_duplicate=True),
+    ],
+    [Input("edit-name-btn", "n_clicks")],
+    [
+        State("activity-title-input", "value"),
+        State("activity-detail-store", "data"),
+        State("url", "pathname"),
+    ],
+    prevent_initial_call=True,
+)
+def save_activity_name(n_clicks, new_name, activity_data, pathname):
+    """Save the updated activity name to database."""
+    if not n_clicks or n_clicks % 2 == 1 or not new_name or not activity_data:
+        return dash.no_update, dash.no_update
+
+    # Extract activity ID from pathname
+    try:
+        activity_id = int(pathname.replace("/activity/", ""))
+    except (ValueError, AttributeError):
+        return dash.no_update, dash.no_update
+
+    if success := update_activity_name(activity_id, new_name):  # noqa: F841
+        # Update the stored activity data
+        updated_activity_data = activity_data.copy()
+        updated_activity_data["name"] = new_name
+        return new_name, updated_activity_data
+
+    return dash.no_update, dash.no_update
+
+
+# Keyboard navigation
+@callback(
+    Output("url", "pathname", allow_duplicate=True),
+    [Input("prev-activity-btn", "n_clicks"), Input("next-activity-btn", "n_clicks")],
+    [State("activity-navigation-store", "data")],
+    prevent_initial_call=True,
+)
+def handle_navigation_clicks(prev_clicks, next_clicks, navigation_data):
+    """Handle navigation button clicks."""
+    if not navigation_data:
+        return dash.no_update
+
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+
+    button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    if button_id == "prev-activity-btn" and navigation_data.get("previous"):
+        return f"/activity/{navigation_data['previous']}"
+    elif button_id == "next-activity-btn" and navigation_data.get("next"):
+        return f"/activity/{navigation_data['next']}"
+
+    return dash.no_update
+
+
+# Laps table callback
+@callback(
+    Output("laps-table-container", "children"),
+    [Input("activity-detail-store", "data")],
+)
+def update_laps_table(activity_data):
+    """Update the laps/intervals table with activity data."""
+    if not activity_data or "id" not in activity_data:
+        return html.P("No activity data available", className="text-muted")
+
+    try:
+        activity_id = activity_data["id"]
+        laps_data = get_activity_laps(activity_id)
+
+        if not laps_data:
+            return dbc.Alert(
+                [
+                    html.I(className="fas fa-info-circle me-2"),
+                    "No lap data available for this activity.",
+                ],
+                color="info",
+            )
+
+        # Create table headers
+        headers = [
+            html.Thead(
+                [
+                    html.Tr(
+                        [
+                            html.Th("Lap", className="text-center"),
+                            html.Th("Distance", className="text-center"),
+                            html.Th("Time", className="text-center"),
+                            html.Th("Pace", className="text-center"),
+                            html.Th("Avg HR", className="text-center"),
+                            html.Th("Max HR", className="text-center"),
+                            html.Th("Avg Power", className="text-center"),
+                            html.Th("Cadence", className="text-center"),
+                        ]
+                    )
+                ]
+            )
+        ]
+
+        # Create table rows
+        rows = []
+        for lap in laps_data:
+            # Format distance
+            distance_km = lap["distance_m"] / 1000 if lap["distance_m"] else 0
+            distance_str = f"{distance_km:.2f} km" if distance_km > 0 else "N/A"
+
+            # Format time
+            elapsed_time = lap["elapsed_time_s"] or 0
+            hours = int(elapsed_time // 3600)
+            minutes = int((elapsed_time % 3600) // 60)
+            seconds = int(elapsed_time % 60)
+
+            if hours > 0:
+                time_str = f"{hours}:{minutes:02d}:{seconds:02d}"
+            else:
+                time_str = f"{minutes}:{seconds:02d}"
+
+            # Calculate pace (min/km)
+            pace_str = "N/A"
+            if lap["avg_speed_mps"] and lap["avg_speed_mps"] > 0:
+                pace_sec_per_km = 1000 / lap["avg_speed_mps"]
+                pace_min = int(pace_sec_per_km // 60)
+                pace_sec = int(pace_sec_per_km % 60)
+                pace_str = f"{pace_min}:{pace_sec:02d}"
+
+            # Format other metrics
+            avg_hr = f"{int(lap['avg_hr'])}" if lap["avg_hr"] and lap["avg_hr"] > 0 else "N/A"
+            max_hr = f"{int(lap['max_hr'])}" if lap["max_hr"] and lap["max_hr"] > 0 else "N/A"
+            avg_power = f"{int(lap['avg_power_w'])}W" if lap["avg_power_w"] and lap["avg_power_w"] > 0 else "N/A"
+            cadence = (
+                f"{int(lap['avg_cadence_rpm'])}" if lap["avg_cadence_rpm"] and lap["avg_cadence_rpm"] > 0 else "N/A"
+            )
+
+            row = html.Tr(
+                [
+                    html.Td(lap["lap_index"] + 1, className="text-center fw-bold"),  # 1-indexed for display
+                    html.Td(distance_str, className="text-center"),
+                    html.Td(time_str, className="text-center"),
+                    html.Td(pace_str, className="text-center"),
+                    html.Td(avg_hr, className="text-center"),
+                    html.Td(max_hr, className="text-center"),
+                    html.Td(avg_power, className="text-center"),
+                    html.Td(cadence, className="text-center"),
+                ]
+            )
+            rows.append(row)
+
+        table_body = [html.Tbody(rows)]
+
+        return dbc.Table(
+            headers + table_body,
+            striped=True,
+            hover=True,
+            responsive=True,
+            className="mb-0",
+        )
+
+    except Exception as e:
+        return dbc.Alert(
+            [
+                html.I(className="fas fa-exclamation-triangle me-2"),
+                f"Error loading lap data: {str(e)}",
+            ],
+            color="danger",
+        )
