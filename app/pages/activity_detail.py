@@ -28,6 +28,8 @@ from app.data.web_queries import (
     update_activity_name,
 )
 from app.utils import extract_valid_route_positions
+from app.utils.sport_charts import SportChartGenerator
+from app.utils.sport_laps import SportLapsTableGenerator
 
 
 # Sub-layout helper functions for better modularity
@@ -183,34 +185,10 @@ def create_charts_section():
                                             ),
                                             dbc.Col(
                                                 [
-                                                    dbc.ButtonGroup(
-                                                        [
-                                                            dbc.Button(
-                                                                "Heart Rate",
-                                                                id="chart-hr-btn",
-                                                                color="primary",
-                                                                size="sm",
-                                                            ),
-                                                            dbc.Button(
-                                                                "Speed",
-                                                                id="chart-speed-btn",
-                                                                color="outline-primary",
-                                                                size="sm",
-                                                            ),
-                                                            dbc.Button(
-                                                                "Elevation",
-                                                                id="chart-elevation-btn",
-                                                                color="outline-primary",
-                                                                size="sm",
-                                                            ),
-                                                            dbc.Button(
-                                                                "Power",
-                                                                id="chart-power-btn",
-                                                                color="outline-primary",
-                                                                size="sm",
-                                                            ),
-                                                        ],
-                                                        id="chart-type-buttons",
+                                                    dbc.Badge(
+                                                        "Sport-Specific Metrics",
+                                                        color="info",
+                                                        pill=True,
                                                         className="ms-auto",
                                                     )
                                                 ],
@@ -832,39 +810,10 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
     return route_positions, center, zoom, status, {"display": "block"}
 
 
-# Callback for chart button states
-@callback(
-    [
-        Output("chart-hr-btn", "color"),
-        Output("chart-speed-btn", "color"),
-        Output("chart-elevation-btn", "color"),
-        Output("chart-power-btn", "color"),
-    ],
-    [
-        Input("chart-hr-btn", "n_clicks"),
-        Input("chart-speed-btn", "n_clicks"),
-        Input("chart-elevation-btn", "n_clicks"),
-        Input("chart-power-btn", "n_clicks"),
-    ],
-    prevent_initial_call=False,
-)
-def update_chart_button_states(hr_clicks, speed_clicks, elevation_clicks, power_clicks):
-    """Update chart button states based on clicks."""
-    # Default active buttons (heart rate and speed are active by default)
-    hr_active = (hr_clicks or 0) % 2 == 0  # Start active, toggle on click
-    speed_active = (speed_clicks or 0) % 2 == 0  # Start active, toggle on click
-    elevation_active = (elevation_clicks or 0) % 2 == 1  # Start inactive, toggle on click
-    power_active = (power_clicks or 0) % 2 == 1  # Start inactive, toggle on click
-
-    return (
-        "primary" if hr_active else "outline-primary",
-        "primary" if speed_active else "outline-primary",
-        "primary" if elevation_active else "outline-primary",
-        "primary" if power_active else "outline-primary",
-    )
+# Chart button callback removed - using sport-specific auto-detection instead
 
 
-# Callback for activity charts
+# Callback for activity charts - sport-specific implementation
 @callback(
     Output("activity-charts-container", "children"),
     [
@@ -872,29 +821,21 @@ def update_chart_button_states(hr_clicks, speed_clicks, elevation_clicks, power_
         Input("activity-detail-store", "data"),
         Input("activity-laps-store", "data"),
         Input("smoothing-dropdown", "value"),
-        Input("chart-hr-btn", "color"),
-        Input("chart-speed-btn", "color"),
-        Input("chart-elevation-btn", "color"),
-        Input("chart-power-btn", "color"),
     ],
 )
 def update_activity_charts(
     samples_data: Optional[List[Dict]],
     activity_data: Optional[Dict],
     laps_data: Optional[List[Dict]] = None,
-    smoothing: str = "none",
-    hr_color: str = "primary",
-    speed_color: str = "primary",
-    elevation_color: str = "outline-primary",
-    power_color: str = "outline-primary",
+    smoothing: str = "light",
 ):
     """
-    Create fitplotter-style interactive charts with multiple view modes.
+    Create sport-specific charts based on activity type and available data.
 
-    Implements chart type selection, data smoothing, and enhanced interactivity
-    inspired by the fitplotter library.
+    Automatically detects the sport type and shows the most relevant metrics
+    for that sport (swimming, cycling, running, etc.).
     """
-    if not samples_data or not isinstance(samples_data, list):
+    if not samples_data or not isinstance(samples_data, list) or not activity_data:
         return dcc.Graph(figure=create_empty_chart_figure())
 
     # Convert to DataFrame for easier processing
@@ -908,64 +849,21 @@ def update_activity_charts(
         downsample_factor = len(df) // 2500
         df = df.iloc[:: max(downsample_factor, 1)]
 
-    # Prepare time axis
-    if "elapsed_time_s" in df.columns:
-        df["elapsed_time_min"] = df["elapsed_time_s"] / 60
-        x_axis = df["elapsed_time_min"]
-        x_title = "Time (minutes)"
-    else:
-        x_axis = df.index
-        x_title = "Sample Index"
+    # Extract sport information from activity data
+    sport = activity_data.get("sport", "unknown")
+    sub_sport = activity_data.get("sub_sport")
 
-    # Dynamically determine available data types based on what's in the data AND button states
-    data_types = []
+    # Generate sport-specific chart using the new utility
+    try:
+        figure = SportChartGenerator.create_sport_specific_charts(
+            sport=sport, samples_df=df, activity_data=activity_data, sub_sport=sub_sport, smoothing=smoothing
+        )
+        return dcc.Graph(figure=figure)
 
-    # Standard metrics - only add if button is active (primary color)
-    if speed_color == "primary" and "speed_mps" in df.columns and df["speed_mps"].notna().any():
-        data_types.append(("pace", "Pace", "min/km", "blue"))
-    if hr_color == "primary" and "heart_rate_bpm" in df.columns and df["heart_rate_bpm"].notna().any():
-        data_types.append(("heart_rate", "Heart Rate", "bpm", "red"))
-    if power_color == "primary" and "power_w" in df.columns and df["power_w"].notna().any():
-        data_types.append(("power", "Power", "W", "green"))
-    if elevation_color == "primary" and "altitude_m" in df.columns and df["altitude_m"].notna().any():
-        data_types.append(("elevation", "Elevation", "m", "brown"))
-
-    # Always include cadence if available (not controlled by buttons currently)
-    if "cadence_rpm" in df.columns and df["cadence_rpm"].notna().any():
-        data_types.append(("cadence", "Cadence", "rpm", "orange"))
-
-    # Advanced running dynamics - dynamically add if present
-    if "vertical_oscillation_mm" in df.columns and df["vertical_oscillation_mm"].notna().any():
-        data_types.append(("vertical_oscillation", "Vertical Oscillation", "mm", "purple"))
-    if "vertical_ratio" in df.columns and df["vertical_ratio"].notna().any():
-        data_types.append(("vertical_ratio", "Vertical Ratio", "%", "pink"))
-    if "ground_contact_time_ms" in df.columns and df["ground_contact_time_ms"].notna().any():
-        data_types.append(("ground_contact_time", "Ground Contact Time", "ms", "darkred"))
-    if "ground_contact_balance_pct" in df.columns and df["ground_contact_balance_pct"].notna().any():
-        data_types.append(("ground_contact_balance", "GC Balance", "%", "navy"))
-    if "step_length_mm" in df.columns and df["step_length_mm"].notna().any():
-        data_types.append(("step_length", "Step Length", "mm", "teal"))
-    if "form_power_w" in df.columns and df["form_power_w"].notna().any():
-        data_types.append(("form_power", "Form Power", "W", "darkgreen"))
-    if "air_power_w" in df.columns and df["air_power_w"].notna().any():
-        data_types.append(("air_power", "Air Power", "W", "lightblue"))
-    if "leg_spring_stiffness" in df.columns and df["leg_spring_stiffness"].notna().any():
-        data_types.append(("leg_spring_stiffness", "Leg Spring Stiffness", "kN/m", "gold"))
-    if "impact_loading_rate" in df.columns and df["impact_loading_rate"].notna().any():
-        data_types.append(("impact_loading_rate", "Impact Loading Rate", "BW/s", "darkorange"))
-    if "stryd_temperature_c" in df.columns and df["stryd_temperature_c"].notna().any():
-        data_types.append(("stryd_temperature", "Stryd Temperature", "°C", "crimson"))
-    if "stryd_humidity_pct" in df.columns and df["stryd_humidity_pct"].notna().any():
-        data_types.append(("stryd_humidity", "Stryd Humidity", "%", "steelblue"))
-
-    if not data_types:
-        return dcc.Graph(figure=create_empty_chart_figure("No chart data available"))
-
-    # Prepare data with smoothing
-    prepared_data = prepare_chart_data(df, data_types, smoothing)
-
-    # Create charts (default to subplot view)
-    return dcc.Graph(figure=create_subplot_chart(x_axis, x_title, prepared_data, data_types, activity_data, laps_data))
+    except Exception as e:
+        # Fallback to empty chart with error message
+        error_msg = f"Error generating charts: {str(e)}"
+        return dcc.Graph(figure=create_empty_chart_figure(error_msg))
 
 
 def prepare_chart_data(df: pd.DataFrame, data_types: list, smoothing: str = "none"):
@@ -1388,18 +1286,22 @@ def handle_navigation_clicks(prev_clicks, next_clicks, navigation_data):
     return dash.no_update
 
 
-# Laps table callback
+# Sport-specific laps table callback
 @callback(
     Output("laps-table-container", "children"),
     [Input("activity-detail-store", "data")],
 )
 def update_laps_table(activity_data):
-    """Update the laps/intervals table with activity data."""
+    """Update the laps/intervals table with sport-specific formatting."""
     if not activity_data or "id" not in activity_data:
         return html.P("No activity data available", className="text-muted")
 
     try:
         activity_id = activity_data["id"]
+        sport = activity_data.get("sport", "unknown")
+        sub_sport = activity_data.get("sub_sport")
+
+        # Get lap data
         laps_data = get_activity_laps(activity_id)
 
         if not laps_data:
@@ -1411,82 +1313,16 @@ def update_laps_table(activity_data):
                 color="info",
             )
 
-        # Create table headers
-        headers = [
-            html.Thead(
-                [
-                    html.Tr(
-                        [
-                            html.Th("Lap", className="text-center"),
-                            html.Th("Distance", className="text-center"),
-                            html.Th("Time", className="text-center"),
-                            html.Th("Pace", className="text-center"),
-                            html.Th("Avg HR", className="text-center"),
-                            html.Th("Max HR", className="text-center"),
-                            html.Th("Avg Power", className="text-center"),
-                            html.Th("Cadence", className="text-center"),
-                        ]
-                    )
-                ]
-            )
-        ]
+        # Use sport-specific table generator
+        # TODO: Get user settings from preferences/settings page
+        user_settings = None  # Placeholder for future settings integration
 
-        # Create table rows
-        rows = []
-        for lap in laps_data:
-            # Format distance
-            distance_km = lap["distance_m"] / 1000 if lap["distance_m"] else 0
-            distance_str = f"{distance_km:.2f} km" if distance_km > 0 else "N/A"
-
-            # Format time
-            elapsed_time = lap["elapsed_time_s"] or 0
-            hours = int(elapsed_time // 3600)
-            minutes = int((elapsed_time % 3600) // 60)
-            seconds = int(elapsed_time % 60)
-
-            if hours > 0:
-                time_str = f"{hours}:{minutes:02d}:{seconds:02d}"
-            else:
-                time_str = f"{minutes}:{seconds:02d}"
-
-            # Calculate pace (min/km)
-            pace_str = "N/A"
-            if lap["avg_speed_mps"] and lap["avg_speed_mps"] > 0:
-                pace_sec_per_km = 1000 / lap["avg_speed_mps"]
-                pace_min = int(pace_sec_per_km // 60)
-                pace_sec = int(pace_sec_per_km % 60)
-                pace_str = f"{pace_min}:{pace_sec:02d}"
-
-            # Format other metrics
-            avg_hr = f"{int(lap['avg_hr'])}" if lap["avg_hr"] and lap["avg_hr"] > 0 else "N/A"
-            max_hr = f"{int(lap['max_hr'])}" if lap["max_hr"] and lap["max_hr"] > 0 else "N/A"
-            avg_power = f"{int(lap['avg_power_w'])}W" if lap["avg_power_w"] and lap["avg_power_w"] > 0 else "N/A"
-            cadence = (
-                f"{int(lap['avg_cadence_rpm'])}" if lap["avg_cadence_rpm"] and lap["avg_cadence_rpm"] > 0 else "N/A"
-            )
-
-            row = html.Tr(
-                [
-                    html.Td(lap["lap_index"] + 1, className="text-center fw-bold"),  # 1-indexed for display
-                    html.Td(distance_str, className="text-center"),
-                    html.Td(time_str, className="text-center"),
-                    html.Td(pace_str, className="text-center"),
-                    html.Td(avg_hr, className="text-center"),
-                    html.Td(max_hr, className="text-center"),
-                    html.Td(avg_power, className="text-center"),
-                    html.Td(cadence, className="text-center"),
-                ]
-            )
-            rows.append(row)
-
-        table_body = [html.Tbody(rows)]
-
-        return dbc.Table(
-            headers + table_body,
-            striped=True,
-            hover=True,
-            responsive=True,
-            className="mb-0",
+        return SportLapsTableGenerator.create_sport_specific_laps_table(
+            sport=sport,
+            sub_sport=sub_sport,
+            laps_data=laps_data,
+            activity_data=activity_data,
+            user_settings=user_settings,
         )
 
     except Exception as e:
