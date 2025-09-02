@@ -118,6 +118,77 @@ class SportChartGenerator:
     # ---------- Figure creation ----------
 
     @classmethod
+    def _assign_metrics_to_yaxes(cls, available_metrics: List[Dict]) -> Dict[str, str]:
+        """
+        Assign metrics to different Y-axes based on unit types to prevent overlapping labels.
+        Returns a mapping of metric_key -> yaxis_name.
+        """
+        # Group metrics by unit type to minimize Y-axis overlap
+        unit_groups = {}
+        for metric in available_metrics:
+            unit = metric.get("unit", "")
+            if unit not in unit_groups:
+                unit_groups[unit] = []
+            unit_groups[unit].append(metric["key"])
+
+        # Assign Y-axes: try to put similar units together, separate different units
+        yaxis_assignments = {}
+        yaxis_counter = 1
+
+        for unit, metric_keys in unit_groups.items():
+            if yaxis_counter == 1:
+                yaxis_name = "y"
+            else:
+                yaxis_name = f"y{yaxis_counter}"
+
+            # Assign all metrics with same unit to same Y-axis
+            for key in metric_keys:
+                yaxis_assignments[key] = yaxis_name
+
+            yaxis_counter += 1
+
+        return yaxis_assignments
+
+    @classmethod
+    def _create_yaxis_config(cls, available_metrics: List[Dict], yaxis_assignments: Dict[str, str]) -> Dict:
+        """
+        Create Y-axis configuration to display each unit type without overlapping.
+        """
+        # Group metrics by assigned Y-axis
+        yaxis_groups = {}
+        for metric in available_metrics:
+            key = metric["key"]
+            yaxis_name = yaxis_assignments.get(key, "y")
+            if yaxis_name not in yaxis_groups:
+                yaxis_groups[yaxis_name] = []
+            yaxis_groups[yaxis_name].append(metric)
+
+        yaxis_config = {}
+        sides = ["left", "right"]  # Alternate sides for better visibility
+
+        for i, (yaxis_name, metrics) in enumerate(yaxis_groups.items()):
+            # Get unique units for this Y-axis
+            units = sorted(set(metric["unit"] for metric in metrics))
+            title = " / ".join(units) if units else "Metrics"
+
+            side = sides[i % len(sides)]
+
+            config = {
+                "title": title,
+                "side": side,
+                "showgrid": i == 0,  # Only show grid on first axis to avoid clutter
+                "gridcolor": "rgba(128,128,128,0.2)",
+            }
+
+            # For secondary axes, add overlaying
+            if yaxis_name != "y":
+                config["overlaying"] = "y"
+
+            yaxis_config[yaxis_name] = config
+
+        return yaxis_config
+
+    @classmethod
     def _create_overlay_figure(
         cls,
         df: pd.DataFrame,
@@ -129,33 +200,11 @@ class SportChartGenerator:
     ) -> go.Figure:
         fig = go.Figure()
 
-        # Determine which metrics go on which axis
-        primary_metrics = []
-        secondary_metrics = []
+        # Add individual metric traces - each toggleable via legend
+        # Use multiple Y-axes to separate different unit types and avoid overlapping
+        yaxis_assignments = cls._assign_metrics_to_yaxes(available_metrics)
 
-        # Group similar metrics together on the same axis to avoid unit conflicts
         for i, metric in enumerate(available_metrics):
-            key = metric["key"]
-            # Put power, heart rate, elevation on primary axis
-            if key in ["power", "heart_rate", "elevation", "temperature"]:
-                primary_metrics.append((i, metric))
-            # Put pace, cadence, speed on secondary axis
-            else:
-                secondary_metrics.append((i, metric))
-
-        # If we don't have enough metrics for dual axis, put first half on primary, second half on secondary
-        if not primary_metrics and not secondary_metrics:
-            mid_point = len(available_metrics) // 2
-            primary_metrics = [(i, m) for i, m in enumerate(available_metrics[:mid_point])]
-            secondary_metrics = [(i, m) for i, m in enumerate(available_metrics[mid_point:])]
-        elif not secondary_metrics:
-            # Move half the primary metrics to secondary
-            mid = len(primary_metrics) // 2
-            secondary_metrics = primary_metrics[mid:]
-            primary_metrics = primary_metrics[:mid]
-
-        # Add primary axis traces
-        for i, metric in primary_metrics:
             key = metric["key"]
             if key not in prepared_data:
                 continue
@@ -163,6 +212,9 @@ class SportChartGenerator:
             valid_mask = ~y_data.isna()
             if valid_mask.sum() == 0:
                 continue
+
+            # Get assigned Y-axis for this metric to avoid unit overlapping
+            yaxis_name = yaxis_assignments.get(key, "y")
 
             # Create custom hover template based on metric type
             if key in ["pace", "pace_per_100m"]:
@@ -192,61 +244,12 @@ class SportChartGenerator:
                     x=x_axis[valid_mask],
                     y=y_data[valid_mask],
                     mode="lines",
-                    name=f"{metric['name']} ({metric['unit']})",
+                    name=f"{metric['name']} ({metric['unit']})",  # Individual legend items
                     line=dict(color=metric["color"], width=2),
                     hovertemplate=hover_template,
                     customdata=customdata,
-                    yaxis="y",  # Primary axis
-                    visible=True,
-                    legendgroup="primary",
-                )
-            )
-
-        # Add secondary axis traces
-        for i, metric in secondary_metrics:
-            key = metric["key"]
-            if key not in prepared_data:
-                continue
-            y_data = prepared_data[key]
-            valid_mask = ~y_data.isna()
-            if valid_mask.sum() == 0:
-                continue
-
-            # Create custom hover template based on metric type
-            if key in ["pace", "pace_per_100m"]:
-                hover_template = (
-                    f"<b>{metric['name']}</b><br>" f"{x_title}: %{{x:.2f}}<br>" f"Pace: %{{customdata}}<extra></extra>"
-                )
-                # Convert pace from decimal minutes to mm:ss format
-                pace_formatted = []
-                for pace_val in y_data[valid_mask]:
-                    if pd.notna(pace_val) and pace_val > 0:
-                        minutes = int(pace_val)
-                        seconds = int((pace_val - minutes) * 60)
-                        pace_formatted.append(f"{minutes}:{seconds:02d}")
-                    else:
-                        pace_formatted.append("N/A")
-                customdata = pace_formatted
-            else:
-                hover_template = (
-                    f"<b>{metric['name']}</b><br>"
-                    f"{x_title}: %{{x:.2f}}<br>"
-                    f"Value: %{{y:.1f}} {metric['unit']}<extra></extra>"
-                )
-                customdata = None
-
-            fig.add_trace(
-                go.Scatter(
-                    x=x_axis[valid_mask],
-                    y=y_data[valid_mask],
-                    mode="lines",
-                    name=f"{metric['name']} ({metric['unit']})",
-                    line=dict(color=metric["color"], width=2, dash="dash"),  # Dash style for secondary axis
-                    hovertemplate=hover_template,
-                    customdata=customdata,
-                    yaxis="y2",  # Secondary axis
-                    visible=True,
-                    legendgroup="secondary",
+                    yaxis=yaxis_name,  # Assigned Y-axis to prevent overlapping
+                    visible=True,  # All metrics individually toggleable via legend
                 )
             )
 
@@ -315,36 +318,8 @@ class SportChartGenerator:
         if updatemenus:
             fig.update_layout(updatemenus=updatemenus)
 
-        # Configure dual Y-axis layout
-        yaxis_config = {}
-
-        # Build Y-axis titles based on which metrics are on each axis
-        primary_units = set()
-        secondary_units = set()
-
-        for _, metric in primary_metrics:
-            primary_units.add(metric["unit"])
-        for _, metric in secondary_metrics:
-            secondary_units.add(metric["unit"])
-
-        primary_title = " / ".join(sorted(primary_units)) if primary_units else "Primary Metrics"
-        secondary_title = " / ".join(sorted(secondary_units)) if secondary_units else "Secondary Metrics"
-
-        if primary_metrics:
-            yaxis_config["yaxis"] = dict(
-                title=primary_title,
-                side="left",
-                showgrid=True,
-                gridcolor="rgba(128,128,128,0.2)",
-            )
-
-        if secondary_metrics:
-            yaxis_config["yaxis2"] = dict(
-                title=secondary_title,
-                side="right",
-                overlaying="y",
-                showgrid=False,  # Only show grid on primary axis to avoid clutter
-            )
+        # Configure dynamic Y-axis layout to prevent overlapping unit labels
+        yaxis_config = cls._create_yaxis_config(available_metrics, yaxis_assignments)
 
         fig.update_layout(
             title=f"Interactive Activity Chart - {activity_data.get('name', 'Activity')}",
@@ -357,10 +332,11 @@ class SportChartGenerator:
             height=600,
             margin=dict(t=80, r=80),  # Extra right margin for secondary axis labels
             legend=dict(
-                orientation="h",
-                y=-0.15,
-                x=0.5,
-                xanchor="center",
+                orientation="v",  # Vertical for individual metric control
+                y=1,
+                x=1.02,
+                xanchor="left",
+                yanchor="top",
                 bgcolor="rgba(255,255,255,0.9)",
                 bordercolor="rgba(0,0,0,0.3)",
                 borderwidth=1,
