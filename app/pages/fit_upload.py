@@ -142,7 +142,12 @@ def layout():
                 ]
             ),
             # File list and progress section
-            html.Div(id="upload-file-list", className="mt-4"),
+            dcc.Loading(
+                id="loading-upload",
+                type="default",
+                children=[html.Div(id="upload-file-list", className="mt-4")],
+                color="#0d6efd",
+            ),
             # Upload progress and status
             html.Div(id="upload-progress", className="mt-4"),
             html.Div(id="upload-status", className="mt-3"),
@@ -173,26 +178,19 @@ def register_callbacks(app):
         if not contents or not filenames:
             return [], "", "", ""
 
-        num_files = len(contents) if isinstance(contents, list) else 1
+        # Normalize to lists
         if not isinstance(contents, list):
             contents = [contents]
             filenames = [filenames]
 
+        num_files = len(contents)
         logger.info(f"Processing {num_files} uploaded files")
 
-        # Show initial loading state
-        initial_progress = create_initial_loading_state(num_files)
-        initial_status = create_processing_status("Preparing files for import...", 0, num_files)
-        
         results = {"imported": 0, "skipped": 0, "errors": 0, "duplicates": 0, "error_details": []}
         file_list_items = []
 
-        # Process each uploaded file with progress updates
+        # Process each uploaded file
         for i, (content, filename) in enumerate(zip(contents, filenames)):
-            # Update status for current file
-            current_progress = create_progress_bar(i, num_files, f"Processing: {filename}")
-            current_status = create_processing_status(f"Processing {filename}...", i, num_files)
-            
             try:
                 # Decode base64 content
                 content_type, content_string = content.split(",")
@@ -200,9 +198,6 @@ def register_callbacks(app):
 
                 size_mb = len(decoded_content) / (1024 * 1024)
                 file_type = Path(filename).suffix.upper()
-
-                # Show parsing status
-                parsing_status = create_processing_status(f"Parsing {filename}...", i, num_files)
 
                 # Process the file using existing import logic
                 file_like = io.BytesIO(decoded_content)
@@ -235,14 +230,12 @@ def register_callbacks(app):
                 status = "Error"
                 status_color = "danger"
                 icon = "fas fa-times-circle"
-                size_mb = len(decoded_content) / (1024 * 1024) if 'decoded_content' in locals() else 0
+                size_mb = len(decoded_content) / (1024 * 1024) if "decoded_content" in locals() else 0
                 file_type = Path(filename).suffix.upper() if filename else "UNKNOWN"
                 detail = str(e)[:50] + "..." if len(str(e)) > 50 else str(e)
 
             # Create file item display with status
-            file_item = create_file_item_display(
-                filename, file_type, size_mb, status, status_color, icon, detail
-            )
+            file_item = create_file_item_display(filename, file_type, size_mb, status, status_color, icon, detail)
             file_list_items.append(file_item)
 
         # Create final displays
@@ -253,7 +246,14 @@ def register_callbacks(app):
 
         # Final progress and results
         final_progress = create_completion_progress()
-        final_status = create_processing_status("Import complete!", num_files, num_files)
+        final_status = html.Div(
+            [
+                html.I(className="fas fa-check-circle me-2 text-success"),
+                html.Span("Import complete!", className="text-success fw-bold"),
+                html.Span(f" ({num_files}/{num_files})", className="text-muted ms-2"),
+            ],
+            className="d-flex align-items-center",
+        )
         results_content = create_results_display(results)
 
         return file_list_content, final_progress, final_status, results_content
@@ -502,52 +502,62 @@ def create_results_display(results: dict) -> list:
 def create_initial_loading_state(num_files: int) -> list:
     """Create initial loading progress display."""
     return [
-        html.Div([
-            dbc.Spinner(color="primary", size="sm", className="me-2"),
-            html.Span("Preparing to import files...", className="text-muted")
-        ], className="d-flex align-items-center mb-3"),
+        html.Div(
+            [
+                dbc.Spinner(color="primary", size="sm"),
+                html.Span("Preparing to import files...", className="text-muted ms-2"),
+            ],
+            className="d-flex align-items-center mb-3",
+        ),
         dbc.Progress(value=0, color="info", striped=True, animated=True),
-        html.Small(f"0 of {num_files} files processed", className="text-muted mt-2 d-block")
+        html.Small(f"0 of {num_files} files processed", className="text-muted mt-2 d-block"),
     ]
 
 
 def create_progress_bar(current: int, total: int, message: str) -> list:
     """Create progress bar with current status."""
     progress_pct = (current / total) * 100 if total > 0 else 0
-    
+
     return [
-        html.Div([
-            dbc.Spinner(color="primary", size="sm", className="me-2"),
-            html.Span(message, className="text-muted")
-        ], className="d-flex align-items-center mb-3"),
+        html.Div(
+            [dbc.Spinner(color="primary", size="sm"), html.Span(message, className="text-muted ms-2")],
+            className="d-flex align-items-center mb-3",
+        ),
         dbc.Progress(value=progress_pct, color="primary", striped=True, animated=True),
-        html.Small(f"{current} of {total} files processed", className="text-muted mt-2 d-block")
+        html.Small(f"{current} of {total} files processed", className="text-muted mt-2 d-block"),
     ]
 
 
 def create_processing_status(message: str, current: int, total: int) -> html.Div:
     """Create processing status message."""
-    return html.Div([
-        html.I(className="fas fa-cog fa-spin me-2", style={"color": "#007bff"}),
-        html.Span(message, className="fw-bold"),
-        html.Span(f" ({current}/{total})", className="text-muted ms-2")
-    ], className="d-flex align-items-center")
+    return html.Div(
+        [
+            html.I(className="fas fa-cog fa-spin me-2", style={"color": "#007bff"}),
+            html.Span(message, className="fw-bold"),
+            html.Span(f" ({current}/{total})", className="text-muted ms-2"),
+        ],
+        className="d-flex align-items-center",
+    )
 
 
 def create_completion_progress() -> list:
     """Create completed progress display."""
     return [
-        html.Div([
-            html.I(className="fas fa-check-circle me-2 text-success"),
-            html.Span("Import Complete!", className="text-success fw-bold")
-        ], className="d-flex align-items-center mb-3"),
+        html.Div(
+            [
+                html.I(className="fas fa-check-circle me-2 text-success"),
+                html.Span("Import Complete!", className="text-success fw-bold"),
+            ],
+            className="d-flex align-items-center mb-3",
+        ),
         dbc.Progress(value=100, color="success", className="mb-2"),
-        html.Small("All files processed successfully", className="text-success mt-2 d-block")
+        html.Small("All files processed successfully", className="text-success mt-2 d-block"),
     ]
 
 
-def create_file_item_display(filename: str, file_type: str, size_mb: float, 
-                           status: str, status_color: str, icon: str, detail: str) -> dbc.ListGroupItem:
+def create_file_item_display(
+    filename: str, file_type: str, size_mb: float, status: str, status_color: str, icon: str, detail: str
+) -> dbc.ListGroupItem:
     """Create individual file item display."""
     return dbc.ListGroupItem(
         [

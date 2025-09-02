@@ -146,6 +146,9 @@ class SportLapsTableGenerator:
             "avg_cadence": "avg_cadence_rpm",
             "avg_strokes": "avg_cadence_rpm",  # Reusing cadence for stroke count
             "temperature": "temperature_c",
+            "pace": "avg_speed_mps",  # Pace can be calculated from speed
+            "pace_100m": "avg_speed_mps",  # Swimming pace from speed
+            "speed": "avg_speed_mps",  # Speed data
         }
 
         field_name = mapping.get(metric_key)
