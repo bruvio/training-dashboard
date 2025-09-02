@@ -497,11 +497,11 @@ def update_activity_table(start_date, end_date, sport, duration_range, distance_
                 duration_str = activity.get("duration_str", "")
                 duration_s = parse_duration_to_seconds(duration_str)
 
-                if duration_s > 0:  # Only filter activities with valid duration data
-                    if min_duration_s <= duration_s <= max_duration_s:
-                        filtered_activities.append(activity)
-                else:
-                    # If no duration data, include the activity to be safe
+                if (
+                    duration_s > 0
+                    and min_duration_s <= duration_s <= max_duration_s
+                    or duration_s <= 0
+                ):
                     filtered_activities.append(activity)
             activities_data = filtered_activities
 
