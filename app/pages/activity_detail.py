@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import dash
-from dash import Input, Output, State, callback, dcc, html
+from dash import ALL, Input, Output, State, callback, dcc, html
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 import numpy as np
@@ -283,6 +283,7 @@ def layout(activity_id: str = None, **kwargs):
             dcc.Store(id="activity-laps-store", data=[]),
             dcc.Store(id="route-bounds-store", data={}),
             dcc.Store(id="activity-navigation-store", data={}),
+            dcc.Store(id="selected-lap-store", data=None),  # Store for selected lap index
             # Loading states
             dcc.Loading(
                 id="loading-activity-detail",
@@ -1342,3 +1343,162 @@ def update_laps_table(activity_data):
             ],
             color="danger",
         )
+
+
+# Dynamic callback registration for lap zoom buttons
+def register_lap_zoom_callbacks(app):
+    """Register dynamic callbacks for lap zoom buttons."""
+
+    @app.callback(
+        Output("activity-chart", "figure", allow_duplicate=True),
+        [Input({"type": "zoom-lap-btn", "lap": ALL}, "n_clicks")],
+        [
+            State("activity-chart", "figure"),
+            State("activity-samples-store", "data"),
+            State("activity-laps-store", "data"),
+        ],
+        prevent_initial_call=True,
+    )
+    def zoom_chart_to_selected_lap(n_clicks_list, current_figure, samples_data, laps_data):
+        """Zoom chart to selected lap's time range."""
+        if not any(n_clicks_list) or not current_figure or not samples_data or not laps_data:
+            return dash.no_update
+
+        try:
+            # Find which button was clicked
+            ctx = dash.callback_context
+            if not ctx.triggered:
+                return dash.no_update
+
+            # Extract lap index from the triggered button ID
+            button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+            button_data = eval(button_id)  # Parse the button ID dict
+            selected_lap_index = button_data["lap"]
+
+            print(f"Zooming to lap {selected_lap_index}")
+
+            # Find the selected lap data
+            selected_lap = None
+            for lap in laps_data:
+                if lap.get("lap_index") == selected_lap_index:
+                    selected_lap = lap
+                    break
+
+            if not selected_lap:
+                print(f"No lap found with index {selected_lap_index}")
+                return dash.no_update
+
+            # Get lap time range
+            lap_start_time = selected_lap.get("start_time_s", 0) / 60  # Convert to minutes
+            lap_end_time = selected_lap.get("end_time_s", 0) / 60  # Convert to minutes
+
+            print(f"Lap time range: {lap_start_time:.2f} - {lap_end_time:.2f} minutes")
+
+            # Add some padding (5% on each side)
+            time_range = lap_end_time - lap_start_time
+            padding = time_range * 0.05
+
+            zoom_start = max(0, lap_start_time - padding)
+            zoom_end = lap_end_time + padding
+
+            # Create a copy of the current figure
+            import plotly.graph_objects as go
+
+            fig = go.Figure(current_figure)
+
+            # Update x-axis range to zoom to the selected lap
+            fig.update_layout(
+                xaxis=dict(range=[zoom_start, zoom_end], title=current_figure["layout"]["xaxis"]["title"]),
+                # Keep all other layout properties
+                **{k: v for k, v in current_figure["layout"].items() if k not in ["xaxis"]},
+            )
+
+            # Preserve the data
+            fig.data = current_figure["data"]
+
+            print(f"Chart zoomed to range: {zoom_start:.2f} - {zoom_end:.2f} minutes")
+            return fig
+
+        except Exception as e:
+            print(f"Error zooming to lap: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return dash.no_update
+
+
+# Lap zoom callback using pattern-matching components
+@callback(
+    Output("activity-chart", "figure", allow_duplicate=True),
+    [Input({"type": "zoom-lap", "index": ALL}, "n_clicks")],
+    [
+        State("activity-chart", "figure"),
+        State("activity-samples-store", "data"),
+        State("activity-laps-store", "data"),
+    ],
+    prevent_initial_call=True,
+)
+def zoom_chart_to_lap(n_clicks_list, current_figure, samples_data, laps_data):
+    """Zoom chart to selected lap using pattern matching."""
+    if not any(n_clicks_list) or not current_figure or not samples_data or not laps_data:
+        return dash.no_update
+
+    try:
+        # Find which button was clicked
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return dash.no_update
+
+        # Extract lap index from the triggered component ID
+        triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        import json
+
+        button_data = json.loads(triggered_id)
+        selected_lap_index = button_data["index"]
+
+        print(f"Zooming to lap {selected_lap_index}")
+
+        # Find the selected lap data
+        selected_lap = None
+        for lap in laps_data:
+            if lap.get("lap_index") == selected_lap_index:
+                selected_lap = lap
+                break
+
+        if not selected_lap:
+            print(f"No lap found with index {selected_lap_index}")
+            return dash.no_update
+
+        # Get lap time range
+        lap_start_time = selected_lap.get("start_time_s", 0) / 60  # Convert to minutes
+        lap_end_time = selected_lap.get("end_time_s", 0) / 60  # Convert to minutes
+
+        print(f"Lap time range: {lap_start_time:.2f} - {lap_end_time:.2f} minutes")
+
+        # Add some padding (5% on each side)
+        time_range = lap_end_time - lap_start_time
+        padding = time_range * 0.05
+
+        zoom_start = max(0, lap_start_time - padding)
+        zoom_end = lap_end_time + padding
+
+        # Create a completely new figure object to force update
+        import plotly.graph_objects as go
+
+        # Instead of deep copy, create a new figure with updated layout
+        fig = go.Figure(current_figure)
+
+        # Force update the x-axis range with explicit parameters
+        fig.update_layout(xaxis=dict(range=[zoom_start, zoom_end], autorange=False, type="linear"))
+
+        print(f"Chart zoomed to range: {zoom_start:.2f} - {zoom_end:.2f} minutes")
+
+        # Return the new figure as a dictionary to ensure proper serialization
+        return fig.to_dict()
+
+    except Exception as e:
+        print(f"Error zooming to lap: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return dash.no_update

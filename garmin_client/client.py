@@ -10,6 +10,8 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
+import pickle
+import base64
 
 try:
     from garminconnect import Garmin
@@ -130,8 +132,8 @@ class GarminConnectClient:
             logger.info("Credentials cleared")
 
     def authenticate(
-        self, email: str = None, password: str = None, mfa_callback=None, remember_me: bool = False
-    ) -> Union[bool, str]:
+        self, email: str = None, password: str = None, mfa_callback=None, mfa_context=None, remember_me: bool = False
+    ) -> Union[bool, str, dict]:
         """
         Authenticate with Garmin Connect using garth, with MFA support.
 
@@ -139,26 +141,29 @@ class GarminConnectClient:
             email: Garmin Connect email (optional if stored)
             password: Garmin Connect password (optional if stored)
             mfa_callback: Callable that returns MFA code when called
+            mfa_context: The result2 object returned by garth.login when MFA is required (used for resuming)
+            remember_me: Whether to store credentials for future logins
 
         Returns:
-            True if authentication successful,
-            "MFA_REQUIRED" if MFA needed but not provided,
-            False otherwise
+            dict with status and optional mfa_context:
+                {"status": "SUCCESS"} -> Authentication successful
+                {"status": "MFA_REQUIRED", "mfa_context": result2} -> MFA needed
+                {"status": "MFA_FAILED"} -> MFA provided but invalid
+                {"status": "FAILED"} -> Authentication failed
         """
         if not GARMIN_CONNECT_AVAILABLE:
             logger.error("garminconnect library not available")
-            return False
+            return {"status": "FAILED"}
 
         # Load stored credentials if not provided
         if email and password:
-            # Only store credentials if remember_me is True
             if remember_me:
                 self.store_credentials(email, password)
         else:
             credentials = self.load_credentials()
             if not credentials:
                 logger.error("No credentials provided or stored")
-                return False
+                return {"status": "FAILED"}
             email = credentials["email"]
             password = credentials["password"]
 
@@ -170,39 +175,51 @@ class GarminConnectClient:
             logger.info("Resumed existing garth session")
             self._api = Garmin()
             self._authenticated = True
-            return True
+            return {"status": "SUCCESS"}
         except (GarthException, FileNotFoundError):
             logger.info("No valid garth session found, performing fresh login")
 
         try:
-            logger.info(f"Authenticating as {email}")
+            if mfa_context and mfa_callback:
+                # Resume MFA login flow
+                logger.info("Resuming login with MFA code...")
+                mfa_code = mfa_callback()
+                if not mfa_code:
+                    logger.warning("MFA code required but not provided by callback")
+                    return {"status": "MFA_REQUIRED", "mfa_context": mfa_context}
 
-            # ALWAYS use return_on_mfa=True to avoid terminal prompts in Docker
-            result1, result2 = garth.login(email, password, return_on_mfa=True)
+                try:
+                    garth.resume_login(mfa_context, mfa_code)
+                    logger.info("MFA authentication successful")
+                except Exception as e:
+                    logger.error(f"MFA authentication failed: {e}")
+                    return {"status": "MFA_FAILED"}
 
-            if result1 == "needs_mfa":
-                logger.info("MFA required for authentication")
+            else:
+                # First-time login attempt
+                logger.info(f"Authenticating as {email}")
+                result1, result2 = garth.login(email, password, return_on_mfa=True)
 
-                if mfa_callback:
-                    logger.info("MFA callback available - requesting code")
+                if result1 == "needs_mfa":
+                    if not mfa_callback:
+                        # serialize result2 to base64 string for safe storage
+                        mfa_context_serialized = base64.b64encode(pickle.dumps(result2)).decode("utf-8")
+                        return {"status": "MFA_REQUIRED", "mfa_context": mfa_context_serialized}
+
+                    # MFA callback available - collect and try to resume immediately
                     mfa_code = mfa_callback()
                     if not mfa_code:
                         logger.warning("MFA code required but not provided by callback")
-                        return "MFA_REQUIRED"
+                        return {"status": "MFA_REQUIRED", "mfa_context": result2}
 
-                    # Resume login with MFA code from callback
                     try:
-                        oauth1, oauth2 = garth.resume_login(result2, mfa_code)
+                        garth.resume_login(result2, mfa_code)
                         logger.info("MFA authentication successful")
                     except Exception as e:
                         logger.error(f"MFA authentication failed: {e}")
-                        return "MFA_REQUIRED"
+                        return {"status": "MFA_FAILED"}
                 else:
-                    # No callback available - return MFA_REQUIRED to trigger UI prompt
-                    logger.info("No MFA callback provided - returning MFA_REQUIRED")
-                    return "MFA_REQUIRED"
-            else:
-                logger.info("Direct authentication successful (no MFA required)")
+                    logger.info("Direct authentication successful (no MFA required)")
 
             # Save session on success
             garth.save(str(garth_session_path))
@@ -218,16 +235,16 @@ class GarminConnectClient:
                 json.dump(session_data, f)
 
             logger.info("Authentication successful")
-            return True
+            return {"status": "SUCCESS"}
 
         except Exception as e:
             error_str = str(e).lower()
             if any(k in error_str for k in ["mfa", "verification", "2fa", "two-factor", "needs_mfa"]):
                 logger.warning("MFA required but no callback provided or authentication failed")
-                return "MFA_REQUIRED"
+                return {"status": "MFA_REQUIRED"}
             logger.error(f"Authentication failed: {e}")
             self._authenticated = False
-            return False
+            return {"status": "FAILED"}
 
 
 # Convenience functions for common operations

@@ -508,6 +508,8 @@ app.clientside_callback(
     prevent_initial_call=True,
 )
 
+# Lap selection functionality is now handled by buttons in the activity_detail.py callbacks
+
 if __name__ == "__main__":
     # Development server configuration
     debug_mode = os.environ.get("DASH_DEBUG", "True").lower() == "true"

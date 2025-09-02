@@ -108,15 +108,16 @@ class SportLapsTableGenerator:
         # Create table headers
         headers = cls._create_table_headers(available_columns)
 
-        # Create table rows
+        # Create table rows with clickable functionality
         rows = cls._create_table_rows(available_columns, laps_data, normalized_sport, user_settings)
 
         return dbc.Table(
-            headers + [html.Tbody(rows)],
+            headers + [html.Tbody(rows, id="laps-table-body")],
             striped=True,
             hover=True,
             responsive=True,
             className="mb-0",
+            id="laps-table",
         )
 
     @classmethod
@@ -171,6 +172,10 @@ class SportLapsTableGenerator:
     def _create_table_headers(cls, columns: List[Dict]) -> List[html.Thead]:
         """Create table headers."""
         header_cells = []
+
+        # Add zoom column header first
+        header_cells.append(html.Th("Zoom", className="text-center"))
+
         for column in columns:
             if "unit" in column:
                 header_text = f"{column['name']} ({column['unit']})"
@@ -185,11 +190,12 @@ class SportLapsTableGenerator:
     def _create_table_rows(
         cls, columns: List[Dict], laps_data: List[Dict], sport: str, user_settings: Optional[Dict] = None
     ) -> List[html.Tr]:
-        """Create table rows with sport-specific formatting."""
+        """Create table rows with sport-specific formatting and clickable functionality."""
         rows = []
 
         for lap in laps_data:
             cells = []
+            lap_index = lap.get("lap_index", 0)
 
             for column in columns:
                 key = column["key"]
@@ -203,7 +209,28 @@ class SportLapsTableGenerator:
 
                 cells.append(html.Td(formatted_value, className="text-center"))
 
-            rows.append(html.Tr(cells))
+            # Add a zoom button as the first cell using pattern-matching component ID
+            zoom_button = html.Td(
+                dbc.Button(
+                    [html.I(className="fas fa-search-plus me-1"), "Zoom"],
+                    id={"type": "zoom-lap", "index": lap_index},
+                    color="primary",
+                    size="sm",
+                    outline=True,
+                ),
+                className="text-center",
+            )
+
+            # Insert zoom button at the beginning
+            cells.insert(0, zoom_button)
+
+            # Create row with zoom button
+            rows.append(
+                html.Tr(
+                    cells,
+                    id=f"lap-row-{lap_index}",
+                )
+            )
 
         return rows
 
