@@ -373,6 +373,35 @@ def get_activity_samples(activity_id: int) -> Optional[pd.DataFrame]:
             # Convert speed to km/h
             df["speed_kmh"] = df["speed_mps"] * 3.6
 
+            # Calculate cumulative distance from speed data
+            df["distance_m"] = 0.0
+            if "speed_mps" in df.columns and df["speed_mps"].notna().any():
+                # Calculate distance as cumulative sum of (speed * time_interval)
+                time_diffs = df["elapsed_time_s"].diff().fillna(1.0)  # Default 1s intervals
+                distances = df["speed_mps"].fillna(0) * time_diffs
+                df["distance_m"] = distances.cumsum()
+
+            # Add lap_index column based on lap data from database
+            laps = session.query(Lap).filter(Lap.activity_id == activity_id).order_by(Lap.lap_index).all()
+            if laps:
+                df["lap_index"] = 0  # Default to lap 0
+
+                # Assign lap indices based on elapsed time
+                for lap in laps:
+                    if lap.start_time_utc and activity.start_time_utc:
+                        # Calculate lap start time in elapsed seconds
+                        lap_start_elapsed = (lap.start_time_utc - activity.start_time_utc).total_seconds()
+
+                        # Assign lap index to samples after this time
+                        df.loc[df["elapsed_time_s"] >= lap_start_elapsed, "lap_index"] = lap.lap_index
+                    else:
+                        # Fallback: distribute samples evenly across laps
+                        total_samples = len(df)
+                        samples_per_lap = total_samples // len(laps)
+                        start_idx = lap.lap_index * samples_per_lap
+                        end_idx = start_idx + samples_per_lap if lap.lap_index < len(laps) - 1 else total_samples
+                        df.iloc[start_idx:end_idx, df.columns.get_loc("lap_index")] = lap.lap_index
+
         return df
 
 

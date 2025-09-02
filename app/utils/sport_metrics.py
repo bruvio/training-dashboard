@@ -5,8 +5,9 @@ Maps activities to their relevant metrics and chart types based on available dat
 """
 
 from typing import Dict, List, Optional
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
 
 class SportMetricsMapper:

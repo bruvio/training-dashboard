@@ -5,8 +5,10 @@ Creates tables with appropriate metrics and units for each sport type.
 """
 
 from typing import Dict, List, Optional
-import dash_bootstrap_components as dbc
+
 from dash import html
+import dash_bootstrap_components as dbc
+
 from app.utils.sport_metrics import SportMetricsMapper
 
 
@@ -258,7 +260,7 @@ class SportLapsTableGenerator:
             # we'll use a simplified calculation based on average power with a slight adjustment
             avg_power = lap.get("avg_power_w", 0)
             max_power = lap.get("max_power_w", 0)
-            
+
             if avg_power and avg_power > 0:
                 # Approximate NP as slightly higher than average power for variable efforts
                 # This is a simplified approximation - true NP requires 4th root of 4th power
@@ -267,14 +269,14 @@ class SportLapsTableGenerator:
                     power_ratio = max_power / avg_power
                     if power_ratio > 1.5:  # High variability
                         normalized_power = avg_power * 1.08  # ~8% adjustment for high variability
-                    elif power_ratio > 1.2:  # Moderate variability  
+                    elif power_ratio > 1.2:  # Moderate variability
                         normalized_power = avg_power * 1.04  # ~4% adjustment for moderate variability
                     else:  # Low variability
                         normalized_power = avg_power * 1.01  # ~1% adjustment for steady efforts
                 else:
                     # If no max power, assume steady effort
                     normalized_power = avg_power * 1.02
-                
+
                 return f"{int(normalized_power)}"
             return "N/A"
 
