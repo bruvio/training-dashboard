@@ -579,7 +579,7 @@ def register_callbacks(app):
             days = int(sync_period or 30)
 
             # Show progress
-            sync_status = dbc.Alert(
+            sync_status = dbc.Alert(  # noqa: F841
                 [
                     html.I(className="fas fa-spinner fa-spin me-2"),
                     "Synchronizing wellness data...",
