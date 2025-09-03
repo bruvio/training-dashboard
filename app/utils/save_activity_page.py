@@ -17,14 +17,18 @@ def save_rendered_page(url: str, output: str):
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         print(f"[INFO] Loading: {url}")
-        page.goto(url)
-        # Wait until network is idle (no new requests for 500ms)
-        page.wait_for_load_state("networkidle")
-        html = page.content()
-        with open(output, "w", encoding="utf-8") as f:
-            f.write(html)
-        print(f"[INFO] Saved rendered page to: {output}")
-        browser.close()
+        try:
+            page.goto(url)
+            # Wait until network is idle (no new requests for 500ms)
+            page.wait_for_load_state("networkidle")
+            html = page.content()
+            with open(output, "w", encoding="utf-8") as f:
+                f.write(html)
+            print(f"[INFO] Saved rendered page to: {output}")
+        except Exception as e:
+            print(f"[ERROR] Failed to load or render page: {url}\nReason: {e}")
+        finally:
+            browser.close()
 
 
 def main():
