@@ -192,9 +192,11 @@ def register_callbacks(app):
                                     dbc.CardBody(
                                         [
                                             html.H4(
-                                                f"{int(stats['avg_heart_rate'])}"
-                                                if stats["avg_heart_rate"] > 0
-                                                else "N/A",
+                                                (
+                                                    f"{int(stats['avg_heart_rate'])}"
+                                                    if stats["avg_heart_rate"] > 0
+                                                    else "N/A"
+                                                ),
                                                 className="text-warning mb-1",
                                             ),
                                             html.P("Avg Heart Rate", className="mb-0 text-muted"),

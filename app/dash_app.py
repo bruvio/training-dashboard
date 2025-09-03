@@ -115,21 +115,21 @@ def initialize_garmin_session():
     """Check for and restore existing Garmin Connect sessions on app startup."""
     try:
         from garmin_client.client import GarminConnectClient
-        
+
         logger.info("🔍 Checking for existing Garmin Connect sessions...")
-        
+
         client = GarminConnectClient()
-        
+
         # Check if we have valid stored credentials
         credentials = client.load_credentials()
         if credentials:
             logger.info("📝 Found stored Garmin credentials")
-            
+
         # Check for existing garth session
         session_valid = client.validate_session()
         if session_valid:
             logger.info("✅ Found valid Garmin session - attempting to restore...")
-            
+
             restore_result = client.restore_session()
             if restore_result["status"] == "SUCCESS":
                 logger.info("🎉 Garmin session restored successfully on app startup!")
@@ -139,7 +139,7 @@ def initialize_garmin_session():
                 logger.info("   Users will need to login again")
         else:
             logger.info("📱 No valid Garmin session found - users will need to login")
-            
+
     except Exception as e:
         logger.warning(f"⚠️ Error during Garmin session initialization: {e}")
         logger.info("   App will continue normally - users can login manually")

@@ -375,7 +375,7 @@ class GarminConnectClient:
     def is_authenticated(self) -> bool:
         """
         Check if client is currently authenticated.
-        
+
         Returns:
             True if authenticated, False otherwise
         """
@@ -384,24 +384,24 @@ class GarminConnectClient:
     def validate_session(self) -> bool:
         """
         Validate if a saved garth session exists and is valid.
-        
+
         Returns:
             True if valid session exists, False otherwise
         """
         garth_session_path = self.config_dir / "garth_session"
-        
+
         if not garth_session_path.exists():
             return False
-            
+
         try:
             # Check if the session directory has the expected structure
             oauth1_file = garth_session_path / "oauth1"
             garth_session_path / "oauth2"
-            
+
             if not garth_session_path.is_dir():
                 logger.warning("Session path exists but is not a directory")
                 return False
-                
+
             # Try to validate oauth1 file if it exists
             if oauth1_file.exists():
                 with open(oauth1_file, "r") as f:
@@ -412,9 +412,9 @@ class GarminConnectClient:
                         return False
             else:
                 logger.info("No OAuth1 file found in session")
-                
+
             return True
-            
+
         except (json.JSONDecodeError, FileNotFoundError, TypeError, ValueError) as e:
             logger.warning(f"Session validation failed: {e}")
             return False
@@ -422,7 +422,7 @@ class GarminConnectClient:
     def restore_session(self) -> Dict[str, str]:
         """
         Try to restore authentication from saved garth session.
-        
+
         Returns:
             Dict with status and optional message:
                 {"status": "SUCCESS"} -> Session restored successfully
@@ -431,44 +431,44 @@ class GarminConnectClient:
         """
         if not GARMIN_CONNECT_AVAILABLE:
             return {"status": "FAILED", "message": "Garmin Connect library not available"}
-            
+
         garth_session_path = self.config_dir / "garth_session"
-        
+
         # First check if we have any session data at all
         if not self.session_file.exists():
             return {"status": "NO_SESSION", "message": "No session file found"}
-        
+
         # Check if garth session was saved successfully during authentication
         try:
             with open(self.session_file, "r") as f:
                 session_data = json.load(f)
                 garth_session_saved = session_data.get("garth_session_saved", False)
-                
+
             if not garth_session_saved:
                 logger.info("Garth session was not saved during authentication, skipping garth restoration")
                 return {"status": "NO_SESSION", "message": "No valid garth session available"}
         except (FileNotFoundError, json.JSONDecodeError, KeyError):
             logger.info("Could not read session metadata")
             return {"status": "NO_SESSION", "message": "No session metadata found"}
-        
+
         # Try to validate garth session directory structure
         garth_session_valid = self.validate_session()
         if not garth_session_valid:
             logger.info("Garth session directory validation failed")
             return {"status": "NO_SESSION", "message": "Invalid garth session structure"}
-            
+
         try:
             # Ensure the session directory exists before attempting resume
             if not garth_session_path.exists():
                 logger.warning(f"Garth session directory does not exist: {garth_session_path}")
                 return {"status": "NO_SESSION", "message": "Session directory not found"}
-            
+
             garth.resume(str(garth_session_path))
             logger.info("Successfully resumed garth session")
-            
+
             self._api = Garmin()
             self._authenticated = True
-            
+
             # Update session data
             try:
                 session_data = {
@@ -481,9 +481,9 @@ class GarminConnectClient:
             except Exception as e:
                 logger.warning(f"Failed to update session data: {e}")
                 # Continue anyway, session restoration was successful
-                
+
             return {"status": "SUCCESS", "message": "Session restored successfully"}
-            
+
         except (
             GarthException,
             FileNotFoundError,
@@ -493,22 +493,23 @@ class GarminConnectClient:
             ValueError,
         ) as e:
             logger.info(f"Session restoration failed: {e}")
-            
+
             # Clean up corrupted session files
             try:
                 import shutil
+
                 shutil.rmtree(garth_session_path, ignore_errors=True)
                 logger.info("Cleaned up corrupted session files after failed restoration")
             except Exception as cleanup_error:
                 logger.warning(f"Could not clean up session files: {cleanup_error}")
-                
+
             self._authenticated = False
             return {"status": "FAILED", "message": f"Session restoration failed: {str(e)}"}
 
     def get_session_info(self) -> Dict[str, any]:
         """
         Get information about the current session.
-        
+
         Returns:
             Dictionary with session information
         """
@@ -518,7 +519,7 @@ class GarminConnectClient:
             "session_file_exists": self.session_file.exists(),
             "garth_session_exists": (self.config_dir / "garth_session").exists(),
         }
-        
+
         # Add session file data if it exists
         if self.session_file.exists():
             try:
@@ -527,7 +528,7 @@ class GarminConnectClient:
                     session_info.update(session_data)
             except Exception as e:
                 session_info["session_file_error"] = str(e)
-                
+
         return session_info
 
 

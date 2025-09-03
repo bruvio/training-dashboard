@@ -894,9 +894,11 @@ def get_steps_data(days: int = 90) -> pd.DataFrame:
                         "date": record.date,
                         "total_steps": record.total_steps,
                         "step_goal": record.step_goal,
-                        "step_goal_pct": (record.total_steps / record.step_goal * 100)
-                        if record.step_goal and record.step_goal > 0
-                        else 0,
+                        "step_goal_pct": (
+                            (record.total_steps / record.step_goal * 100)
+                            if record.step_goal and record.step_goal > 0
+                            else 0
+                        ),
                         "total_distance_km": (record.total_distance_m or 0) / 1000,
                         "calories_burned": record.calories_burned,
                         "calories_bmr": record.calories_bmr,

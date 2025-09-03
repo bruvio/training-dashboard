@@ -181,31 +181,39 @@ def layout():
                                         html.Div(id="sync-progress", className="mt-3", style={"display": "none"}),
                                         html.Hr(),
                                         html.H6("📋 Selective Activity Import", className="mt-4 mb-3"),
-                                        dbc.Row([
-                                            dbc.Col([
-                                                dbc.Button(
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
                                                     [
-                                                        html.I(className="fas fa-list me-2"),
-                                                        "List Available Activities",
+                                                        dbc.Button(
+                                                            [
+                                                                html.I(className="fas fa-list me-2"),
+                                                                "List Available Activities",
+                                                            ],
+                                                            id="list-activities-button",
+                                                            color="info",
+                                                            outline=True,
+                                                            disabled=True,  # Initially disabled
+                                                        ),
                                                     ],
-                                                    id="list-activities-button",
-                                                    color="info",
-                                                    outline=True,
-                                                    disabled=True,  # Initially disabled
+                                                    width=6,
                                                 ),
-                                            ], width=6),
-                                            dbc.Col([
-                                                dbc.Button(
+                                                dbc.Col(
                                                     [
-                                                        html.I(className="fas fa-download me-2"),
-                                                        "Import Selected",
+                                                        dbc.Button(
+                                                            [
+                                                                html.I(className="fas fa-download me-2"),
+                                                                "Import Selected",
+                                                            ],
+                                                            id="import-selected-button",
+                                                            color="success",
+                                                            disabled=True,  # Initially disabled
+                                                        ),
                                                     ],
-                                                    id="import-selected-button",
-                                                    color="success",
-                                                    disabled=True,  # Initially disabled
+                                                    width=6,
                                                 ),
-                                            ], width=6),
-                                        ]),
+                                            ]
+                                        ),
                                         html.Div(id="activity-list-container", className="mt-3"),
                                         html.Div(id="import-status", className="mt-3"),
                                     ]
@@ -237,19 +245,19 @@ def register_callbacks(app):
             Output("import-selected-button", "disabled", allow_duplicate=True),
         ],
         [Input("url", "pathname")],
-        prevent_initial_call='initial_duplicate',
+        prevent_initial_call="initial_duplicate",
     )
     def check_existing_authentication(pathname):
         """Check for existing authentication on page load and update UI accordingly."""
         # Only check authentication when on the garmin page
         if pathname != "/garmin":
             return {}, [], {"display": "none"}, True, True, [], True, True
-            
+
         client = GarminConnectClient()
-        
+
         # Try to restore existing session
         restore_result = client.restore_session()
-        
+
         if restore_result["status"] == "SUCCESS":
             # User is authenticated, show success state and enable sync controls
             success_content = [
@@ -263,7 +271,7 @@ def register_callbacks(app):
                     color="success",
                 )
             ]
-            
+
             # Enable sync controls
             sync_controls = [
                 dbc.Alert(
@@ -309,7 +317,7 @@ def register_callbacks(app):
                     ]
                 ),
             ]
-            
+
             return (
                 {"display": "none"},  # Hide login form
                 success_content,
@@ -366,7 +374,7 @@ def register_callbacks(app):
                     ]
                 ),
             ]
-            
+
             return (
                 {},  # Show login form
                 [],
@@ -508,7 +516,7 @@ def register_callbacks(app):
                     ]
                 ),
             ]
-            
+
             return (
                 "",
                 mfa_content,
@@ -543,7 +551,7 @@ def register_callbacks(app):
                     color="success",
                 )
             ]
-            
+
             # Enable sync controls after successful login
             sync_controls = [
                 dbc.Alert(
@@ -589,7 +597,7 @@ def register_callbacks(app):
                     ]
                 ),
             ]
-            
+
             return (
                 "",
                 [],
@@ -644,7 +652,20 @@ def register_callbacks(app):
         from dash import no_update
 
         if not ctx.triggered or not n_clicks:
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
 
         if not store_data.get("mfa_required"):
             # Create sync controls with disabled state for invalid MFA state
@@ -692,7 +713,7 @@ def register_callbacks(app):
                     ]
                 ),
             ]
-            
+
             return (
                 dbc.Alert("Invalid MFA state.", color="danger"),
                 [],
@@ -754,7 +775,7 @@ def register_callbacks(app):
                     ]
                 ),
             ]
-            
+
             return (
                 dbc.Alert("Enter a valid 6-digit MFA code.", color="danger"),
                 store_data.get("mfa_content", []),
@@ -803,7 +824,7 @@ def register_callbacks(app):
                     color="success",
                 )
             ]
-            
+
             # Enable sync controls after successful MFA verification
             sync_controls = [
                 dbc.Alert(
@@ -849,7 +870,7 @@ def register_callbacks(app):
                     ]
                 ),
             ]
-            
+
             return (
                 "",
                 [],
@@ -910,7 +931,7 @@ def register_callbacks(app):
                 ]
             ),
         ]
-        
+
         return (
             dbc.Alert("MFA verification failed.", color="danger"),
             store_data.get("mfa_content", []),
@@ -941,10 +962,10 @@ def register_callbacks(app):
         """Handle activity synchronization from Garmin Connect."""
         from datetime import datetime, timedelta
         import traceback
-        
+
         if not ctx.triggered or not n_clicks:
             return "", [], {"display": "none"}, False
-            
+
         try:
             # Show sync in progress
             progress_content = [
@@ -962,9 +983,9 @@ def register_callbacks(app):
                     className="mb-3",
                 )
             ]
-            
+
             client = GarminConnectClient()
-            
+
             # Check if client is authenticated
             if not client.is_authenticated():
                 # Try to restore session
@@ -979,7 +1000,7 @@ def register_callbacks(app):
                         {"display": "none"},
                         False,  # Re-enable sync button
                     )
-            
+
             # Calculate date range based on sync period
             end_date = datetime.now()
             if sync_period == "7":
@@ -990,7 +1011,7 @@ def register_callbacks(app):
                 start_date = end_date - timedelta(days=90)
             else:  # "all"
                 start_date = end_date - timedelta(days=365)  # Last year
-                
+
             # Import sync function
             try:
                 from garmin_client.garth_sync import sync_activities_from_garmin_connect
@@ -1005,14 +1026,14 @@ def register_callbacks(app):
                     {"display": "none"},
                     False,  # Re-enable sync button
                 )
-            
+
             # Perform sync (this will be implemented in the next step)
             sync_result = sync_activities_from_garmin_connect(
                 client=client,
                 start_date=start_date,
                 end_date=end_date,
             )
-            
+
             # Show results
             if sync_result.get("success", False):
                 status_content = dbc.Alert(
@@ -1033,18 +1054,18 @@ def register_callbacks(app):
                     ],
                     color="danger",
                 )
-                
+
             return (
                 status_content,
                 [],
                 {"display": "none"},
                 False,  # Re-enable sync button
             )
-            
+
         except Exception as e:
             logger.error(f"Sync failed: {e}")
             logger.error(traceback.format_exc())
-            
+
             return (
                 dbc.Alert(
                     [
@@ -1070,13 +1091,13 @@ def register_callbacks(app):
     def list_available_activities(n_clicks, sync_period):
         """List available activities from Garmin Connect for selective import."""
         from datetime import datetime, timedelta
-        
+
         if not ctx.triggered or not n_clicks:
             return [], False
-            
+
         try:
             client = GarminConnectClient()
-            
+
             # Check if client is authenticated
             if not client.is_authenticated():
                 restore_result = client.restore_session()
@@ -1087,7 +1108,7 @@ def register_callbacks(app):
                             color="danger",
                         )
                     ], False
-            
+
             # Calculate date range based on sync period
             end_date = datetime.now()
             if sync_period == "7":
@@ -1098,7 +1119,7 @@ def register_callbacks(app):
                 start_date = end_date - timedelta(days=90)
             else:  # "all"
                 start_date = end_date - timedelta(days=365)
-            
+
             # For now, provide a placeholder implementation
             return [
                 dbc.Alert(
@@ -1106,7 +1127,7 @@ def register_callbacks(app):
                     color="info",
                 )
             ], False
-            
+
         except Exception as e:
             logger.error(f"Failed to list activities: {e}")
             return [
@@ -1127,10 +1148,10 @@ def register_callbacks(app):
     )
     def import_selected_activities(n_clicks, activity_cards):
         """Import selected activities from the activity list."""
-        
+
         if not ctx.triggered or not n_clicks:
             return "", False
-            
+
         try:
             return [
                 dbc.Alert(
@@ -1138,7 +1159,7 @@ def register_callbacks(app):
                     color="info",
                 )
             ], False
-            
+
         except Exception as e:
             logger.error(f"Failed to import selected activities: {e}")
             return [
