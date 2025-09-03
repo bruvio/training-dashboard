@@ -16,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..utils import get_logger, log_error
 from .db import session_scope
+from .garth_models import DailyIntensityMinutes, DailySleep, DailySteps, DailyStress
 from .models import Activity, Lap, Sample
 
 logger = get_logger(__name__)
@@ -678,3 +679,290 @@ def check_database_connection() -> bool:
     except Exception as e:
         logger.error(f"Unexpected error checking database connection: {e}")
         return False
+
+
+def get_wellness_statistics() -> Dict[str, Any]:
+    """
+    Get wellness data statistics for the stats page.
+
+    Returns:
+        Dict with sleep, stress, steps, and intensity statistics
+    """
+    try:
+        with session_scope() as session:
+            # Sleep statistics
+            sleep_stats = session.query(
+                func.count(DailySleep.id).label("total_sleep_records"),
+                func.avg(DailySleep.sleep_score).label("avg_sleep_score"),
+                func.avg(DailySleep.total_sleep_time_s).label("avg_sleep_time_s"),
+            ).first()
+
+            # Stress statistics
+            stress_stats = session.query(
+                func.count(DailyStress.id).label("total_stress_records"),
+                func.avg(DailyStress.avg_stress_level).label("avg_stress_level"),
+            ).first()
+
+            # Steps statistics
+            steps_stats = session.query(
+                func.count(DailySteps.id).label("total_steps_records"),
+                func.avg(DailySteps.total_steps).label("avg_daily_steps"),
+                func.sum(DailySteps.total_distance_m).label("total_walking_distance_m"),
+            ).first()
+
+            # Intensity statistics
+            intensity_stats = session.query(
+                func.count(DailyIntensityMinutes.id).label("total_intensity_records"),
+                func.avg(DailyIntensityMinutes.vigorous_minutes).label("avg_vigorous_minutes"),
+                func.avg(DailyIntensityMinutes.moderate_minutes).label("avg_moderate_minutes"),
+            ).first()
+
+            return {
+                "sleep": {
+                    "total_records": sleep_stats.total_sleep_records or 0,
+                    "avg_sleep_score": round(sleep_stats.avg_sleep_score or 0, 1),
+                    "avg_sleep_hours": round((sleep_stats.avg_sleep_time_s or 0) / 3600, 1),
+                },
+                "stress": {
+                    "total_records": stress_stats.total_stress_records or 0,
+                    "avg_stress_level": round(stress_stats.avg_stress_level or 0, 1),
+                },
+                "steps": {
+                    "total_records": steps_stats.total_steps_records or 0,
+                    "avg_daily_steps": int(steps_stats.avg_daily_steps or 0),
+                    "total_walking_distance_km": round((steps_stats.total_walking_distance_m or 0) / 1000, 1),
+                },
+                "intensity": {
+                    "total_records": intensity_stats.total_intensity_records or 0,
+                    "avg_vigorous_minutes": round(intensity_stats.avg_vigorous_minutes or 0, 1),
+                    "avg_moderate_minutes": round(intensity_stats.avg_moderate_minutes or 0, 1),
+                },
+                "stats_failed": False,
+            }
+    except Exception as e:
+        log_error(e, "Failed to get wellness statistics")
+        return {
+            "sleep": {"total_records": 0, "avg_sleep_score": 0, "avg_sleep_hours": 0},
+            "stress": {"total_records": 0, "avg_stress_level": 0},
+            "steps": {"total_records": 0, "avg_daily_steps": 0, "total_walking_distance_km": 0},
+            "intensity": {"total_records": 0, "avg_vigorous_minutes": 0, "avg_moderate_minutes": 0},
+            "stats_failed": True,
+        }
+
+
+def get_sleep_data(days: int = 90) -> pd.DataFrame:
+    """
+    Get sleep data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90)
+
+    Returns:
+        DataFrame with sleep data including quality and stages
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            end_date = date.today()
+            start_date = end_date - pd.Timedelta(days=days)
+
+            sleep_records = (
+                session.query(DailySleep)
+                .filter(DailySleep.date >= start_date)
+                .filter(DailySleep.date <= end_date)
+                .order_by(DailySleep.date)
+                .all()
+            )
+
+            if not sleep_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in sleep_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "sleep_score": record.sleep_score,
+                        "total_sleep_hours": (record.total_sleep_time_s or 0) / 3600,
+                        "deep_sleep_hours": (record.deep_sleep_s or 0) / 3600,
+                        "light_sleep_hours": (record.light_sleep_s or 0) / 3600,
+                        "rem_sleep_hours": (record.rem_sleep_s or 0) / 3600,
+                        "awake_hours": (record.awake_time_s or 0) / 3600,
+                        "bedtime_utc": record.bedtime_utc,
+                        "wakeup_time_utc": record.wakeup_time_utc,
+                        "restlessness": record.restlessness,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            return df.set_index("date")
+
+    except Exception as e:
+        log_error(e, f"Failed to get sleep data for {days} days")
+        return pd.DataFrame()
+
+
+def get_stress_data(days: int = 90) -> pd.DataFrame:
+    """
+    Get stress data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90)
+
+    Returns:
+        DataFrame with daily stress levels and breakdowns
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            end_date = date.today()
+            start_date = end_date - pd.Timedelta(days=days)
+
+            stress_records = (
+                session.query(DailyStress)
+                .filter(DailyStress.date >= start_date)
+                .filter(DailyStress.date <= end_date)
+                .order_by(DailyStress.date)
+                .all()
+            )
+
+            if not stress_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in stress_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "avg_stress_level": record.avg_stress_level,
+                        "max_stress_level": record.max_stress_level,
+                        "rest_stress_level": record.rest_stress_level,
+                        "rest_minutes": record.rest_minutes,
+                        "low_minutes": record.low_minutes,
+                        "medium_minutes": record.medium_minutes,
+                        "high_minutes": record.high_minutes,
+                        "stress_qualifier": record.stress_qualifier,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+
+            # Add rolling average for trend analysis
+            df["rolling_avg_28d"] = df["avg_stress_level"].rolling(window=28, min_periods=1).mean()
+
+            return df
+
+    except Exception as e:
+        log_error(e, f"Failed to get stress data for {days} days")
+        return pd.DataFrame()
+
+
+def get_steps_data(days: int = 90) -> pd.DataFrame:
+    """
+    Get daily steps and activity data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90)
+
+    Returns:
+        DataFrame with steps, distance, and activity metrics
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            end_date = date.today()
+            start_date = end_date - pd.Timedelta(days=days)
+
+            steps_records = (
+                session.query(DailySteps)
+                .filter(DailySteps.date >= start_date)
+                .filter(DailySteps.date <= end_date)
+                .order_by(DailySteps.date)
+                .all()
+            )
+
+            if not steps_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in steps_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "total_steps": record.total_steps,
+                        "step_goal": record.step_goal,
+                        "step_goal_pct": (record.total_steps / record.step_goal * 100)
+                        if record.step_goal and record.step_goal > 0
+                        else 0,
+                        "total_distance_km": (record.total_distance_m or 0) / 1000,
+                        "calories_burned": record.calories_burned,
+                        "calories_bmr": record.calories_bmr,
+                        "calories_active": record.calories_active,
+                        "floors_climbed": record.floors_climbed,
+                        "floors_goal": record.floors_goal,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            return df.set_index("date")
+
+    except Exception as e:
+        log_error(e, f"Failed to get steps data for {days} days")
+        return pd.DataFrame()
+
+
+def get_intensity_data(days: int = 90) -> pd.DataFrame:
+    """
+    Get daily intensity minutes data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90)
+
+    Returns:
+        DataFrame with moderate and vigorous activity minutes
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            end_date = date.today()
+            start_date = end_date - pd.Timedelta(days=days)
+
+            intensity_records = (
+                session.query(DailyIntensityMinutes)
+                .filter(DailyIntensityMinutes.date >= start_date)
+                .filter(DailyIntensityMinutes.date <= end_date)
+                .order_by(DailyIntensityMinutes.date)
+                .all()
+            )
+
+            if not intensity_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in intensity_records:
+                # Calculate WHO intensity minutes (vigorous counts double)
+                intensity_minutes = (record.moderate_minutes or 0) + 2 * (record.vigorous_minutes or 0)
+
+                data.append(
+                    {
+                        "date": record.date,
+                        "vigorous_minutes": record.vigorous_minutes,
+                        "moderate_minutes": record.moderate_minutes,
+                        "intensity_minutes": intensity_minutes,
+                        "vigorous_goal": record.vigorous_goal,
+                        "moderate_goal": record.moderate_goal,
+                        "intensity_score": record.intensity_score,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            return df.set_index("date")
+
+    except Exception as e:
+        log_error(e, f"Failed to get intensity data for {days} days")
+        return pd.DataFrame()

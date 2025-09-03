@@ -5,20 +5,20 @@ Enhanced Garmin Connect client with encryption, error handling, and secure crede
 Research-validated implementation following PRP specifications.
 """
 
+import base64
 from datetime import datetime
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Union
 import pickle
-import base64
 import threading
+from typing import Dict, Optional, Union
 
 try:
     from garminconnect import Garmin
     import garth
-    import garth.sso as garth_sso
     from garth.exc import GarthException
+    import garth.sso as garth_sso
 
     GARMIN_CONNECT_AVAILABLE = True
 except ImportError:
@@ -221,7 +221,7 @@ class GarminConnectClient:
             try:
                 # Pre-validate the session directory structure and files
                 oauth1_file = garth_session_path / "oauth1"
-                oauth2_file = garth_session_path / "oauth2"
+                garth_session_path / "oauth2"
 
                 # Check if the session directory has the expected structure
                 if garth_session_path.is_dir():
