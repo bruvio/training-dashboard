@@ -748,9 +748,9 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
     if not samples_data or not isinstance(samples_data, list):
         # No GPS data: hide map and show placeholder message
         return (
-            None,
-            None,
-            None,
+            [],  # Empty positions list instead of None
+            [51.7565, -1.2492],  # Default center instead of None
+            13,  # Default zoom instead of None
             html.Div(
                 [
                     html.I(className="fas fa-map-marker-alt me-2"),
@@ -767,9 +767,9 @@ def update_activity_map(samples_data: Optional[List[Dict]], route_bounds: Option
     if not route_positions:
         # No valid GPS points: hide map and show placeholder message
         return (
-            None,
-            None,
-            None,
+            [],  # Empty positions list instead of None
+            [51.7565, -1.2492],  # Default center instead of None
+            13,  # Default zoom instead of None
             html.Div(
                 [
                     html.I(className="fas fa-exclamation-triangle me-2"),
