@@ -110,6 +110,48 @@ except ImportError as e:
         logger.error(f"❌ Complete failure to import page modules: {e2}")
 
 
+# Initialize Garmin session on startup
+def initialize_garmin_session():
+    """Check for and restore existing Garmin Connect sessions on app startup."""
+    try:
+        from garmin_client.client import GarminConnectClient
+        
+        logger.info("🔍 Checking for existing Garmin Connect sessions...")
+        
+        client = GarminConnectClient()
+        
+        # Check if we have valid stored credentials
+        credentials = client.load_credentials()
+        if credentials:
+            logger.info("📝 Found stored Garmin credentials")
+            
+        # Check for existing garth session
+        session_valid = client.validate_session()
+        if session_valid:
+            logger.info("✅ Found valid Garmin session - attempting to restore...")
+            
+            restore_result = client.restore_session()
+            if restore_result["status"] == "SUCCESS":
+                logger.info("🎉 Garmin session restored successfully on app startup!")
+                logger.info("   Users can navigate to /garmin to see authenticated state")
+            else:
+                logger.info(f"⚠️ Session restoration failed: {restore_result.get('message', 'Unknown error')}")
+                logger.info("   Users will need to login again")
+        else:
+            logger.info("📱 No valid Garmin session found - users will need to login")
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Error during Garmin session initialization: {e}")
+        logger.info("   App will continue normally - users can login manually")
+
+
+# Initialize Garmin session after all imports are complete
+try:
+    initialize_garmin_session()
+except Exception as e:
+    logger.warning(f"Session initialization failed: {e}")
+
+
 # Main application layout with navigation and page container
 app.layout = dbc.Container(
     [
