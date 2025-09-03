@@ -49,17 +49,20 @@ class UserPreferences:
 
     def _load_preferences(self) -> Dict[str, Any]:
         """Load preferences from file."""
-        try:
-            if self.config_file.exists():
+        if self.config_file.exists():
+            try:
                 with open(self.config_file, "r") as f:
                     preferences = json.load(f)
                     # Merge with defaults to ensure all keys exist
                     return {**DEFAULT_PREFERENCES, **preferences}
-            else:
-                logger.info("No preferences file found, using defaults")
+            except json.JSONDecodeError as e:
+                logger.error(f"Error decoding preferences JSON: {e}")
                 return DEFAULT_PREFERENCES.copy()
-        except Exception as e:
-            logger.error(f"Error loading preferences: {e}")
+            except OSError as e:
+                logger.error(f"Error reading preferences file: {e}")
+                return DEFAULT_PREFERENCES.copy()
+        else:
+            logger.info("No preferences file found, using defaults")
             return DEFAULT_PREFERENCES.copy()
 
     def _save_preferences(self) -> bool:
