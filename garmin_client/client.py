@@ -283,17 +283,28 @@ class GarminConnectClient:
                     logger.info("Direct authentication successful (no MFA required)")
 
             # Save session on success
-            garth.save(str(garth_session_path))
+            try:
+                garth.save(str(garth_session_path))
+                logger.info("Garth session saved successfully")
+            except Exception as e:
+                logger.error(f"Failed to save garth session: {e}")
+                # Continue anyway, as we can still authenticate
+
             self._api = Garmin()
             self._authenticated = True
 
-            session_data = {
-                "authenticated_at": datetime.now().isoformat(),
-                "email": email,
-                "garth_session_path": str(garth_session_path),
-            }
-            with open(self.session_file, "w") as f:
-                json.dump(session_data, f)
+            try:
+                session_data = {
+                    "authenticated_at": datetime.now().isoformat(),
+                    "email": email,
+                    "garth_session_path": str(garth_session_path),
+                }
+                with open(self.session_file, "w") as f:
+                    json.dump(session_data, f)
+                logger.info("Session data saved successfully")
+            except Exception as e:
+                logger.error(f"Failed to save session data: {e}")
+                # Continue anyway, authentication was successful
 
             logger.info("Authentication successful")
             return {"status": "SUCCESS"}

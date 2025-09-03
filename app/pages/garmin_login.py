@@ -231,7 +231,7 @@ def register_callbacks(app):
 
         client = GarminConnectClient()
         result = client.authenticate(email, password, remember_me=remember_me)
-        
+
         # Debug logging to track what's happening
         logger.info(f"Authentication result: {result}")
         logger.info(f"Result type: {type(result)}")
@@ -335,8 +335,10 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def handle_mfa_verification(n_clicks, mfa_code, store_data):
+        from dash import no_update
+
         if not ctx.triggered or not n_clicks:
-            return "", [], {"display": "none"}, [], {"display": "none"}, {}, {}
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
         if not store_data.get("mfa_required"):
             return (
