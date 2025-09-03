@@ -9,7 +9,7 @@ import logging
 import os
 
 import dash
-from dash import Input, Output, dcc, html
+from dash import Input, Output, State, dcc, html
 import dash_bootstrap_components as dbc
 
 # Configure logging
@@ -435,6 +435,80 @@ app.index_string = """
 """
 
 # Page modules are imported above right after app creation
+
+# Clientside callback to handle Y-axis visibility when traces are toggled
+app.clientside_callback(
+    """
+    function(restyleData, figure) {
+        if (!figure) return window.dash_clientside.no_update;
+        
+        // Check if this is a legend click that changes trace visibility
+        if (restyleData && restyleData.length > 0) {
+            // Create a new figure object to return
+            let newFigure = JSON.parse(JSON.stringify(figure));
+            
+            // Apply the restyle changes to get current trace visibility
+            if (restyleData[0] && restyleData[1]) {
+                const changes = restyleData[0];
+                const traceIndices = restyleData[1];
+                
+                // Apply visibility changes
+                if (changes.hasOwnProperty('visible')) {
+                    traceIndices.forEach((traceIndex, i) => {
+                        if (newFigure.data[traceIndex]) {
+                            newFigure.data[traceIndex].visible = Array.isArray(changes.visible) ? changes.visible[i] : changes.visible;
+                        }
+                    });
+                }
+            }
+            
+            // Now update Y-axis visibility based on trace visibility
+            const yAxisVisibility = {};
+            
+            // Initialize all Y-axes as hidden
+            Object.keys(newFigure.layout).forEach(key => {
+                if (key.startsWith('yaxis')) {
+                    yAxisVisibility[key] = false;
+                }
+            });
+            
+            // Check each trace and mark its Y-axis as visible if trace is visible
+            newFigure.data.forEach(trace => {
+                const isVisible = trace.visible !== false && trace.visible !== 'legendonly';
+                if (isVisible) {
+                    // Map trace yaxis to layout yaxis key
+                    let yaxisKey;
+                    if (!trace.yaxis || trace.yaxis === 'y') {
+                        yaxisKey = 'yaxis';
+                    } else {
+                        yaxisKey = trace.yaxis.replace('y', 'yaxis');
+                    }
+                    yAxisVisibility[yaxisKey] = true;
+                }
+            });
+            
+            // Apply visibility to Y-axes
+            Object.keys(yAxisVisibility).forEach(yaxisKey => {
+                if (newFigure.layout[yaxisKey]) {
+                    newFigure.layout[yaxisKey].visible = yAxisVisibility[yaxisKey];
+                    newFigure.layout[yaxisKey].showticklabels = yAxisVisibility[yaxisKey];
+                    newFigure.layout[yaxisKey].ticks = yAxisVisibility[yaxisKey] ? 'outside' : '';
+                }
+            });
+            
+            return newFigure;
+        }
+        
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("activity-chart", "figure"),
+    Input("activity-chart", "restyleData"),
+    State("activity-chart", "figure"),
+    prevent_initial_call=True,
+)
+
+# Lap selection functionality is now handled by buttons in the activity_detail.py callbacks
 
 if __name__ == "__main__":
     # Development server configuration

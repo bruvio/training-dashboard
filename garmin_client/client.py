@@ -10,10 +10,14 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
+import pickle
+import base64
+import threading
 
 try:
     from garminconnect import Garmin
     import garth
+    import garth.sso as garth_sso
     from garth.exc import GarthException
 
     GARMIN_CONNECT_AVAILABLE = True
@@ -129,9 +133,51 @@ class GarminConnectClient:
             self.credentials_file.unlink()
             logger.info("Credentials cleared")
 
+    def _login_with_timeout(self, email: str, password: str, timeout: int = 30):
+        """
+        Perform garth.login with timeout protection.
+
+        Args:
+            email: Garmin Connect email
+            password: Garmin Connect password
+            timeout: Timeout in seconds (default: 30)
+
+        Returns:
+            Tuple of (result1, result2) or (None, None) if timeout/error
+        """
+        result = {"result1": None, "result2": None, "exception": None}
+
+        def target():
+            try:
+                logger.info(f"Starting garth.login for {email}")
+                result1, result2 = garth.login(email, password, return_on_mfa=True)
+                result["result1"] = result1
+                result["result2"] = result2
+                logger.info(f"garth.login completed with result: {result1}")
+            except Exception as e:
+                logger.error(f"garth.login failed with exception: {e}")
+                result["exception"] = e
+
+        thread = threading.Thread(target=target)
+        thread.daemon = True
+        thread.start()
+
+        # Wait for completion or timeout
+        thread.join(timeout)
+
+        if thread.is_alive():
+            logger.error(f"garth.login timed out after {timeout} seconds")
+            # Note: We can't forcefully kill the thread, but we can return timeout status
+            return None, "TIMEOUT"
+
+        if result["exception"]:
+            raise result["exception"]
+
+        return result["result1"], result["result2"]
+
     def authenticate(
-        self, email: str = None, password: str = None, mfa_callback=None, remember_me: bool = False
-    ) -> Union[bool, str]:
+        self, email: str = None, password: str = None, mfa_callback=None, mfa_context=None, remember_me: bool = False
+    ) -> Union[bool, str, dict]:
         """
         Authenticate with Garmin Connect using garth, with MFA support.
 
@@ -139,95 +185,185 @@ class GarminConnectClient:
             email: Garmin Connect email (optional if stored)
             password: Garmin Connect password (optional if stored)
             mfa_callback: Callable that returns MFA code when called
+            mfa_context: The result2 object returned by garth.login when MFA is required (used for resuming)
+            remember_me: Whether to store credentials for future logins
 
         Returns:
-            True if authentication successful,
-            "MFA_REQUIRED" if MFA needed but not provided,
-            False otherwise
+            dict with status and optional mfa_context:
+                {"status": "SUCCESS"} -> Authentication successful
+                {"status": "MFA_REQUIRED", "mfa_context": result2} -> MFA needed
+                {"status": "MFA_FAILED"} -> MFA provided but invalid
+                {"status": "FAILED"} -> Authentication failed
         """
         if not GARMIN_CONNECT_AVAILABLE:
             logger.error("garminconnect library not available")
-            return False
+            return {"status": "FAILED"}
+
+        # Store credentials immediately if remember_me is enabled and credentials provided
+        if remember_me and email and password:
+            self.store_credentials(email, password)
+            logger.info("Credentials stored (remember me enabled)")
 
         # Load stored credentials if not provided
-        if email and password:
-            # Only store credentials if remember_me is True
-            if remember_me:
-                self.store_credentials(email, password)
-        else:
+        if not (email and password):
             credentials = self.load_credentials()
             if not credentials:
                 logger.error("No credentials provided or stored")
-                return False
+                return {"status": "FAILED"}
             email = credentials["email"]
             password = credentials["password"]
 
         garth_session_path = self.config_dir / "garth_session"
 
-        # Try to resume previous session
-        try:
-            garth.resume(str(garth_session_path))
-            logger.info("Resumed existing garth session")
-            self._api = Garmin()
-            self._authenticated = True
-            return True
-        except (GarthException, FileNotFoundError):
-            logger.info("No valid garth session found, performing fresh login")
+        # Validate and try to resume previous session
+        session_valid = False
+        if garth_session_path.exists():
+            try:
+                # Pre-validate the session directory structure and files
+                oauth1_file = garth_session_path / "oauth1"
+                oauth2_file = garth_session_path / "oauth2"
+
+                # Check if the session directory has the expected structure
+                if garth_session_path.is_dir():
+                    # Try to validate oauth1 file if it exists
+                    if oauth1_file.exists():
+                        with open(oauth1_file, "r") as f:
+                            oauth1_data = json.load(f)
+                            # Validate that it's a proper dict, not a string
+                            if isinstance(oauth1_data, dict):
+                                session_valid = True
+                            else:
+                                logger.warning(f"OAuth1 file contains invalid data type: {type(oauth1_data)}")
+                    else:
+                        logger.info("No OAuth1 file found in session")
+                else:
+                    logger.warning("Session path exists but is not a directory")
+
+            except (json.JSONDecodeError, FileNotFoundError, TypeError, ValueError) as validation_error:
+                logger.warning(f"Session validation failed: {validation_error}")
+                session_valid = False
+
+        if session_valid:
+            try:
+                garth.resume(str(garth_session_path))
+                logger.info("Resumed existing garth session")
+                self._api = Garmin()
+                self._authenticated = True
+                return {"status": "SUCCESS"}
+            except (
+                GarthException,
+                FileNotFoundError,
+                json.JSONDecodeError,
+                NotADirectoryError,
+                TypeError,
+                ValueError,
+            ) as e:
+                logger.info(f"Session resume failed despite validation: {e}")
+                session_valid = False
+
+        # Clean up corrupted or invalid session files
+        if not session_valid and garth_session_path.exists():
+            try:
+                import shutil
+
+                shutil.rmtree(garth_session_path, ignore_errors=True)
+                logger.info("Cleaned up corrupted session files")
+            except Exception as cleanup_error:
+                logger.warning(f"Could not clean up session files: {cleanup_error}")
+
+        logger.info("No valid session found, performing fresh login")
 
         try:
-            logger.info(f"Authenticating as {email}")
+            if mfa_context and mfa_callback:
+                # Resume MFA login flow
+                logger.info("Resuming login with MFA code...")
+                mfa_code = mfa_callback()
+                if not mfa_code:
+                    logger.warning("MFA code required but not provided by callback")
+                    return {"status": "MFA_REQUIRED", "mfa_context": mfa_context}
 
-            # ALWAYS use return_on_mfa=True to avoid terminal prompts in Docker
-            result1, result2 = garth.login(email, password, return_on_mfa=True)
+                try:
+                    garth_sso.resume_login(mfa_context, mfa_code)
+                    logger.info("MFA authentication successful")
+                except Exception as e:
+                    logger.error(f"MFA authentication failed: {e}")
+                    return {"status": "MFA_FAILED"}
 
-            if result1 == "needs_mfa":
-                logger.info("MFA required for authentication")
+            else:
+                # First-time login attempt with timeout protection
+                logger.info(f"Authenticating as {email}")
+                result1, result2 = self._login_with_timeout(email, password, timeout=30)
 
-                if mfa_callback:
-                    logger.info("MFA callback available - requesting code")
+                # Handle timeout case
+                if result2 == "TIMEOUT":
+                    logger.error("Authentication timed out - likely server/network issue")
+                    return {"status": "FAILED"}
+
+                if result1 == "needs_mfa":
+                    logger.info("MFA required for authentication")
+                    if not mfa_callback:
+                        try:
+                            # serialize result2 to base64 string for safe storage
+                            logger.debug(f"Serializing MFA context: {type(result2)}")
+                            mfa_context_serialized = base64.b64encode(pickle.dumps(result2)).decode("utf-8")
+                            logger.info("MFA context serialized successfully")
+                            return {"status": "MFA_REQUIRED", "mfa_context": mfa_context_serialized}
+                        except Exception as pickle_error:
+                            logger.error(f"Failed to serialize MFA context: {pickle_error}")
+                            # Fallback: return MFA_REQUIRED without context (user will need to restart auth)
+                            return {"status": "MFA_REQUIRED", "mfa_context": None}
+
+                    # MFA callback available - collect and try to resume immediately
                     mfa_code = mfa_callback()
                     if not mfa_code:
                         logger.warning("MFA code required but not provided by callback")
-                        return "MFA_REQUIRED"
+                        mfa_context_serialized = base64.b64encode(pickle.dumps(result2)).decode("utf-8")
+                        return {"status": "MFA_REQUIRED", "mfa_context": mfa_context_serialized}
 
-                    # Resume login with MFA code from callback
                     try:
-                        oauth1, oauth2 = garth.resume_login(result2, mfa_code)
+                        garth_sso.resume_login(result2, mfa_code)
                         logger.info("MFA authentication successful")
                     except Exception as e:
                         logger.error(f"MFA authentication failed: {e}")
-                        return "MFA_REQUIRED"
+                        return {"status": "MFA_FAILED"}
                 else:
-                    # No callback available - return MFA_REQUIRED to trigger UI prompt
-                    logger.info("No MFA callback provided - returning MFA_REQUIRED")
-                    return "MFA_REQUIRED"
-            else:
-                logger.info("Direct authentication successful (no MFA required)")
+                    logger.info("Direct authentication successful (no MFA required)")
 
             # Save session on success
-            garth.save(str(garth_session_path))
+            try:
+                garth.save(str(garth_session_path))
+                logger.info("Garth session saved successfully")
+            except Exception as e:
+                logger.error(f"Failed to save garth session: {e}")
+                # Continue anyway, as we can still authenticate
+
             self._api = Garmin()
             self._authenticated = True
 
-            session_data = {
-                "authenticated_at": datetime.now().isoformat(),
-                "email": email,
-                "garth_session_path": str(garth_session_path),
-            }
-            with open(self.session_file, "w") as f:
-                json.dump(session_data, f)
+            try:
+                session_data = {
+                    "authenticated_at": datetime.now().isoformat(),
+                    "email": email,
+                    "garth_session_path": str(garth_session_path),
+                }
+                with open(self.session_file, "w") as f:
+                    json.dump(session_data, f)
+                logger.info("Session data saved successfully")
+            except Exception as e:
+                logger.error(f"Failed to save session data: {e}")
+                # Continue anyway, authentication was successful
 
             logger.info("Authentication successful")
-            return True
+            return {"status": "SUCCESS"}
 
         except Exception as e:
             error_str = str(e).lower()
             if any(k in error_str for k in ["mfa", "verification", "2fa", "two-factor", "needs_mfa"]):
                 logger.warning("MFA required but no callback provided or authentication failed")
-                return "MFA_REQUIRED"
+                return {"status": "MFA_REQUIRED"}
             logger.error(f"Authentication failed: {e}")
             self._authenticated = False
-            return False
+            return {"status": "FAILED"}
 
 
 # Convenience functions for common operations
