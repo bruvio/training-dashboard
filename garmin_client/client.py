@@ -215,16 +215,55 @@ class GarminConnectClient:
 
         garth_session_path = self.config_dir / "garth_session"
 
-        # Try to resume previous session
-        try:
-            garth.resume(str(garth_session_path))
-            logger.info("Resumed existing garth session")
-            self._api = Garmin()
-            self._authenticated = True
-
-            return {"status": "SUCCESS"}
-        except (GarthException, FileNotFoundError, json.JSONDecodeError, NotADirectoryError) as e:
-            logger.info(f"No valid garth session found, performing fresh login. Error: {e}")
+        # Validate and try to resume previous session
+        session_valid = False
+        if garth_session_path.exists():
+            try:
+                # Pre-validate the session directory structure and files
+                oauth1_file = garth_session_path / "oauth1"
+                oauth2_file = garth_session_path / "oauth2"
+                
+                # Check if the session directory has the expected structure
+                if garth_session_path.is_dir():
+                    # Try to validate oauth1 file if it exists
+                    if oauth1_file.exists():
+                        with open(oauth1_file, 'r') as f:
+                            oauth1_data = json.load(f)
+                            # Validate that it's a proper dict, not a string
+                            if isinstance(oauth1_data, dict):
+                                session_valid = True
+                            else:
+                                logger.warning(f"OAuth1 file contains invalid data type: {type(oauth1_data)}")
+                    else:
+                        logger.info("No OAuth1 file found in session")
+                else:
+                    logger.warning("Session path exists but is not a directory")
+                    
+            except (json.JSONDecodeError, FileNotFoundError, TypeError, ValueError) as validation_error:
+                logger.warning(f"Session validation failed: {validation_error}")
+                session_valid = False
+        
+        if session_valid:
+            try:
+                garth.resume(str(garth_session_path))
+                logger.info("Resumed existing garth session")
+                self._api = Garmin()
+                self._authenticated = True
+                return {"status": "SUCCESS"}
+            except (GarthException, FileNotFoundError, json.JSONDecodeError, NotADirectoryError, TypeError, ValueError) as e:
+                logger.info(f"Session resume failed despite validation: {e}")
+                session_valid = False
+        
+        # Clean up corrupted or invalid session files
+        if not session_valid and garth_session_path.exists():
+            try:
+                import shutil
+                shutil.rmtree(garth_session_path, ignore_errors=True)
+                logger.info("Cleaned up corrupted session files")
+            except Exception as cleanup_error:
+                logger.warning(f"Could not clean up session files: {cleanup_error}")
+        
+        logger.info("No valid session found, performing fresh login")
 
         try:
             if mfa_context and mfa_callback:
