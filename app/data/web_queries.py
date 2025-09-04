@@ -863,41 +863,53 @@ def get_sleep_data(days: int = 90) -> pd.DataFrame:
     """
     try:
         with session_scope() as session:
-            # Calculate date range
+            # Calculate date range [start_date, end_date]
             end_date = date.today()
             start_date = end_date - timedelta(days=days)
 
-            sleep_records = (
+            # IMPORTANT: no SQL ORDER BY here (avoid SQLite "not an error")
+            records = (
                 session.query(DailySleep)
                 .filter(DailySleep.date >= start_date)
                 .filter(DailySleep.date <= end_date)
-                .order_by(DailySleep.date)
                 .all()
             )
 
-            if not sleep_records:
+            if not records:
                 return pd.DataFrame()
 
-            data = []
-            for record in sleep_records:
-                data.append(
-                    {
-                        "date": record.date,
-                        "sleep_score": record.sleep_score,
-                        "total_sleep_hours": (record.total_sleep_time_s or 0) / 3600,
-                        "deep_sleep_hours": (record.deep_sleep_s or 0) / 3600,
-                        "light_sleep_hours": (record.light_sleep_s or 0) / 3600,
-                        "rem_sleep_hours": (record.rem_sleep_s or 0) / 3600,
-                        "awake_hours": (record.awake_time_s or 0) / 3600,
-                        "bedtime_utc": record.bedtime_utc,
-                        "wakeup_time_utc": record.wakeup_time_utc,
-                        "restlessness": record.restlessness,
-                    }
-                )
+            rows = []
+            for r in records:
+                rows.append({
+                    "date": getattr(r, "date", None),
+                    "bedtime_utc": getattr(r, "bedtime_utc", None),
+                    "wakeup_time_utc": getattr(r, "wakeup_time_utc", None),
+                    "total_sleep_time_s": getattr(r, "total_sleep_time_s", None),
+                    "deep_sleep_s": getattr(r, "deep_sleep_s", None),
+                    "light_sleep_s": getattr(r, "light_sleep_s", None),
+                    "rem_sleep_s": getattr(r, "rem_sleep_s", None),
+                    "awake_time_s": getattr(r, "awake_time_s", None),
+                    "sleep_score": getattr(r, "sleep_score", None),
+                    "restlessness": getattr(r, "restlessness", None),
+                    "efficiency_percentage": getattr(r, "efficiency_percentage", None),
+                    "data_source": getattr(r, "data_source", None),
+                    "retrieved_at": getattr(r, "retrieved_at", None),
+                })
 
-            df = pd.DataFrame(data)
+            df = pd.DataFrame(rows)
+            if df.empty:
+                return df
+
+            # Normalize/sort on the client side to avoid SQLite quirks
             df["date"] = pd.to_datetime(df["date"])
-            return df.set_index("date")
+            df = df.sort_values("date").set_index("date")
+
+            # Helpful derived columns for plotting (hours from seconds)
+            for col in ["total_sleep_time_s", "deep_sleep_s", "light_sleep_s", "rem_sleep_s", "awake_time_s"]:
+                if col in df.columns:
+                    df[col.replace("_s", "_h")] = df[col] / 3600.0
+
+            return df
 
     except Exception as e:
         log_error(e, f"Failed to get sleep data for {days} days")
