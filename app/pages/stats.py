@@ -14,6 +14,12 @@ from app.data.web_queries import (
     get_steps_data,
     get_stress_data,
     get_wellness_statistics,
+    get_heart_rate_data,
+    get_body_battery_data,
+    get_training_readiness_data,
+    get_spo2_data,
+    get_personal_records_data,
+    get_max_metrics_data,
 )
 from app.utils import get_logger
 
@@ -94,6 +100,70 @@ def layout():
                                                 ],
                                             ),
                                             html.Div(id="activity-chart"),
+                                        ]
+                                    ),
+                                ],
+                                className="mb-4",
+                            ),
+                            # Advanced Wellness Header
+                            html.H2([html.I(className="fas fa-heartbeat me-3"), "Advanced Wellness"], className="mb-4 mt-5"),
+                            # Heart Rate Analytics
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader([html.H5("Heart Rate Analytics", className="mb-0")]),
+                                    dbc.CardBody(
+                                        [
+                                            dcc.Tabs(
+                                                id="hr-tabs",
+                                                value="resting-hr",
+                                                children=[
+                                                    dcc.Tab(label="Resting Heart Rate", value="resting-hr"),
+                                                    dcc.Tab(label="HR Zones", value="hr-zones"),
+                                                    dcc.Tab(label="HRV", value="hrv"),
+                                                ],
+                                            ),
+                                            html.Div(id="hr-chart"),
+                                        ]
+                                    ),
+                                ],
+                                className="mb-4",
+                            ),
+                            # Body Battery and Training
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader([html.H5("Energy & Training", className="mb-0")]),
+                                    dbc.CardBody(
+                                        [
+                                            dcc.Tabs(
+                                                id="energy-tabs",
+                                                value="body-battery",
+                                                children=[
+                                                    dcc.Tab(label="Body Battery", value="body-battery"),
+                                                    dcc.Tab(label="Training Readiness", value="training-readiness"),
+                                                    dcc.Tab(label="VO2 Max", value="vo2-max"),
+                                                ],
+                                            ),
+                                            html.Div(id="energy-chart"),
+                                        ]
+                                    ),
+                                ],
+                                className="mb-4",
+                            ),
+                            # Advanced Health Metrics
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader([html.H5("Advanced Health Metrics", className="mb-0")]),
+                                    dbc.CardBody(
+                                        [
+                                            dcc.Tabs(
+                                                id="health-tabs",
+                                                value="spo2",
+                                                children=[
+                                                    dcc.Tab(label="SpO2 (Blood Oxygen)", value="spo2"),
+                                                    dcc.Tab(label="Personal Records", value="personal-records"),
+                                                ],
+                                            ),
+                                            html.Div(id="health-chart"),
                                         ]
                                     ),
                                 ],
@@ -294,7 +364,8 @@ def register_callbacks(app):
                     className="mb-3",
                 )
 
-            stats_row = dbc.Row(
+            # First row - Core wellness metrics
+            core_stats_row = dbc.Row(
                 [
                     # Sleep stats
                     dbc.Col(
@@ -394,7 +465,117 @@ def register_callbacks(app):
                 ]
             )
 
-            return stats_row
+            # Second row - Advanced wellness metrics 
+            advanced_stats_row = dbc.Row(
+                [
+                    # Heart Rate stats
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H4(
+                                                f"{int(stats['heart_rate']['avg_resting_hr'])}" 
+                                                if stats['heart_rate']['avg_resting_hr'] > 0 else "N/A",
+                                                className="text-info mb-1"
+                                            ),
+                                            html.P("Avg Resting HR", className="mb-0 text-muted"),
+                                            html.Small(
+                                                f"{stats['heart_rate']['total_records']} days",
+                                                className="text-muted",
+                                            ),
+                                        ],
+                                        className="text-center",
+                                    )
+                                ]
+                            )
+                        ],
+                        md=3,
+                        className="mb-3",
+                    ),
+                    # Body Battery stats
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H4(
+                                                f"{int(stats['body_battery']['avg_body_battery'])}"
+                                                if stats['body_battery']['avg_body_battery'] > 0 else "N/A",
+                                                className="text-success mb-1"
+                                            ),
+                                            html.P("Avg Body Battery", className="mb-0 text-muted"),
+                                            html.Small(
+                                                f"{stats['body_battery']['total_records']} days",
+                                                className="text-muted",
+                                            ),
+                                        ],
+                                        className="text-center",
+                                    )
+                                ]
+                            )
+                        ],
+                        md=3,
+                        className="mb-3",
+                    ),
+                    # Training Readiness stats
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H4(
+                                                f"{int(stats['training_readiness']['avg_score'])}"
+                                                if stats['training_readiness']['avg_score'] > 0 else "N/A",
+                                                className="text-primary mb-1"
+                                            ),
+                                            html.P("Training Readiness", className="mb-0 text-muted"),
+                                            html.Small(
+                                                f"{stats['training_readiness']['total_records']} days",
+                                                className="text-muted",
+                                            ),
+                                        ],
+                                        className="text-center",
+                                    )
+                                ]
+                            )
+                        ],
+                        md=3,
+                        className="mb-3",
+                    ),
+                    # VO2 Max stats
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H4(
+                                                f"{stats['max_metrics']['avg_vo2_max']}"
+                                                if stats['max_metrics']['avg_vo2_max'] > 0 else "N/A",
+                                                className="text-danger mb-1"
+                                            ),
+                                            html.P("Avg VO2 Max", className="mb-0 text-muted"),
+                                            html.Small(
+                                                f"{stats['personal_records']['total_records']} PRs",
+                                                className="text-muted",
+                                            ),
+                                        ],
+                                        className="text-center",
+                                    )
+                                ]
+                            )
+                        ],
+                        md=3,
+                        className="mb-3",
+                    ),
+                ]
+            )
+
+            return html.Div([core_stats_row, advanced_stats_row])
 
         except Exception as e:
             logger.error(f"Error updating wellness stats: {e}")
@@ -642,3 +823,262 @@ def register_callbacks(app):
         except Exception as e:
             logger.error(f"Error updating activity chart: {e}")
             return dbc.Alert("Error loading activity data.", color="danger")
+
+    @app.callback(Output("hr-chart", "children"), Input("hr-tabs", "value"))
+    def update_hr_chart(active_tab):
+        """Update heart rate visualization based on selected tab."""
+        try:
+            hr_df = get_heart_rate_data(days=90)
+
+            if hr_df.empty:
+                return dbc.Alert(
+                    [
+                        html.I(className="fas fa-info-circle me-2"),
+                        "No heart rate data available. Please sync your Garmin data to see heart rate analysis.",
+                    ],
+                    color="info",
+                )
+
+            fig = go.Figure()
+
+            if active_tab == "resting-hr":
+                # Resting heart rate trend
+                fig.add_trace(
+                    go.Scatter(
+                        x=hr_df.index,
+                        y=hr_df["resting_hr"],
+                        mode="lines+markers",
+                        name="Resting HR",
+                        line=dict(color="red", width=2),
+                        hovertemplate="<b>%{x}</b><br>Resting HR: %{y} bpm<extra></extra>",
+                    )
+                )
+                fig.update_layout(
+                    title="Daily Resting Heart Rate Trend",
+                    yaxis_title="Heart Rate (bpm)",
+                    height=400,
+                    hovermode="x unified",
+                )
+
+            elif active_tab == "hr-zones":
+                # HR zones stacked bar chart
+                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_1_time"], name="Zone 1", marker_color="lightblue"))
+                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_2_time"], name="Zone 2", marker_color="green"))
+                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_3_time"], name="Zone 3", marker_color="orange"))
+                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_4_time"], name="Zone 4", marker_color="red"))
+                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_5_time"], name="Zone 5", marker_color="darkred"))
+                fig.update_layout(
+                    title="Daily Heart Rate Zone Distribution",
+                    yaxis_title="Time (minutes)",
+                    height=400,
+                    barmode="stack",
+                    hovermode="x unified",
+                )
+
+            elif active_tab == "hrv":
+                # HRV score trend
+                fig.add_trace(
+                    go.Scatter(
+                        x=hr_df.index,
+                        y=hr_df["hrv_score"],
+                        mode="lines+markers",
+                        name="HRV Score",
+                        line=dict(color="purple", width=2),
+                        hovertemplate="<b>%{x}</b><br>HRV Score: %{y}<extra></extra>",
+                    )
+                )
+                fig.update_layout(
+                    title="Heart Rate Variability (HRV) Score",
+                    yaxis_title="HRV Score",
+                    height=400,
+                    hovermode="x unified",
+                )
+
+            return dcc.Graph(figure=fig)
+
+        except Exception as e:
+            logger.error(f"Error updating heart rate chart: {e}")
+            return dbc.Alert("Error loading heart rate data.", color="danger")
+
+    @app.callback(Output("energy-chart", "children"), Input("energy-tabs", "value"))
+    def update_energy_chart(active_tab):
+        """Update energy and training visualization based on selected tab."""
+        try:
+            if active_tab == "body-battery":
+                bb_df = get_body_battery_data(days=90)
+                if bb_df.empty:
+                    return dbc.Alert(
+                        [
+                            html.I(className="fas fa-info-circle me-2"),
+                            "No Body Battery data available. Please sync your Garmin data.",
+                        ],
+                        color="info",
+                    )
+
+                fig = go.Figure()
+                fig.add_trace(
+                    go.Scatter(
+                        x=bb_df.index,
+                        y=bb_df["body_battery_score"],
+                        mode="markers",
+                        name="Daily Score",
+                        marker=dict(color="lightgreen", size=6),
+                        hovertemplate="<b>%{x}</b><br>Body Battery: %{y}<extra></extra>",
+                    )
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=bb_df.index,
+                        y=bb_df["bb_7d_avg"],
+                        mode="lines",
+                        name="7-day Average",
+                        line=dict(color="green", width=2),
+                        hovertemplate="<b>%{x}</b><br>7-day Average: %{y:.1f}<extra></extra>",
+                    )
+                )
+                fig.update_layout(
+                    title="Body Battery Energy Levels",
+                    yaxis_title="Body Battery Score (0-100)",
+                    height=400,
+                    hovermode="x unified",
+                )
+
+            elif active_tab == "training-readiness":
+                tr_df = get_training_readiness_data(days=90)
+                if tr_df.empty:
+                    return dbc.Alert(
+                        [
+                            html.I(className="fas fa-info-circle me-2"),
+                            "No Training Readiness data available. Please sync your Garmin data.",
+                        ],
+                        color="info",
+                    )
+
+                fig = go.Figure()
+                fig.add_trace(
+                    go.Scatter(
+                        x=tr_df.index,
+                        y=tr_df["training_readiness_score"],
+                        mode="lines+markers",
+                        name="Training Readiness",
+                        line=dict(color="blue", width=2),
+                        hovertemplate="<b>%{x}</b><br>Readiness: %{y}<extra></extra>",
+                    )
+                )
+                fig.update_layout(
+                    title="Training Readiness Score",
+                    yaxis_title="Readiness Score (0-100)",
+                    height=400,
+                    hovermode="x unified",
+                )
+
+            elif active_tab == "vo2-max":
+                vo2_df = get_max_metrics_data(days=365)
+                if vo2_df.empty:
+                    return dbc.Alert(
+                        [
+                            html.I(className="fas fa-info-circle me-2"),
+                            "No VO2 Max data available. Please sync your Garmin data.",
+                        ],
+                        color="info",
+                    )
+
+                fig = go.Figure()
+                fig.add_trace(
+                    go.Scatter(
+                        x=vo2_df.index,
+                        y=vo2_df["vo2_max_value"],
+                        mode="lines+markers",
+                        name="VO2 Max",
+                        line=dict(color="red", width=2),
+                        hovertemplate="<b>%{x}</b><br>VO2 Max: %{y}<extra></extra>",
+                    )
+                )
+                fig.update_layout(
+                    title="VO2 Max Fitness Trend",
+                    yaxis_title="VO2 Max (ml/kg/min)",
+                    height=400,
+                    hovermode="x unified",
+                )
+
+            return dcc.Graph(figure=fig)
+
+        except Exception as e:
+            logger.error(f"Error updating energy chart: {e}")
+            return dbc.Alert("Error loading energy/training data.", color="danger")
+
+    @app.callback(Output("health-chart", "children"), Input("health-tabs", "value"))
+    def update_health_chart(active_tab):
+        """Update advanced health metrics visualization based on selected tab."""
+        try:
+            if active_tab == "spo2":
+                spo2_df = get_spo2_data(days=90)
+                if spo2_df.empty:
+                    return dbc.Alert(
+                        [
+                            html.I(className="fas fa-info-circle me-2"),
+                            "No SpO2 data available. Please sync your Garmin data.",
+                        ],
+                        color="info",
+                    )
+
+                fig = go.Figure()
+                fig.add_trace(
+                    go.Scatter(
+                        x=spo2_df.index,
+                        y=spo2_df["avg_spo2_percentage"],
+                        mode="lines+markers",
+                        name="Average SpO2",
+                        line=dict(color="blue", width=2),
+                        hovertemplate="<b>%{x}</b><br>SpO2: %{y}%<extra></extra>",
+                    )
+                )
+                fig.update_layout(
+                    title="Blood Oxygen Saturation (SpO2)",
+                    yaxis_title="SpO2 (%)",
+                    height=400,
+                    hovermode="x unified",
+                )
+                return dcc.Graph(figure=fig)
+
+            elif active_tab == "personal-records":
+                pr_data = get_personal_records_data()
+                if not pr_data:
+                    return dbc.Alert(
+                        [
+                            html.I(className="fas fa-info-circle me-2"),
+                            "No personal records available. Sync your activities to see achievements.",
+                        ],
+                        color="info",
+                    )
+
+                # Create a table of personal records
+                pr_rows = []
+                for record in pr_data[:10]:  # Show top 10 records
+                    pr_rows.append(
+                        html.Tr([
+                            html.Td(record["activity_type"] or "N/A"),
+                            html.Td(record["record_type"] or "N/A"),
+                            html.Td(f"{record['record_value']} {record['record_unit']}" if record["record_value"] else "N/A"),
+                            html.Td(record["achieved_date"].strftime("%Y-%m-%d") if record["achieved_date"] else "N/A"),
+                        ])
+                    )
+
+                return html.Div([
+                    html.H5("Recent Personal Records"),
+                    dbc.Table([
+                        html.Thead([
+                            html.Tr([
+                                html.Th("Sport"),
+                                html.Th("Record Type"),
+                                html.Th("Value"),
+                                html.Th("Date Achieved"),
+                            ])
+                        ]),
+                        html.Tbody(pr_rows)
+                    ], bordered=True, hover=True, responsive=True, striped=True)
+                ])
+
+        except Exception as e:
+            logger.error(f"Error updating health chart: {e}")
+            return dbc.Alert("Error loading health data.", color="danger")

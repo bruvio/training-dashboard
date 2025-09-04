@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from .client import GarminConnectClient, GarminAuthError
+from .wellness_sync import WellnessSyncManager
 
 logger = logging.getLogger(__name__)
 
@@ -120,19 +121,48 @@ def sync_range(
             except Exception as e:
                 logger.warning("Failed to download FIT for %s: %s", act_id, e)
 
-    # Optional: wellness summaries (one per day)
+    # Optional: comprehensive wellness data sync
     wellness_records = 0
     wellness_days: List[Dict[str, Any]] = []
+    comprehensive_wellness = {}
     if fetch_wellness:
-        d = start
-        while d <= end:
-            try:
-                w = client.wellness_summary_for_day(d)
-                wellness_days.append({"date": d.isoformat(), **w})
-                wellness_records += sum(1 for k, v in w.items() if v)
-            except Exception:
-                pass
-            d = d + timedelta(days=1)
+        try:
+            # Use comprehensive wellness sync manager
+            wellness_manager = WellnessSyncManager(client)
+            wellness_result = wellness_manager.sync_comprehensive_wellness(days=days)
+            
+            if wellness_result.get('success'):
+                comprehensive_wellness = wellness_result
+                wellness_records = wellness_result.get('total_records', 0)
+                logger.info(f"Comprehensive wellness sync completed: {wellness_records} records")
+            else:
+                logger.warning(f"Comprehensive wellness sync failed: {wellness_result.get('error', 'Unknown error')}")
+                
+            # Fallback to basic wellness summaries if comprehensive sync fails
+            if wellness_records == 0:
+                logger.info("Using fallback basic wellness sync")
+                d = start
+                while d <= end:
+                    try:
+                        w = client.wellness_summary_for_day(d)
+                        wellness_days.append({"date": d.isoformat(), **w})
+                        wellness_records += sum(1 for k, v in w.items() if v)
+                    except Exception:
+                        pass
+                    d = d + timedelta(days=1)
+                    
+        except Exception as e:
+            logger.error(f"Wellness sync error: {e}")
+            # Basic fallback
+            d = start
+            while d <= end:
+                try:
+                    w = client.wellness_summary_for_day(d)
+                    wellness_days.append({"date": d.isoformat(), **w})
+                    wellness_records += sum(1 for k, v in w.items() if v)
+                except Exception:
+                    pass
+                d = d + timedelta(days=1)
 
     return {
         "ok": True,

@@ -22,12 +22,28 @@ from garmin_client.sync import sync_range
 
 logger = logging.getLogger(__name__)
 
+# Global client manager for maintaining MFA state across callbacks
+_client_instance = None
+
+def get_client():
+    """Get or create global client instance to maintain MFA state."""
+    global _client_instance
+    if _client_instance is None:
+        _client_instance = GarminConnectClient()
+    return _client_instance
+
+def reset_client():
+    """Reset the global client instance."""
+    global _client_instance
+    _client_instance = None
+
 
 def layout():
     return dbc.Container(
         [
             dcc.Store(id="garmin-auth-store"),
             dcc.Store(id="garmin-activities-store"),
+            dcc.Store(id="garmin-client-state"),  # Store for maintaining client state
             dbc.Row(
                 dbc.Col(
                     [
@@ -231,6 +247,8 @@ def layout():
                                             ],
                                             data=[],
                                             page_size=10,
+                                            row_selectable="multi",
+                                            selected_rows=[],
                                             sort_action="native",
                                             filter_action="native",
                                             style_table={"overflowX": "auto"},
@@ -264,7 +282,7 @@ def register_callbacks(app):
     )
     def _bootstrap_auth(_):
         try:
-            cli = GarminConnectClient()
+            cli = get_client()
             state = cli.load_session()
             if state.get("is_authenticated"):
                 return state, dbc.Alert(f"Signed in as {state.get('username')}.", color="success", dismissable=True)
@@ -289,7 +307,8 @@ def register_callbacks(app):
         if not email or not password:
             return no_update, dbc.Alert("Please enter both email and password.", color="warning"), True
         try:
-            cli = GarminConnectClient()
+            reset_client()  # Reset any previous state
+            cli = get_client()  # Get shared client instance
             result = cli.login(str(email).strip(), str(password), remember=bool(remember))
             if result.get("mfa_required"):
                 return {"is_authenticated": False, "username": None, "mfa_required": True}, dbc.Alert(
@@ -323,7 +342,7 @@ def register_callbacks(app):
         if not code:
             return no_update, dbc.Alert("Please enter the MFA code.", color="warning"), False
         try:
-            cli = GarminConnectClient()
+            cli = get_client()  # Use shared client instance with MFA context
             result = cli.submit_mfa(str(code).strip(), remember=bool(remember))
             return {"is_authenticated": True, "username": result.get("username"), "mfa_required": False}, dbc.Alert(
                 f"MFA successful. Logged in as {result.get('username')}.", color="success", dismissable=True

@@ -121,22 +121,14 @@ def initialize_garmin_session():
         client = GarminConnectClient()
 
         # Check if we have valid stored credentials
-        credentials = client.load_credentials()
-        if credentials:
+        credentials = client.load_session()
+        if credentials.get("is_authenticated"):
             logger.info("📝 Found stored Garmin credentials")
 
-        # Check for existing garth session
-        session_valid = client.validate_session()
-        if session_valid:
-            logger.info("✅ Found valid Garmin session - attempting to restore...")
-
-            restore_result = client.restore_session()
-            if restore_result["status"] == "SUCCESS":
-                logger.info("🎉 Garmin session restored successfully on app startup!")
-                logger.info("   Users can navigate to /garmin to see authenticated state")
-            else:
-                logger.info(f"⚠️ Session restoration failed: {restore_result.get('message', 'Unknown error')}")
-                logger.info("   Users will need to login again")
+        # Session status already determined from load_session above
+        if credentials.get("is_authenticated"):
+            logger.info(f"✅ Garmin session active for user: {credentials.get('username', 'Unknown')}")
+            logger.info("   Users can navigate to /garmin to sync data")
         else:
             logger.info("📱 No valid Garmin session found - users will need to login")
 

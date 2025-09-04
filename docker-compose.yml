@@ -24,6 +24,8 @@ services:
       # Fixed volume mounting with proper directory creation
       - ./data:/data
       - ./activities:/app/activities:ro
+      # Volume for Garmin Connect tokens persistence
+      - garmin-tokens:/home/garmin/.garminconnect
     environment:
       - DATABASE_URL=sqlite:////data/garmin_dashboard.db
       - DASH_DEBUG=${DASH_DEBUG:-False}
@@ -116,6 +118,11 @@ services:
 networks:
   garmin-network:
     driver: bridge
+
+# Volumes for persistent data
+volumes:
+  garmin-tokens:
+    driver: local
 
 # Usage examples:
 #
