@@ -973,7 +973,7 @@ def register_callbacks(app):
                     [
                         html.Div(
                             [
-                                dbc.Spinner(size="sm", className="me-2"),
+                                dbc.Spinner(size="sm", spinner_class_name="me-2"),
                                 "Synchronizing activities from Garmin Connect...",
                             ],
                             className="d-flex align-items-center",

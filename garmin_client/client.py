@@ -395,23 +395,76 @@ class GarminConnectClient:
 
         try:
             # Check if the session directory has the expected structure
-            oauth1_file = garth_session_path / "oauth1"
-            garth_session_path / "oauth2"
+            oauth1_file = garth_session_path / "oauth1_token.json"
+            oauth2_file = garth_session_path / "oauth2_token.json"
 
             if not garth_session_path.is_dir():
                 logger.warning("Session path exists but is not a directory")
                 return False
 
-            # Try to validate oauth1 file if it exists
+            # Check for OAuth1 token file
             if oauth1_file.exists():
-                with open(oauth1_file, "r") as f:
-                    oauth1_data = json.load(f)
-                    # Validate that it's a proper dict, not a string
-                    if not isinstance(oauth1_data, dict):
-                        logger.warning(f"OAuth1 file contains invalid data type: {type(oauth1_data)}")
-                        return False
+                try:
+                    with open(oauth1_file, "r") as f:
+                        oauth1_content = f.read().strip()
+                        if not oauth1_content:
+                            logger.warning("OAuth1 token file is empty")
+                            return False
+                        
+                        # Try to parse as JSON - garth might store different formats
+                        try:
+                            oauth1_data = json.loads(oauth1_content)
+                            # Accept both dict and string formats
+                            if isinstance(oauth1_data, (dict, str)) and oauth1_data:
+                                logger.debug(f"Valid OAuth1 token file found (type: {type(oauth1_data).__name__})")
+                            else:
+                                logger.warning(f"OAuth1 file contains invalid data: {oauth1_data}")
+                                return False
+                        except json.JSONDecodeError:
+                            # If it's not valid JSON but has content, it might be a plain token string
+                            if len(oauth1_content) > 10:  # Reasonable token length
+                                logger.debug("OAuth1 token file contains non-JSON token string")
+                            else:
+                                logger.warning(f"OAuth1 file contains invalid content: {oauth1_content[:50]}")
+                                return False
+                except Exception as e:
+                    logger.warning(f"Error reading OAuth1 token file: {e}")
+                    return False
             else:
-                logger.info("No OAuth1 file found in session")
+                logger.info("No OAuth1 token file found in session")
+                return False
+
+            # Check for OAuth2 token file  
+            if oauth2_file.exists():
+                try:
+                    with open(oauth2_file, "r") as f:
+                        oauth2_content = f.read().strip()
+                        if not oauth2_content:
+                            logger.warning("OAuth2 token file is empty")
+                            return False
+                        
+                        # Try to parse as JSON - garth might store different formats
+                        try:
+                            oauth2_data = json.loads(oauth2_content)
+                            # Accept both dict and string formats
+                            if isinstance(oauth2_data, (dict, str)) and oauth2_data:
+                                logger.debug(f"Valid OAuth2 token file found (type: {type(oauth2_data).__name__})")
+                            else:
+                                logger.warning(f"OAuth2 file contains invalid data: {oauth2_data}")
+                                return False
+                        except json.JSONDecodeError:
+                            # If it's not valid JSON but has content, it might be a plain token string
+                            if len(oauth2_content) > 10:  # Reasonable token length
+                                logger.debug("OAuth2 token file contains non-JSON token string")
+                            else:
+                                logger.warning(f"OAuth2 file contains invalid content: {oauth2_content[:50]}")
+                                return False
+                except Exception as e:
+                    logger.warning(f"Error reading OAuth2 token file: {e}")
+                    return False
+            else:
+                logger.info("No OAuth2 token file found in session")
+                return False
 
             return True
 
@@ -438,24 +491,39 @@ class GarminConnectClient:
         if not self.session_file.exists():
             return {"status": "NO_SESSION", "message": "No session file found"}
 
-        # Check if garth session was saved successfully during authentication
-        try:
-            with open(self.session_file, "r") as f:
-                session_data = json.load(f)
-                garth_session_saved = session_data.get("garth_session_saved", False)
-
-            if not garth_session_saved:
-                logger.info("Garth session was not saved during authentication, skipping garth restoration")
-                return {"status": "NO_SESSION", "message": "No valid garth session available"}
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
-            logger.info("Could not read session metadata")
-            return {"status": "NO_SESSION", "message": "No session metadata found"}
-
-        # Try to validate garth session directory structure
+        # Check if we have valid garth session files (regardless of save flag)
+        # This is more reliable than trusting the save flag since garth might 
+        # create files even when save() reports an error
         garth_session_valid = self.validate_session()
         if not garth_session_valid:
-            logger.info("Garth session directory validation failed")
-            return {"status": "NO_SESSION", "message": "Invalid garth session structure"}
+            logger.info("No valid garth session files found")
+            
+            # Try credential-based restoration as fallback
+            try:
+                with open(self.session_file, "r") as f:
+                    session_data = json.load(f)
+                email = session_data.get("email")
+                
+                if email and self.credentials_file.exists():
+                    logger.info("Attempting credential-based authentication")
+                    credentials = self.load_credentials()
+                    if credentials:
+                        # Re-authenticate using stored credentials
+                        auth_result = self.authenticate(
+                            credentials["email"],
+                            credentials["password"], 
+                            remember_me=True
+                        )
+                        if auth_result["status"] == "SUCCESS":
+                            logger.info("Successfully authenticated using stored credentials")
+                            return {"status": "SUCCESS", "message": "Session restored via stored credentials"}
+                        elif auth_result["status"] == "MFA_REQUIRED":
+                            logger.info("MFA required for credential-based authentication")
+                            return {"status": "NO_SESSION", "message": "MFA required - please login"}
+            except Exception as cred_error:
+                logger.info(f"Credential-based restoration failed: {cred_error}")
+            
+            return {"status": "NO_SESSION", "message": "No valid session available"}
 
         try:
             # Ensure the session directory exists before attempting resume
@@ -494,14 +562,48 @@ class GarminConnectClient:
         ) as e:
             logger.info(f"Session restoration failed: {e}")
 
-            # Clean up corrupted session files
+            # Don't clean up session files immediately - they might be valid for garth even if we can't read them
+            # Only clean up if the session is genuinely corrupted (e.g., very old or completely invalid)
             try:
-                import shutil
-
-                shutil.rmtree(garth_session_path, ignore_errors=True)
-                logger.info("Cleaned up corrupted session files after failed restoration")
+                session_age_hours = 0
+                if self.session_file.exists():
+                    with open(self.session_file, "r") as f:
+                        session_data = json.load(f)
+                        auth_time_str = session_data.get("authenticated_at")
+                        if auth_time_str:
+                            auth_time = datetime.fromisoformat(auth_time_str)
+                            session_age_hours = (datetime.now() - auth_time).total_seconds() / 3600
+                
+                # Only clean up if session is older than 1 hour or truly corrupted
+                if session_age_hours > 1 or "corrupted" in str(e).lower():
+                    import shutil
+                    shutil.rmtree(garth_session_path, ignore_errors=True)
+                    logger.info(f"Cleaned up old session files (age: {session_age_hours:.1f}h)")
+                else:
+                    logger.info(f"Preserving recent session files (age: {session_age_hours:.1f}h) - garth may still be able to use them")
+                    
             except Exception as cleanup_error:
-                logger.warning(f"Could not clean up session files: {cleanup_error}")
+                logger.warning(f"Could not assess session age for cleanup: {cleanup_error}")
+
+            # Try credential-based fallback before giving up completely
+            if self.credentials_file.exists():
+                try:
+                    logger.info("Attempting credential-based fallback after garth session failure")
+                    credentials = self.load_credentials()
+                    if credentials:
+                        auth_result = self.authenticate(
+                            credentials["email"], 
+                            credentials["password"],
+                            remember_me=True
+                        )
+                        if auth_result["status"] == "SUCCESS":
+                            logger.info("Successfully recovered using stored credentials")
+                            return {"status": "SUCCESS", "message": "Session restored via stored credentials"}
+                        elif auth_result["status"] == "MFA_REQUIRED":
+                            logger.info("MFA required for credential recovery")
+                            return {"status": "NO_SESSION", "message": "MFA required - please login"}
+                except Exception as cred_error:
+                    logger.info(f"Credential-based fallback failed: {cred_error}")
 
             self._authenticated = False
             return {"status": "FAILED", "message": f"Session restoration failed: {str(e)}"}
