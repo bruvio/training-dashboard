@@ -19,6 +19,7 @@ from app.data.garmin_models import (
     DailySteps,
     DailyBodyBattery,
     DailyHeartRate,
+    DailyTrainingReadiness,
 )
 
 logger = logging.getLogger(__name__)
@@ -266,6 +267,65 @@ class WellnessDataService:
             logger.error(f"Failed to persist Body Battery data: {e}")
             return False
 
+    def persist_training_readiness_data(self, tr_records: List[Dict[str, Any]]) -> bool:
+        """Persist Training Readiness data to database."""
+        try:
+            with session_scope() as session:
+                persisted_count = 0
+
+                for tr_data in tr_records:
+                    try:
+                        tr_date = self._parse_date(tr_data.get("date"))
+                        if not tr_date:
+                            continue
+
+                        # Check if record exists
+                        existing = session.query(DailyTrainingReadiness).filter_by(date=tr_date).first()
+
+                        if existing:
+                            # Update existing record
+                            existing.training_readiness_score = tr_data.get("score")
+                            existing.hrv_score = tr_data.get("hrv_weekly_average")
+                            existing.sleep_score = tr_data.get("sleep_score")
+                            existing.recovery_time_hours = (
+                                tr_data.get("recovery_time", 0) // 60 if tr_data.get("recovery_time") else None
+                            )
+                            existing.hrv_status = tr_data.get("level")
+                            existing.sleep_status = tr_data.get("feedback_short")
+                            existing.stress_status = tr_data.get("feedback_long")
+                            existing.data_source = "garminconnect"
+                            existing.retrieved_at = datetime.utcnow()
+                        else:
+                            # Create new record
+                            tr_record = DailyTrainingReadiness(
+                                date=tr_date,
+                                training_readiness_score=tr_data.get("score"),
+                                hrv_score=tr_data.get("hrv_weekly_average"),
+                                sleep_score=tr_data.get("sleep_score"),
+                                recovery_time_hours=tr_data.get("recovery_time", 0) // 60
+                                if tr_data.get("recovery_time")
+                                else None,
+                                hrv_status=tr_data.get("level"),
+                                sleep_status=tr_data.get("feedback_short"),
+                                stress_status=tr_data.get("feedback_long"),
+                                data_source="garminconnect",
+                                retrieved_at=datetime.utcnow(),
+                            )
+                            session.add(tr_record)
+
+                        persisted_count += 1
+
+                    except Exception as e:
+                        logger.warning(f"Failed to persist individual Training Readiness record: {e}")
+                        continue
+
+                logger.info(f"Successfully persisted {persisted_count} Training Readiness records")
+                return persisted_count > 0
+
+        except Exception as e:
+            logger.error(f"Failed to persist Training Readiness data: {e}")
+            return False
+
     def persist_stress_data(self, stress_records: List[Dict[str, Any]]) -> bool:
         """Persist stress data to database."""
         try:
@@ -350,6 +410,10 @@ class WellnessDataService:
         # Body Battery data
         if "body_battery" in wellness_data and wellness_data["body_battery"]:
             results["body_battery"] = self.persist_body_battery_data(wellness_data["body_battery"])
+
+        # Training Readiness data
+        if "training_readiness" in wellness_data and wellness_data["training_readiness"]:
+            results["training_readiness"] = self.persist_training_readiness_data(wellness_data["training_readiness"])
 
         # Stress data
         if "stress" in wellness_data and wellness_data["stress"]:

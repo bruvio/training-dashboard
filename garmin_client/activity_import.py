@@ -13,7 +13,7 @@ import tempfile
 import hashlib
 
 from app.data.db import session_scope
-from app.data.models import Activity, Lap, Sample, RoutePoint, ImportResult
+from app.data.models import Activity, Lap, Sample, RoutePoint
 from ingest.parser import ActivityParser
 
 from .client import GarminConnectClient, GarminAuthError
@@ -54,8 +54,13 @@ class ActivityImportService:
                         "message": f"Activity {activity_id} already exists in database",
                     }
 
-            # Get activity summary from Garmin Connect
-            activity_summary = self._get_activity_summary(activity_id)
+            # Get activity summary from Garmin Connect - try to get from recent activities first
+            activity_summary = self._get_activity_from_recent_list(activity_id)
+
+            # If not found in recent list, try detailed API
+            if not activity_summary:
+                activity_summary = self._get_activity_summary(activity_id)
+
             if not activity_summary:
                 return {"success": False, "error": f"Could not retrieve activity {activity_id} from Garmin Connect"}
 
@@ -93,18 +98,9 @@ class ActivityImportService:
                         point = self._create_route_point_record(activity_db_id, point_data)
                         session.add(point)
 
-                # Create import result record
-                import_result = ImportResult(
-                    file_path=f"garmin_connect://{activity_id}",
-                    file_hash=self._generate_activity_hash(activity_summary),
-                    activity_id=activity_db_id,
-                    import_timestamp=datetime.now(timezone.utc),
-                    processing_time_s=0.0,
-                    samples_count=len(parsed_data.get("samples", [])) if parsed_data else 0,
-                    laps_count=len(parsed_data.get("laps", [])) if parsed_data else 0,
-                    route_points_count=len(parsed_data.get("route_points", [])) if parsed_data else 0,
-                )
-                session.add(import_result)
+                samples_count = len(parsed_data.get("samples", [])) if parsed_data else 0
+                laps_count = len(parsed_data.get("laps", [])) if parsed_data else 0
+                route_points_count = len(parsed_data.get("route_points", [])) if parsed_data else 0
 
                 logger.info(f"Successfully imported activity {activity_id} as database ID {activity_db_id}")
 
@@ -113,9 +109,9 @@ class ActivityImportService:
                     "status": "imported",
                     "activity_id": activity_db_id,
                     "garmin_activity_id": activity_id,
-                    "samples": import_result.samples_count,
-                    "laps": import_result.laps_count,
-                    "route_points": import_result.route_points_count,
+                    "samples": samples_count,
+                    "laps": laps_count,
+                    "route_points": route_points_count,
                     "message": f"Activity {activity_id} imported successfully",
                 }
 
@@ -188,10 +184,35 @@ class ActivityImportService:
             logger.error(f"Failed to import activities for date range: {e}")
             return {"success": False, "error": str(e)}
 
-    def _get_activity_summary(self, activity_id: str) -> Optional[Dict[str, Any]]:
-        """Get activity summary from Garmin Connect."""
+    def _get_activity_from_recent_list(self, activity_id: str) -> Optional[Dict[str, Any]]:
+        """Try to get activity data from recent activities list (has better metadata)."""
         try:
-            return self.client.api.get_activity_by_id(activity_id)
+            # Search in recent activities (last 365 days for better coverage)
+            from datetime import datetime, timedelta
+
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+
+            activities = self.client.get_activities_by_date(start_date, end_date, "")
+
+            # Find the activity by ID
+            for activity in activities:
+                act_id = str(activity.get("activityId") or activity.get("activityIdStr") or "")
+                if act_id == str(activity_id):
+                    logger.info(f"Found activity {activity_id} in recent activities list with complete metadata")
+                    return activity
+
+            logger.info(f"Activity {activity_id} not found in recent activities list (last 90 days)")
+            return None
+
+        except Exception as e:
+            logger.warning(f"Failed to search for activity {activity_id} in recent activities: {e}")
+            return None
+
+    def _get_activity_summary(self, activity_id: str) -> Optional[Dict[str, Any]]:
+        """Get activity summary from Garmin Connect detailed API (fallback)."""
+        try:
+            return self.client.api.get_activity(activity_id)
         except Exception as e:
             logger.error(f"Failed to get activity summary for {activity_id}: {e}")
             return None
@@ -214,25 +235,26 @@ class ActivityImportService:
         """Create Activity database record from summary and parsed data."""
         garmin_id = summary.get("activityId") or summary.get("activityIdStr")
 
+        # Extract activity type - it might be a dict or string
+        activity_type = summary.get("activityType", "unknown")
+        if isinstance(activity_type, dict):
+            activity_type = activity_type.get("typeKey") or activity_type.get("typeId") or "unknown"
+
         return Activity(
             garmin_activity_id=str(garmin_id) if garmin_id else None,
             name=summary.get("activityName", ""),
-            sport=summary.get("activityType", "unknown"),
-            start_time=self._parse_datetime(summary.get("startTimeGMT") or summary.get("startTimeLocal")),
-            end_time=self._parse_datetime(summary.get("endTimeGMT") or summary.get("endTimeLocal")),
+            sport=str(activity_type),
+            start_time_utc=self._parse_datetime(summary.get("startTimeGMT") or summary.get("startTimeLocal")),
+            elapsed_time_s=summary.get("elapsedDuration", 0),
             distance_m=summary.get("distance", 0.0),
-            duration_s=summary.get("elapsedDuration", 0),
             calories=summary.get("calories"),
-            avg_heart_rate=summary.get("averageHR"),
-            max_heart_rate=summary.get("maxHR"),
-            avg_speed_ms=summary.get("averageSpeed"),
-            max_speed_ms=summary.get("maxSpeed"),
-            total_ascent_m=summary.get("elevationGain"),
-            total_descent_m=summary.get("elevationLoss"),
-            min_elevation_m=summary.get("minElevation"),
-            max_elevation_m=summary.get("maxElevation"),
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            avg_hr=summary.get("averageHR"),
+            max_hr=summary.get("maxHR"),
+            avg_speed_mps=summary.get("averageSpeed"),
+            elevation_gain_m=summary.get("elevationGain"),
+            elevation_loss_m=summary.get("elevationLoss"),
+            source="garmin_connect",
+            ingested_on=datetime.now(timezone.utc),
         )
 
     def _create_lap_record(self, activity_id: int, lap_data: Dict[str, Any]) -> Lap:
@@ -283,10 +305,15 @@ class ActivityImportService:
 
         try:
             if isinstance(dt_str, datetime):
-                return dt_str
+                return dt_str.replace(tzinfo=timezone.utc) if dt_str.tzinfo is None else dt_str
             elif isinstance(dt_str, str):
-                # Try common formats
-                formats = ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"]
+                # Try common formats from Garmin API
+                formats = [
+                    "%Y-%m-%d %H:%M:%S",  # Garmin format: "2024-12-31 05:28:12"
+                    "%Y-%m-%dT%H:%M:%S.%fZ",
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    "%Y-%m-%dT%H:%M:%S",
+                ]
                 for fmt in formats:
                     try:
                         return datetime.strptime(dt_str, fmt).replace(tzinfo=timezone.utc)

@@ -1222,11 +1222,12 @@ def get_training_readiness_data(days: int = 90) -> pd.DataFrame:
                     {
                         "date": record.date,
                         "training_readiness_score": record.training_readiness_score,
-                        "recovery_feedback": record.recovery_feedback,
-                        "feedback_phrase": record.feedback_phrase,
-                        "load_balance": record.load_balance,
-                        "sleep_quality": record.sleep_quality,
-                        "recovery_time": record.recovery_time,
+                        "hrv_score": record.hrv_score,
+                        "sleep_score": record.sleep_score,
+                        "recovery_time_hours": record.recovery_time_hours,
+                        "hrv_status": record.hrv_status,
+                        "sleep_status": record.sleep_status,
+                        "stress_status": record.stress_status,
                     }
                 )
 

@@ -334,14 +334,16 @@ class WellnessSyncManager:
                         if isinstance(body_battery, list):
                             body_battery = body_battery[0] if body_battery else {}
 
+                        # Extract highest and lowest from bodyBatteryValuesArray
+                        values_array = body_battery.get("bodyBatteryValuesArray", [])
+                        battery_values = [value[1] for value in values_array if len(value) > 1]
+
                         bb_record = {
                             "date": current_date,
-                            "body_battery_score": body_battery.get("bodyBatteryMostRecentScore")
-                            or body_battery.get("endOfDayBodyBattery"),
-                            "charged_value": body_battery.get("bodyBatteryChargedValue"),
-                            "drained_value": body_battery.get("bodyBatteryDrainedValue"),
-                            "highest_value": body_battery.get("bodyBatteryHighestValue"),
-                            "lowest_value": body_battery.get("bodyBatteryLowestValue"),
+                            "charged": body_battery.get("charged", 0),
+                            "drained": body_battery.get("drained", 0),
+                            "highestLevel": max(battery_values) if battery_values else 0,
+                            "lowestLevel": min(battery_values) if battery_values else 0,
                         }
                         bb_data.append(bb_record)
 
@@ -360,6 +362,54 @@ class WellnessSyncManager:
 
         except Exception as e:
             logger.error(f"Body Battery data sync failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    def sync_training_readiness(self, start_date: date, end_date: date) -> Dict[str, Any]:
+        """Sync Training Readiness data for date range."""
+        try:
+            if not self.client.is_authenticated():
+                raise GarminAuthError("Client not authenticated")
+
+            tr_data = []
+            current_date = start_date
+
+            while current_date <= end_date:
+                try:
+                    date_str = current_date.isoformat()
+                    training_readiness = self.client.api.get_training_readiness(date_str)
+
+                    if training_readiness and isinstance(training_readiness, list):
+                        # Get the most recent/best record for the day
+                        tr_record_data = training_readiness[0] if training_readiness else {}
+
+                        tr_record = {
+                            "date": current_date,
+                            "score": tr_record_data.get("score"),
+                            "level": tr_record_data.get("level"),
+                            "feedback_short": tr_record_data.get("feedbackShort"),
+                            "feedback_long": tr_record_data.get("feedbackLong"),
+                            "sleep_score": tr_record_data.get("sleepScore"),
+                            "hrv_weekly_average": tr_record_data.get("hrvWeeklyAverage"),
+                            "recovery_time": tr_record_data.get("recoveryTime"),
+                            "acute_load": tr_record_data.get("acuteLoad"),
+                        }
+                        tr_data.append(tr_record)
+
+                except Exception as e:
+                    logger.warning(f"Could not get training readiness data for {current_date}: {e}")
+
+                current_date += timedelta(days=1)
+
+            logger.info(f"Synced {len(tr_data)} days of Training Readiness data")
+            return {
+                "success": True,
+                "data": tr_data,
+                "days_synced": len(tr_data),
+                "date_range": f"{start_date} to {end_date}",
+            }
+
+        except Exception as e:
+            logger.error(f"Training Readiness data sync failed: {e}")
             return {"success": False, "error": str(e)}
 
     def sync_personal_records(self) -> Dict[str, Any]:
@@ -556,7 +606,18 @@ class WellnessSyncManager:
             except Exception as e:
                 results["errors"].append(f"Body Battery sync error: {e}")
 
-            # 7. Sync personal records
+            # 7. Sync Training Readiness data
+            try:
+                tr_result = self.sync_training_readiness(start_date, end_date)
+                results["data_types"]["training_readiness"] = tr_result
+                if tr_result["success"]:
+                    results["total_records"] += tr_result.get("days_synced", 0)
+                else:
+                    results["errors"].append(f"Training Readiness: {tr_result.get('error', 'Unknown error')}")
+            except Exception as e:
+                results["errors"].append(f"Training Readiness sync error: {e}")
+
+            # 8. Sync personal records
             try:
                 pr_result = self.sync_personal_records()
                 results["data_types"]["personal_records"] = pr_result
@@ -589,6 +650,9 @@ class WellnessSyncManager:
                         "steps": results.get("data_types", {}).get("steps", {}).get("data", []),
                         "heart_rate": results.get("data_types", {}).get("heart_rate", {}).get("data", []),
                         "body_battery": results.get("data_types", {}).get("body_battery", {}).get("data", []),
+                        "training_readiness": results.get("data_types", {})
+                        .get("training_readiness", {})
+                        .get("data", []),
                         "stress": results.get("data_types", {}).get("stress", {}).get("data", []),
                     }
 
