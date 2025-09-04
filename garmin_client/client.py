@@ -96,7 +96,12 @@ class GarminConnectClient:
             if remember:
                 self.api.garth.dump(str(self.token_dir))
             return {"success": True, "mfa_required": False, "username": self._username}
-        except (GarminConnectAuthenticationError, GarminConnectConnectionError, GarminConnectTooManyRequestsError, GarthHTTPError) as e:
+        except (
+            GarminConnectAuthenticationError,
+            GarminConnectConnectionError,
+            GarminConnectTooManyRequestsError,
+            GarthHTTPError,
+        ) as e:
             raise GarminAuthError(str(e)) from e
 
     def submit_mfa(self, code: str, remember: Optional[bool] = None) -> Dict[str, Any]:
@@ -109,12 +114,19 @@ class GarminConnectClient:
             if remember if remember is not None else self._pending_remember:
                 self.api.garth.dump(str(self.token_dir))
             return {"success": True, "username": self._username}
-        except (GarminConnectAuthenticationError, GarminConnectConnectionError, GarminConnectTooManyRequestsError, GarthHTTPError) as e:
+        except (
+            GarminConnectAuthenticationError,
+            GarminConnectConnectionError,
+            GarminConnectTooManyRequestsError,
+            GarthHTTPError,
+        ) as e:
             raise GarminAuthError(str(e)) from e
 
     # Data helpers
 
-    def get_activities_by_date(self, start: Union[str, date, datetime], end: Union[str, date, datetime], activity_type: str = "") -> List[Dict[str, Any]]:
+    def get_activities_by_date(
+        self, start: Union[str, date, datetime], end: Union[str, date, datetime], activity_type: str = ""
+    ) -> List[Dict[str, Any]]:
         if self.api is None:
             raise GarminAuthError("Not authenticated")
         return self.api.get_activities_by_date(_to_iso(start), _to_iso(end), activity_type)

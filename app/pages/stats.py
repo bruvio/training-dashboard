@@ -106,7 +106,9 @@ def layout():
                                 className="mb-4",
                             ),
                             # Advanced Wellness Header
-                            html.H2([html.I(className="fas fa-heartbeat me-3"), "Advanced Wellness"], className="mb-4 mt-5"),
+                            html.H2(
+                                [html.I(className="fas fa-heartbeat me-3"), "Advanced Wellness"], className="mb-4 mt-5"
+                            ),
                             # Heart Rate Analytics
                             dbc.Card(
                                 [
@@ -465,7 +467,7 @@ def register_callbacks(app):
                 ]
             )
 
-            # Second row - Advanced wellness metrics 
+            # Second row - Advanced wellness metrics
             advanced_stats_row = dbc.Row(
                 [
                     # Heart Rate stats
@@ -476,9 +478,10 @@ def register_callbacks(app):
                                     dbc.CardBody(
                                         [
                                             html.H4(
-                                                f"{int(stats['heart_rate']['avg_resting_hr'])}" 
-                                                if stats['heart_rate']['avg_resting_hr'] > 0 else "N/A",
-                                                className="text-info mb-1"
+                                                f"{int(stats['heart_rate']['avg_resting_hr'])}"
+                                                if stats["heart_rate"]["avg_resting_hr"] > 0
+                                                else "N/A",
+                                                className="text-info mb-1",
                                             ),
                                             html.P("Avg Resting HR", className="mb-0 text-muted"),
                                             html.Small(
@@ -503,8 +506,9 @@ def register_callbacks(app):
                                         [
                                             html.H4(
                                                 f"{int(stats['body_battery']['avg_body_battery'])}"
-                                                if stats['body_battery']['avg_body_battery'] > 0 else "N/A",
-                                                className="text-success mb-1"
+                                                if stats["body_battery"]["avg_body_battery"] > 0
+                                                else "N/A",
+                                                className="text-success mb-1",
                                             ),
                                             html.P("Avg Body Battery", className="mb-0 text-muted"),
                                             html.Small(
@@ -529,8 +533,9 @@ def register_callbacks(app):
                                         [
                                             html.H4(
                                                 f"{int(stats['training_readiness']['avg_score'])}"
-                                                if stats['training_readiness']['avg_score'] > 0 else "N/A",
-                                                className="text-primary mb-1"
+                                                if stats["training_readiness"]["avg_score"] > 0
+                                                else "N/A",
+                                                className="text-primary mb-1",
                                             ),
                                             html.P("Training Readiness", className="mb-0 text-muted"),
                                             html.Small(
@@ -555,8 +560,9 @@ def register_callbacks(app):
                                         [
                                             html.H4(
                                                 f"{stats['max_metrics']['avg_vo2_max']}"
-                                                if stats['max_metrics']['avg_vo2_max'] > 0 else "N/A",
-                                                className="text-danger mb-1"
+                                                if stats["max_metrics"]["avg_vo2_max"] > 0
+                                                else "N/A",
+                                                className="text-danger mb-1",
                                             ),
                                             html.P("Avg VO2 Max", className="mb-0 text-muted"),
                                             html.Small(
@@ -1056,28 +1062,48 @@ def register_callbacks(app):
                 pr_rows = []
                 for record in pr_data[:10]:  # Show top 10 records
                     pr_rows.append(
-                        html.Tr([
-                            html.Td(record["activity_type"] or "N/A"),
-                            html.Td(record["record_type"] or "N/A"),
-                            html.Td(f"{record['record_value']} {record['record_unit']}" if record["record_value"] else "N/A"),
-                            html.Td(record["achieved_date"].strftime("%Y-%m-%d") if record["achieved_date"] else "N/A"),
-                        ])
+                        html.Tr(
+                            [
+                                html.Td(record["activity_type"] or "N/A"),
+                                html.Td(record["record_type"] or "N/A"),
+                                html.Td(
+                                    f"{record['record_value']} {record['record_unit']}"
+                                    if record["record_value"]
+                                    else "N/A"
+                                ),
+                                html.Td(
+                                    record["achieved_date"].strftime("%Y-%m-%d") if record["achieved_date"] else "N/A"
+                                ),
+                            ]
+                        )
                     )
 
-                return html.Div([
-                    html.H5("Recent Personal Records"),
-                    dbc.Table([
-                        html.Thead([
-                            html.Tr([
-                                html.Th("Sport"),
-                                html.Th("Record Type"),
-                                html.Th("Value"),
-                                html.Th("Date Achieved"),
-                            ])
-                        ]),
-                        html.Tbody(pr_rows)
-                    ], bordered=True, hover=True, responsive=True, striped=True)
-                ])
+                return html.Div(
+                    [
+                        html.H5("Recent Personal Records"),
+                        dbc.Table(
+                            [
+                                html.Thead(
+                                    [
+                                        html.Tr(
+                                            [
+                                                html.Th("Sport"),
+                                                html.Th("Record Type"),
+                                                html.Th("Value"),
+                                                html.Th("Date Achieved"),
+                                            ]
+                                        )
+                                    ]
+                                ),
+                                html.Tbody(pr_rows),
+                            ],
+                            bordered=True,
+                            hover=True,
+                            responsive=True,
+                            striped=True,
+                        ),
+                    ]
+                )
 
         except Exception as e:
             logger.error(f"Error updating health chart: {e}")

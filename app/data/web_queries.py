@@ -17,10 +17,21 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..utils import get_logger, log_error
 from .db import session_scope
 from .garmin_models import (
-    DailyIntensityMinutes, DailySleep, DailySteps, DailyStress, 
-    DailyHeartRate, DailyBodyBattery, DailyHydration, DailyRespiration, 
-    DailySpo2, DailyTrainingReadiness, TrainingStatus, MaxMetrics,
-    PersonalRecords, BloodPressureReadings, UserProfile
+    DailyIntensityMinutes,
+    DailySleep,
+    DailySteps,
+    DailyStress,
+    DailyHeartRate,
+    DailyBodyBattery,
+    DailyHydration,
+    DailyRespiration,
+    DailySpo2,
+    DailyTrainingReadiness,
+    TrainingStatus,
+    MaxMetrics,
+    PersonalRecords,
+    BloodPressureReadings,
+    UserProfile,
 )
 from .models import Activity, Lap, Sample
 
@@ -689,10 +700,10 @@ def check_database_connection() -> bool:
 def get_wellness_statistics() -> Dict[str, Any]:
     """
     Get comprehensive wellness data statistics for the stats page.
-    
+
     Implements all PRP requirements for wellness metrics display:
     - Sleep metrics with quality scores
-    - Stress levels and breakdowns  
+    - Stress levels and breakdowns
     - Daily activity (steps, floors, intensity)
     - Heart rate analytics (resting, zones)
     - Body Battery energy metrics
@@ -823,7 +834,12 @@ def get_wellness_statistics() -> Dict[str, Any]:
         return {
             "sleep": {"total_records": 0, "avg_sleep_score": 0, "avg_sleep_hours": 0},
             "stress": {"total_records": 0, "avg_stress_level": 0, "avg_rest_minutes": 0},
-            "steps": {"total_records": 0, "avg_daily_steps": 0, "total_walking_distance_km": 0, "avg_floors_climbed": 0},
+            "steps": {
+                "total_records": 0,
+                "avg_daily_steps": 0,
+                "total_walking_distance_km": 0,
+                "avg_floors_climbed": 0,
+            },
             "intensity": {"total_records": 0, "avg_vigorous_minutes": 0, "avg_moderate_minutes": 0},
             "heart_rate": {"total_records": 0, "avg_resting_hr": 0, "avg_max_hr": 0},
             "body_battery": {"total_records": 0, "avg_body_battery": 0, "avg_charged": 0},
@@ -1084,19 +1100,21 @@ def get_heart_rate_data(days: int = 90) -> pd.DataFrame:
 
             data = []
             for record in hr_records:
-                data.append({
-                    "date": record.date,
-                    "resting_hr": record.resting_hr,
-                    "max_hr": record.max_hr,
-                    "avg_hr": record.avg_hr,
-                    "hr_zone_1_time": record.hr_zone_1_time,
-                    "hr_zone_2_time": record.hr_zone_2_time,
-                    "hr_zone_3_time": record.hr_zone_3_time,
-                    "hr_zone_4_time": record.hr_zone_4_time,
-                    "hr_zone_5_time": record.hr_zone_5_time,
-                    "hrv_score": record.hrv_score,
-                    "hrv_status": record.hrv_status,
-                })
+                data.append(
+                    {
+                        "date": record.date,
+                        "resting_hr": record.resting_hr,
+                        "max_hr": record.max_hr,
+                        "avg_hr": record.avg_hr,
+                        "hr_zone_1_time": record.hr_zone_1_time,
+                        "hr_zone_2_time": record.hr_zone_2_time,
+                        "hr_zone_3_time": record.hr_zone_3_time,
+                        "hr_zone_4_time": record.hr_zone_4_time,
+                        "hr_zone_5_time": record.hr_zone_5_time,
+                        "hrv_score": record.hrv_score,
+                        "hrv_status": record.hrv_status,
+                    }
+                )
 
             df = pd.DataFrame(data)
             df["date"] = pd.to_datetime(df["date"])
@@ -1136,14 +1154,16 @@ def get_body_battery_data(days: int = 90) -> pd.DataFrame:
 
             data = []
             for record in bb_records:
-                data.append({
-                    "date": record.date,
-                    "body_battery_score": record.body_battery_score,
-                    "charged_value": record.charged_value,
-                    "drained_value": record.drained_value,
-                    "highest_value": record.highest_value,
-                    "lowest_value": record.lowest_value,
-                })
+                data.append(
+                    {
+                        "date": record.date,
+                        "body_battery_score": record.body_battery_score,
+                        "charged_value": record.charged_value,
+                        "drained_value": record.drained_value,
+                        "highest_value": record.highest_value,
+                        "lowest_value": record.lowest_value,
+                    }
+                )
 
             df = pd.DataFrame(data)
             df["date"] = pd.to_datetime(df["date"])
@@ -1189,15 +1209,17 @@ def get_training_readiness_data(days: int = 90) -> pd.DataFrame:
 
             data = []
             for record in tr_records:
-                data.append({
-                    "date": record.date,
-                    "training_readiness_score": record.training_readiness_score,
-                    "recovery_feedback": record.recovery_feedback,
-                    "feedback_phrase": record.feedback_phrase,
-                    "load_balance": record.load_balance,
-                    "sleep_quality": record.sleep_quality,
-                    "recovery_time": record.recovery_time,
-                })
+                data.append(
+                    {
+                        "date": record.date,
+                        "training_readiness_score": record.training_readiness_score,
+                        "recovery_feedback": record.recovery_feedback,
+                        "feedback_phrase": record.feedback_phrase,
+                        "load_balance": record.load_balance,
+                        "sleep_quality": record.sleep_quality,
+                        "recovery_time": record.recovery_time,
+                    }
+                )
 
             df = pd.DataFrame(data)
             df["date"] = pd.to_datetime(df["date"])
@@ -1237,13 +1259,15 @@ def get_spo2_data(days: int = 90) -> pd.DataFrame:
 
             data = []
             for record in spo2_records:
-                data.append({
-                    "date": record.date,
-                    "avg_spo2_percentage": record.avg_spo2_percentage,
-                    "lowest_spo2_percentage": record.lowest_spo2_percentage,
-                    "latest_spo2_percentage": record.latest_spo2_percentage,
-                    "latest_spo2_reading_time_gmt": record.latest_spo2_reading_time_gmt,
-                })
+                data.append(
+                    {
+                        "date": record.date,
+                        "avg_spo2_percentage": record.avg_spo2_percentage,
+                        "lowest_spo2_percentage": record.lowest_spo2_percentage,
+                        "latest_spo2_percentage": record.latest_spo2_percentage,
+                        "latest_spo2_reading_time_gmt": record.latest_spo2_reading_time_gmt,
+                    }
+                )
 
             df = pd.DataFrame(data)
             df["date"] = pd.to_datetime(df["date"])
@@ -1263,27 +1287,25 @@ def get_personal_records_data() -> List[Dict[str, Any]]:
     """
     try:
         with session_scope() as session:
-            pr_records = (
-                session.query(PersonalRecords)
-                .order_by(PersonalRecords.achieved_date.desc())
-                .all()
-            )
+            pr_records = session.query(PersonalRecords).order_by(PersonalRecords.achieved_date.desc()).all()
 
             if not pr_records:
                 return []
 
             data = []
             for record in pr_records:
-                data.append({
-                    "activity_type": record.activity_type,
-                    "record_type": record.record_type,
-                    "record_value": record.record_value,
-                    "record_unit": record.record_unit,
-                    "activity_id": record.activity_id,
-                    "achieved_date": record.achieved_date,
-                    "activity_name": record.activity_name,
-                    "location": record.location,
-                })
+                data.append(
+                    {
+                        "activity_type": record.activity_type,
+                        "record_type": record.record_type,
+                        "record_value": record.record_value,
+                        "record_unit": record.record_unit,
+                        "activity_id": record.activity_id,
+                        "achieved_date": record.achieved_date,
+                        "activity_name": record.activity_name,
+                        "location": record.location,
+                    }
+                )
 
             return data
 
@@ -1321,14 +1343,16 @@ def get_max_metrics_data(days: int = 365) -> pd.DataFrame:
 
             data = []
             for record in metrics_records:
-                data.append({
-                    "date": record.date,
-                    "vo2_max_value": record.vo2_max_value,
-                    "vo2_max_running": record.vo2_max_running,
-                    "vo2_max_cycling": record.vo2_max_cycling,
-                    "fitness_age": record.fitness_age,
-                    "performance_condition": record.performance_condition,
-                })
+                data.append(
+                    {
+                        "date": record.date,
+                        "vo2_max_value": record.vo2_max_value,
+                        "vo2_max_running": record.vo2_max_running,
+                        "vo2_max_cycling": record.vo2_max_cycling,
+                        "fitness_age": record.fitness_age,
+                        "performance_condition": record.performance_condition,
+                    }
+                )
 
             df = pd.DataFrame(data)
             df["date"] = pd.to_datetime(df["date"])

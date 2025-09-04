@@ -25,12 +25,14 @@ logger = logging.getLogger(__name__)
 # Global client manager for maintaining MFA state across callbacks
 _client_instance = None
 
+
 def get_client():
     """Get or create global client instance to maintain MFA state."""
     global _client_instance
     if _client_instance is None:
         _client_instance = GarminConnectClient()
     return _client_instance
+
 
 def reset_client():
     """Reset the global client instance."""
@@ -86,7 +88,12 @@ def layout():
                                                             md=5,
                                                         ),
                                                         dbc.Col(
-                                                            dbc.Button("Login", id="garmin-login-btn", color="primary", className="w-100"),
+                                                            dbc.Button(
+                                                                "Login",
+                                                                id="garmin-login-btn",
+                                                                color="primary",
+                                                                className="w-100",
+                                                            ),
                                                             md=2,
                                                         ),
                                                     ],
@@ -123,7 +130,9 @@ def layout():
                                             hidden=True,
                                             children=[
                                                 dbc.Input(id="garmin-mfa-code", placeholder="Enter 6‑digit code"),
-                                                dbc.Button("Verify", id="garmin-mfa-verify-btn", color="info", className="mt-2"),
+                                                dbc.Button(
+                                                    "Verify", id="garmin-mfa-verify-btn", color="info", className="mt-2"
+                                                ),
                                                 html.Small("Check your email/SMS for the Garmin verification code."),
                                             ],
                                         )
@@ -161,7 +170,12 @@ def layout():
                                                     md=3,
                                                 ),
                                                 dbc.Col(
-                                                    dbc.Button("Sync now", id="garmin-sync-btn", color="success", className="w-100"),
+                                                    dbc.Button(
+                                                        "Sync now",
+                                                        id="garmin-sync-btn",
+                                                        color="success",
+                                                        className="w-100",
+                                                    ),
                                                     md=3,
                                                 ),
                                                 dbc.Col(
@@ -272,6 +286,7 @@ def layout():
 
 # --------- Callbacks
 
+
 def register_callbacks(app):
     # On page load — try restoring tokens
     @app.callback(
@@ -288,7 +303,9 @@ def register_callbacks(app):
                 return state, dbc.Alert(f"Signed in as {state.get('username')}.", color="success", dismissable=True)
             return state, no_update
         except Exception as e:
-            return {"is_authenticated": False, "username": None, "mfa_required": False}, dbc.Alert(str(e), color="danger")
+            return {"is_authenticated": False, "username": None, "mfa_required": False}, dbc.Alert(
+                str(e), color="danger"
+            )
 
     # Login
     @app.callback(
@@ -311,20 +328,28 @@ def register_callbacks(app):
             cli = get_client()  # Get shared client instance
             result = cli.login(str(email).strip(), str(password), remember=bool(remember))
             if result.get("mfa_required"):
-                return {"is_authenticated": False, "username": None, "mfa_required": True}, dbc.Alert(
-                    "Two‑factor authentication required. Enter the code to continue.", color="info"
-                ), False
-            return {"is_authenticated": True, "username": result.get("username"), "mfa_required": False}, dbc.Alert(
-                f"Logged in as {result.get('username')}.", color="success", dismissable=True
-            ), True
+                return (
+                    {"is_authenticated": False, "username": None, "mfa_required": True},
+                    dbc.Alert("Two‑factor authentication required. Enter the code to continue.", color="info"),
+                    False,
+                )
+            return (
+                {"is_authenticated": True, "username": result.get("username"), "mfa_required": False},
+                dbc.Alert(f"Logged in as {result.get('username')}.", color="success", dismissable=True),
+                True,
+            )
         except GarminAuthError as e:
-            return {"is_authenticated": False, "username": None, "mfa_required": False}, dbc.Alert(
-                f"Login failed: {e}", color="danger", dismissable=True
-            ), True
+            return (
+                {"is_authenticated": False, "username": None, "mfa_required": False},
+                dbc.Alert(f"Login failed: {e}", color="danger", dismissable=True),
+                True,
+            )
         except Exception as e:
-            return {"is_authenticated": False, "username": None, "mfa_required": False}, dbc.Alert(
-                f"Login error: {e}", color="danger", dismissable=True
-            ), True
+            return (
+                {"is_authenticated": False, "username": None, "mfa_required": False},
+                dbc.Alert(f"Login error: {e}", color="danger", dismissable=True),
+                True,
+            )
 
     # Complete MFA
     @app.callback(
@@ -344,9 +369,11 @@ def register_callbacks(app):
         try:
             cli = get_client()  # Use shared client instance with MFA context
             result = cli.submit_mfa(str(code).strip(), remember=bool(remember))
-            return {"is_authenticated": True, "username": result.get("username"), "mfa_required": False}, dbc.Alert(
-                f"MFA successful. Logged in as {result.get('username')}.", color="success", dismissable=True
-            ), True
+            return (
+                {"is_authenticated": True, "username": result.get("username"), "mfa_required": False},
+                dbc.Alert(f"MFA successful. Logged in as {result.get('username')}.", color="success", dismissable=True),
+                True,
+            )
         except GarminAuthError as e:
             return no_update, dbc.Alert(f"MFA failed: {e}", color="danger"), False
         except Exception as e:
@@ -374,7 +401,9 @@ def register_callbacks(app):
             else:
                 if not email or not password:
                     return dbc.Alert("Please login first or provide credentials.", color="warning"), no_update
-                summary = sync_range(email=str(email).strip(), password=str(password), days=int(days or 30), fetch_wellness=True)
+                summary = sync_range(
+                    email=str(email).strip(), password=str(password), days=int(days or 30), fetch_wellness=True
+                )
             if not summary.get("ok"):
                 if summary.get("mfa_required"):
                     return dbc.Alert("MFA is required. Complete login first.", color="info"), no_update
@@ -445,8 +474,15 @@ def register_callbacks(app):
             "elev_gain_m": "Elevation Gain (m)",
         }
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=list(x), y=list(y), mode="lines+markers", text=list(names),
-                                 hovertemplate="<b>%{text}</b><br>%{x}<br>%{y}<extra></extra>"))
+        fig.add_trace(
+            go.Scatter(
+                x=list(x),
+                y=list(y),
+                mode="lines+markers",
+                text=list(names),
+                hovertemplate="<b>%{text}</b><br>%{x}<br>%{y}<extra></extra>",
+            )
+        )
         fig.update_layout(
             title=f"Activities — {title_map.get(metric, metric)}",
             xaxis_title="Date/Time",

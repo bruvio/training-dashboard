@@ -55,23 +55,29 @@ def _normalize_activities(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # Derived
         distance_km = float(dist_m) / 1000.0 if dist_m else None
         duration_min = float(dur_s) / 60.0 if dur_s else None
-        speed_kmh = float(avg_speed) * 3.6 if avg_speed else (distance_km * 60.0 / duration_min if distance_km and duration_min else None)
+        speed_kmh = (
+            float(avg_speed) * 3.6
+            if avg_speed
+            else (distance_km * 60.0 / duration_min if distance_km and duration_min else None)
+        )
         pace_min_per_km = (duration_min / distance_km) if (duration_min and distance_km and distance_km > 0) else None
 
-        norm.append({
-            "activity_id": act_id,
-            "name": name,
-            "type": act_type,
-            "start": start_local,
-            "distance_km": round(distance_km, 3) if distance_km is not None else None,
-            "duration_min": round(duration_min, 2) if duration_min is not None else None,
-            "avg_hr": avg_hr,
-            "max_hr": max_hr,
-            "speed_kmh": round(speed_kmh, 2) if speed_kmh is not None else None,
-            "pace_min_per_km": round(pace_min_per_km, 2) if pace_min_per_km is not None else None,
-            "calories": cal,
-            "elev_gain_m": elev_gain,
-        })
+        norm.append(
+            {
+                "activity_id": act_id,
+                "name": name,
+                "type": act_type,
+                "start": start_local,
+                "distance_km": round(distance_km, 3) if distance_km is not None else None,
+                "duration_min": round(duration_min, 2) if duration_min is not None else None,
+                "avg_hr": avg_hr,
+                "max_hr": max_hr,
+                "speed_kmh": round(speed_kmh, 2) if speed_kmh is not None else None,
+                "pace_min_per_km": round(pace_min_per_km, 2) if pace_min_per_km is not None else None,
+                "calories": cal,
+                "elev_gain_m": elev_gain,
+            }
+        )
     return norm
 
 
@@ -130,14 +136,14 @@ def sync_range(
             # Use comprehensive wellness sync manager
             wellness_manager = WellnessSyncManager(client)
             wellness_result = wellness_manager.sync_comprehensive_wellness(days=days)
-            
-            if wellness_result.get('success'):
+
+            if wellness_result.get("success"):
                 comprehensive_wellness = wellness_result
-                wellness_records = wellness_result.get('total_records', 0)
+                wellness_records = wellness_result.get("total_records", 0)
                 logger.info(f"Comprehensive wellness sync completed: {wellness_records} records")
             else:
                 logger.warning(f"Comprehensive wellness sync failed: {wellness_result.get('error', 'Unknown error')}")
-                
+
             # Fallback to basic wellness summaries if comprehensive sync fails
             if wellness_records == 0:
                 logger.info("Using fallback basic wellness sync")
@@ -150,7 +156,7 @@ def sync_range(
                     except Exception:
                         pass
                     d = d + timedelta(days=1)
-                    
+
         except Exception as e:
             logger.error(f"Wellness sync error: {e}")
             # Basic fallback
