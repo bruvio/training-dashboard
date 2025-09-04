@@ -31,14 +31,18 @@ except Exception:
         pass
 
 try:
-    from garmin_client.garth_sync import sync_recent as _sr  # type: ignore
+    from garmin_client.garth_sync import sync_recent as _sr, sync_health_data as _shd, sync_comprehensive as _sc  # type: ignore
 
     sync_recent = _sr
+    sync_health_data = _shd
+    sync_comprehensive = _sc
 except Exception:
     try:
-        from garth_sync import sync_recent as _sr2  # type: ignore
+        from garth_sync import sync_recent as _sr2, sync_health_data as _shd2, sync_comprehensive as _sc2  # type: ignore
 
         sync_recent = _sr2
+        sync_health_data = _shd2
+        sync_comprehensive = _sc2
     except Exception:
         pass
 
@@ -222,7 +226,7 @@ if get_client is None or GarminAuthError is None:
         return _singleton
 
 
-if sync_recent is None:
+if sync_recent is None or sync_health_data is None or sync_comprehensive is None:
     try:
         from datetime import datetime, timedelta, timezone
         import garth  # type: ignore
@@ -255,6 +259,32 @@ if sync_recent is None:
         except Exception as e:
             logger.exception("Sync failed: %s", e)
             return {"ok": False, "error": str(e)}
+
+    def sync_health_data(days: int, data_types: list = None):
+        """Fallback health data sync function."""
+        if garth is None:
+            return {
+                "ok": True,
+                "wellness_synced": False,
+                "dev_mode": True,
+                "msg": f"(dev) Would sync {days} days of health data.",
+                "data": {}
+            }
+        return {
+            "ok": False,
+            "error": "Health data sync not available - please update garth_sync module"
+        }
+
+    def sync_comprehensive(days: int):
+        """Fallback comprehensive sync function."""
+        activity_result = sync_recent(days)
+        health_result = sync_health_data(days)
+        return {
+            "ok": activity_result.get("ok", False) and health_result.get("ok", False),
+            "activities_fetched": activity_result.get("activities_fetched", 0),
+            "wellness_synced": health_result.get("wellness_synced", False),
+            "msg": f"Activities: {activity_result.get('msg', 'Failed')} | Health: {health_result.get('msg', 'Failed')}"
+        }
 
 
 # -------- Dash layout and callbacks (unchanged) --------
@@ -390,7 +420,7 @@ def layout():
                 dbc.Col(
                     dbc.Card(
                         [
-                            dbc.CardHeader(html.H5("Synchronize Data", className="mb-0")),
+                            dbc.CardHeader(html.H5("Synchronize Health & Activity Data", className="mb-0")),
                             dbc.CardBody(
                                 [
                                     html.Div(
@@ -419,7 +449,7 @@ def layout():
                                                         [
                                                             dbc.Label(" "),
                                                             dbc.Button(
-                                                                "Sync Activities",
+                                                                "Sync Health Data",
                                                                 id="garmin-sync-btn",
                                                                 color="success",
                                                                 className="w-100",
@@ -562,9 +592,28 @@ def register_callbacks(app):
         if not (auth and auth.get("is_authenticated")):
             return dbc.Alert("Please login first to enable data synchronization.", color="warning")
         days = int(days or 7)
-        result = sync_recent(days=days)
+        
+        # Use comprehensive sync to get both activities and health data
+        result = sync_comprehensive(days=days)
+        
         if result.get("ok"):
             msg = result.get("msg") or f"Synced last {days} days."
             extra = " (dev mode)" if result.get("dev_mode") else ""
-            return dbc.Alert(msg + extra, color="success", dismissable=True)
-        return dbc.Alert(f"Sync failed: {result.get('error', 'unknown error')}", color="danger")
+            
+            # Show detailed success message for health data
+            activities_count = result.get("activities_fetched", 0)
+            health_records = result.get("total_health_records", 0)
+            wellness_synced = result.get("wellness_synced", False)
+            
+            if wellness_synced and health_records > 0:
+                success_msg = f"✅ Successfully synced {days} days of data:\n"
+                success_msg += f"• Activities: {activities_count} records\n"
+                success_msg += f"• Health data: {health_records} records (sleep, HRV, steps, stress)"
+                success_msg += extra
+            else:
+                success_msg = msg + extra
+            
+            return dbc.Alert(success_msg, color="success", dismissable=True, style={"white-space": "pre-line"})
+        else:
+            error_msg = result.get("error") or result.get("msg") or "unknown error"
+            return dbc.Alert(f"Sync failed: {error_msg}", color="danger")

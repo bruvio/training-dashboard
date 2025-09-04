@@ -246,20 +246,64 @@ class GarminClient:
             raise GarminAuthError("No pending credentials for MFA. Please login again.")
 
         email, password = self._pending_creds
-        try:
-            c = garth.Client()
-            c.login(email, password, prompt_mfa=lambda: code)
-            _adopt_tokens(c)
-            self._pending_mfa = False
-            self._authenticated = True
-            self._pending_creds = None
-            self._username = email
-            if self._remember_after_mfa or remember:
-                self._save_tokens()
-            return {"authenticated": True, "username": self._username}
-        except Exception as e:
-            logger.exception("MFA verification failed: %s", e)
-            raise GarminAuthError(str(e)) from e
+        
+        # Enhanced retry logic for "Unexpected title" errors
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                c = garth.Client()
+                
+                # Create a proper MFA callback that handles multiple calls
+                mfa_call_count = 0
+                def mfa_provider():
+                    nonlocal mfa_call_count
+                    mfa_call_count += 1
+                    logger.debug(f"MFA provider called (attempt {attempt + 1}, call #{mfa_call_count})")
+                    return code
+                
+                c.login(email, password, prompt_mfa=mfa_provider)
+                
+                # Success - adopt tokens and clean up
+                _adopt_tokens(c)
+                self._pending_mfa = False
+                self._authenticated = True
+                self._pending_creds = None
+                self._username = email
+                if self._remember_after_mfa or remember:
+                    self._save_tokens()
+                
+                logger.info(f"MFA verification successful on attempt {attempt + 1}")
+                return {"authenticated": True, "username": self._username}
+                
+            except Exception as e:
+                error_str = str(e)
+                logger.warning(f"MFA attempt {attempt + 1} failed: {error_str}")
+                
+                # Check for specific errors that indicate we should retry
+                if ("Unexpected title" in error_str or "Enter MFA code" in error_str) and attempt < max_retries - 1:
+                    logger.info(f"Retrying MFA verification (attempt {attempt + 2}/{max_retries}) due to title error")
+                    import time
+                    time.sleep(1)  # Brief delay before retry
+                    continue
+                else:
+                    # Log detailed error information for debugging
+                    logger.exception("MFA verification failed: %s", e)
+                    
+                    # Provide specific error message for "Unexpected title" errors
+                    if "Unexpected title" in error_str:
+                        raise GarminAuthError(
+                            "MFA verification failed due to Garmin SSO timing issue. "
+                            "This typically happens when:\n"
+                            "• MFA code expired (codes are valid ~30 seconds)\n"
+                            "• Code was already used\n"
+                            "• Network timing issues\n"
+                            "Please try again with a fresh MFA code."
+                        ) from e
+                    else:
+                        raise GarminAuthError(str(e)) from e
+        
+        # Should not reach here, but just in case
+        raise GarminAuthError(f"MFA verification failed after {max_retries} attempts")
 
     def logout(self):
         self._authenticated = False
