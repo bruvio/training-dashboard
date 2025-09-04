@@ -230,6 +230,91 @@ def layout():
     )
 
 
+def create_sync_controls(authenticated=False, message=None):
+    """
+    Create sync controls with consistent styling and state.
+    
+    Args:
+        authenticated: Whether user is authenticated (enables controls)
+        message: Custom message to display (uses default if None)
+    
+    Returns:
+        List of sync control components
+    """
+    if authenticated:
+        alert_message = message or "✅ Authenticated - You can now synchronize your activities."
+        alert_color = "success"
+        disabled_state = False
+    else:
+        alert_message = message or "Please login first to enable data synchronization."
+        alert_color = "info"
+        disabled_state = True
+    
+    return [
+        dbc.Alert(
+            alert_message,
+            color=alert_color,
+            className="mb-3",
+        ),
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        dbc.Label("Sync Period"),
+                        dbc.Select(
+                            id="sync-period",
+                            options=[
+                                {"label": "Last 7 days", "value": "7"},
+                                {"label": "Last 30 days", "value": "30"},
+                                {"label": "Last 90 days", "value": "90"},
+                                {"label": "All activities", "value": "all"},
+                            ],
+                            value="30",
+                            disabled=disabled_state,
+                        ),
+                    ],
+                    width=6,
+                ),
+                dbc.Col(
+                    [
+                        dbc.Label("Actions"),
+                        dbc.ButtonGroup(
+                            [
+                                dbc.Button(
+                                    "Sync Activities",
+                                    id="sync-activities-button",
+                                    color="primary",
+                                    disabled=disabled_state,
+                                ),
+                                dbc.Button(
+                                    "List Activities",
+                                    id="list-activities-button",
+                                    color="secondary",
+                                    disabled=disabled_state,
+                                ),
+                            ],
+                            className="d-grid gap-2",
+                        ),
+                    ],
+                    width=6,
+                ),
+            ],
+            className="mb-3",
+        ),
+        html.Div(id="sync-status"),
+        html.Div(id="sync-progress"),
+        html.Div(id="activity-list-container"),
+        dbc.Button(
+            "Import Selected Activities",
+            id="import-selected-button",
+            color="success",
+            disabled=disabled_state,
+            className="mb-3",
+        ),
+        html.Div(id="import-status"),
+    ]
+
+
 def register_callbacks(app):
     from garmin_client.client import GarminConnectClient
 
@@ -1148,6 +1233,8 @@ def register_callbacks(app):
     )
     def import_selected_activities(n_clicks, activity_cards):
         """Import selected activities from the activity list."""
+        # TODO: Use selected activities in future implementation
+        raise NotImplementedError("import_selected_activities does not yet use selected activities.")
 
         if not ctx.triggered or not n_clicks:
             return "", False

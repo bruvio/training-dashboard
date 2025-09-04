@@ -5,7 +5,7 @@ Research-validated patterns for integrating SQLAlchemy with Dash callbacks,
 including session management and query optimization.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import re
 from typing import Any, Dict, List, Optional
 
@@ -764,7 +764,7 @@ def get_sleep_data(days: int = 90) -> pd.DataFrame:
         with session_scope() as session:
             # Calculate date range
             end_date = date.today()
-            start_date = end_date - pd.Timedelta(days=days)
+            start_date = end_date - timedelta(days=days)
 
             sleep_records = (
                 session.query(DailySleep)
@@ -817,7 +817,7 @@ def get_stress_data(days: int = 90) -> pd.DataFrame:
         with session_scope() as session:
             # Calculate date range
             end_date = date.today()
-            start_date = end_date - pd.Timedelta(days=days)
+            start_date = end_date - timedelta(days=days)
 
             stress_records = (
                 session.query(DailyStress)
@@ -874,7 +874,7 @@ def get_steps_data(days: int = 90) -> pd.DataFrame:
         with session_scope() as session:
             # Calculate date range
             end_date = date.today()
-            start_date = end_date - pd.Timedelta(days=days)
+            start_date = end_date - timedelta(days=days)
 
             steps_records = (
                 session.query(DailySteps)
@@ -895,7 +895,7 @@ def get_steps_data(days: int = 90) -> pd.DataFrame:
                         "total_steps": record.total_steps,
                         "step_goal": record.step_goal,
                         "step_goal_pct": (
-                            (record.total_steps / record.step_goal * 100)
+                            ((record.total_steps or 0) / record.step_goal * 100)
                             if record.step_goal and record.step_goal > 0
                             else 0
                         ),
@@ -931,7 +931,7 @@ def get_intensity_data(days: int = 90) -> pd.DataFrame:
         with session_scope() as session:
             # Calculate date range
             end_date = date.today()
-            start_date = end_date - pd.Timedelta(days=days)
+            start_date = end_date - timedelta(days=days)
 
             intensity_records = (
                 session.query(DailyIntensityMinutes)

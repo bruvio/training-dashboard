@@ -13,22 +13,30 @@ from playwright.sync_api import sync_playwright
 
 
 def save_rendered_page(url: str, output: str):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        print(f"[INFO] Loading: {url}")
-        try:
-            page.goto(url)
-            # Wait until network is idle (no new requests for 500ms)
-            page.wait_for_load_state("networkidle")
-            html = page.content()
-            with open(output, "w", encoding="utf-8") as f:
-                f.write(html)
-            print(f"[INFO] Saved rendered page to: {output}")
-        except Exception as e:
-            print(f"[ERROR] Failed to load or render page: {url}\nReason: {e}")
-        finally:
-            browser.close()
+    try:
+        with sync_playwright() as p:
+            try:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                print(f"[INFO] Loading: {url}")
+                
+                try:
+                    page.goto(url)
+                    # Wait until network is idle (no new requests for 500ms)
+                    page.wait_for_load_state("networkidle")
+                    html = page.content()
+                    with open(output, "w", encoding="utf-8") as f:
+                        f.write(html)
+                    print(f"[INFO] Saved rendered page to: {output}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to load or render page: {url}\nReason: {e}")
+                finally:
+                    browser.close()
+                    
+            except Exception as e:
+                raise RuntimeError(f"Failed to launch Playwright browser: {e}. Make sure playwright is properly installed with 'playwright install'.")
+    except ImportError as e:
+        raise ImportError(f"Playwright is not installed. Install with: pip install playwright && playwright install") from e
 
 
 def main():

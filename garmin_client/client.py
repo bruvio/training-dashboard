@@ -220,20 +220,37 @@ class GarminConnectClient:
         if garth_session_path.exists():
             try:
                 # Pre-validate the session directory structure and files
-                oauth1_file = garth_session_path / "oauth1"
-                garth_session_path / "oauth2"
+                oauth1_file = garth_session_path / "oauth1_token.json"
+                oauth2_file = garth_session_path / "oauth2_token.json"
 
                 # Check if the session directory has the expected structure
                 if garth_session_path.is_dir():
                     # Try to validate oauth1 file if it exists
                     if oauth1_file.exists():
-                        with open(oauth1_file, "r") as f:
-                            oauth1_data = json.load(f)
-                            # Validate that it's a proper dict, not a string
-                            if isinstance(oauth1_data, dict):
-                                session_valid = True
-                            else:
-                                logger.warning(f"OAuth1 file contains invalid data type: {type(oauth1_data)}")
+                        try:
+                            with open(oauth1_file, "r") as f:
+                                oauth1_content = f.read().strip()
+                                if not oauth1_content:
+                                    logger.warning("OAuth1 token file is empty")
+                                else:
+                                    # Try to parse as JSON - garth might store different formats
+                                    try:
+                                        oauth1_data = json.loads(oauth1_content)
+                                        # Accept both dict and string formats
+                                        if isinstance(oauth1_data, (dict, str)) and oauth1_data:
+                                            session_valid = True
+                                            logger.debug(f"Valid OAuth1 token file found (type: {type(oauth1_data).__name__})")
+                                        else:
+                                            logger.warning(f"OAuth1 file contains invalid data: {oauth1_data}")
+                                    except json.JSONDecodeError:
+                                        # If it's not valid JSON but has content, it might be a plain token string
+                                        if len(oauth1_content) > 10:  # Reasonable token length
+                                            session_valid = True
+                                            logger.debug("OAuth1 token file contains non-JSON token string")
+                                        else:
+                                            logger.warning(f"OAuth1 file contains invalid content: {oauth1_content[:50]}")
+                        except Exception as e:
+                            logger.warning(f"Error reading OAuth1 token file: {e}")
                     else:
                         logger.info("No OAuth1 file found in session")
                 else:
@@ -261,15 +278,28 @@ class GarminConnectClient:
                 logger.info(f"Session resume failed despite validation: {e}")
                 session_valid = False
 
-        # Clean up corrupted or invalid session files
+        # Clean up corrupted or invalid session files - but only if they're genuinely old or corrupted
         if not session_valid and garth_session_path.exists():
             try:
-                import shutil
+                # Check session age before cleanup to avoid removing potentially valid recent sessions
+                session_age_hours = 0
+                if self.session_file.exists():
+                    with open(self.session_file, "r") as f:
+                        session_data = json.load(f)
+                        auth_time_str = session_data.get("authenticated_at")
+                        if auth_time_str:
+                            auth_time = datetime.fromisoformat(auth_time_str)
+                            session_age_hours = (datetime.now() - auth_time).total_seconds() / 3600
 
-                shutil.rmtree(garth_session_path, ignore_errors=True)
-                logger.info("Cleaned up corrupted session files")
+                # Only clean up if session is older than 2 hours to avoid removing fresh sessions
+                if session_age_hours > 2:
+                    import shutil
+                    shutil.rmtree(garth_session_path, ignore_errors=True)
+                    logger.info(f"Cleaned up old session files (age: {session_age_hours:.1f}h)")
+                else:
+                    logger.info(f"Preserving recent session files (age: {session_age_hours:.1f}h) - garth may still be able to use them")
             except Exception as cleanup_error:
-                logger.warning(f"Could not clean up session files: {cleanup_error}")
+                logger.warning(f"Could not assess session age for cleanup: {cleanup_error}")
 
         logger.info("No valid session found, performing fresh login")
 
