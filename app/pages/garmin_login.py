@@ -9,7 +9,6 @@ Plots activity metrics after sync.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, List
 
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, dcc, html, no_update, dash_table
@@ -19,6 +18,7 @@ import plotly.graph_objects as go
 # Import from your local package
 from garmin_client.client import GarminConnectClient, GarminAuthError
 from garmin_client.sync import sync_range
+from garmin_client.activity_import import ActivityImportService
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +160,7 @@ def layout():
                                                     dbc.Select(
                                                         id="garmin-days-dropdown",
                                                         options=[
+                                                            {"label": "1 day", "value": 1},
                                                             {"label": "7 days", "value": 7},
                                                             {"label": "14 days", "value": 14},
                                                             {"label": "30 days", "value": 30},
@@ -246,6 +247,33 @@ def layout():
                                 dbc.CardHeader("Recent Activities"),
                                 dbc.CardBody(
                                     [
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        dbc.ButtonGroup(
+                                                            [
+                                                                dbc.Button(
+                                                                    "Import Selected Activities",
+                                                                    id="import-selected-btn",
+                                                                    color="success",
+                                                                    disabled=True,
+                                                                ),
+                                                                dbc.Button(
+                                                                    "Import All Activities",
+                                                                    id="import-all-btn",
+                                                                    color="info",
+                                                                    disabled=True,
+                                                                ),
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                                dbc.Col([html.Div(id="import-status", className="text-end")], width=6),
+                                            ],
+                                            className="mb-3",
+                                        ),
                                         dash_table.DataTable(
                                             id="garmin-activity-table",
                                             columns=[
@@ -267,7 +295,7 @@ def layout():
                                             filter_action="native",
                                             style_table={"overflowX": "auto"},
                                             style_cell={"padding": "6px", "fontSize": "0.9rem"},
-                                        )
+                                        ),
                                     ]
                                 ),
                             ]
@@ -492,3 +520,103 @@ def register_callbacks(app):
             margin=dict(l=40, r=20, t=60, b=40),
         )
         return dcc.Graph(figure=fig)
+
+    # Enable/disable import buttons based on table data and selection
+    @app.callback(
+        Output("import-selected-btn", "disabled"),
+        Output("import-all-btn", "disabled"),
+        Input("garmin-activity-table", "selected_rows"),
+        Input("garmin-activities-store", "data"),
+        Input("garmin-auth-store", "data"),
+        prevent_initial_call=False,
+    )
+    def _update_import_buttons(selected_rows, activities, auth_data):
+        is_authenticated = bool(auth_data and auth_data.get("is_authenticated"))
+        has_activities = bool(activities and len(activities) > 0)
+        has_selection = bool(selected_rows and len(selected_rows) > 0)
+
+        return (
+            not (is_authenticated and has_activities and has_selection),  # Import Selected disabled
+            not (is_authenticated and has_activities),  # Import All disabled
+        )
+
+    # Import selected activities
+    @app.callback(
+        Output("import-status", "children"),
+        Input("import-selected-btn", "n_clicks"),
+        Input("import-all-btn", "n_clicks"),
+        State("garmin-activity-table", "selected_rows"),
+        State("garmin-activity-table", "data"),
+        State("garmin-auth-store", "data"),
+        prevent_initial_call=True,
+    )
+    def _import_activities(import_selected_clicks, import_all_clicks, selected_rows, table_data, auth_data):
+        if not any([import_selected_clicks, import_all_clicks]):
+            raise PreventUpdate
+
+        if not (auth_data and auth_data.get("is_authenticated")):
+            return dbc.Alert("Please login first.", color="warning")
+
+        if not table_data:
+            return dbc.Alert("No activities available to import.", color="warning")
+
+        try:
+            client = get_client()
+            import_service = ActivityImportService(client)
+
+            # Determine which activities to import
+            if import_selected_clicks and selected_rows:
+                # Import selected activities
+                activities_to_import = [table_data[i] for i in selected_rows if i < len(table_data)]
+                action = "selected"
+            else:
+                # Import all activities
+                activities_to_import = table_data
+                action = "all"
+
+            if not activities_to_import:
+                return dbc.Alert("No activities to import.", color="warning")
+
+            # Import each activity
+            imported_count = 0
+            skipped_count = 0
+            failed_count = 0
+
+            for activity in activities_to_import:
+                activity_id = activity.get("activity_id")
+                if not activity_id:
+                    failed_count += 1
+                    continue
+
+                result = import_service.import_activity_by_id(str(activity_id), download_fit=True)
+
+                if result.get("success"):
+                    if result.get("status") == "imported":
+                        imported_count += 1
+                    else:
+                        skipped_count += 1
+                else:
+                    failed_count += 1
+
+            # Generate result message
+            total = len(activities_to_import)
+            if imported_count > 0:
+                color = "success"
+                message = f"✅ Import completed: {imported_count} imported"
+                if skipped_count > 0:
+                    message += f", {skipped_count} already existed"
+                if failed_count > 0:
+                    message += f", {failed_count} failed"
+                message += f" (out of {total} {action} activities)"
+            elif skipped_count > 0:
+                color = "info"
+                message = f"ℹ️ All {skipped_count} {action} activities already existed in database"
+            else:
+                color = "danger"
+                message = f"❌ Failed to import {failed_count} {action} activities"
+
+            return dbc.Alert(message, color=color, dismissable=True)
+
+        except Exception as e:
+            logger.error(f"Activity import error: {e}")
+            return dbc.Alert(f"Import error: {e}", color="danger", dismissable=True)

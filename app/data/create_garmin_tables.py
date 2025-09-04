@@ -6,10 +6,10 @@ This script extends the existing database with comprehensive wellness tracking.
 """
 
 import logging
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from .db import get_database_url
+from .db import get_db_config
 from .models import Base
 from .garmin_models import (
     UserProfile,
@@ -42,7 +42,8 @@ def create_garmin_tables(drop_existing: bool = False):
     """
     try:
         # Get database connection
-        engine = create_engine(get_database_url())
+        db_config = get_db_config()
+        engine = db_config.engine
 
         # List of all Garmin model tables to create
         garmin_tables = [
@@ -79,7 +80,7 @@ def create_garmin_tables(drop_existing: bool = False):
 
         # Create all tables
         with engine.begin() as conn:
-            Base.metadata.create_all(conn, tables=[t.__table__ for t in garmin_tables])
+            Base.metadata.create_all(conn, tables=[t.__table__ for t in garmin_tables], checkfirst=True)
 
         logger.info("Successfully created all Garmin wellness data tables:")
         for table_class in garmin_tables:
@@ -117,7 +118,8 @@ def create_garmin_tables(drop_existing: bool = False):
 def list_garmin_tables():
     """List all Garmin-related tables in the database."""
     try:
-        engine = create_engine(get_database_url())
+        db_config = get_db_config()
+        engine = db_config.engine
 
         garmin_table_names = [
             "user_profile",
@@ -158,7 +160,8 @@ def list_garmin_tables():
 def get_table_info(table_name: str):
     """Get detailed information about a specific table."""
     try:
-        engine = create_engine(get_database_url())
+        db_config = get_db_config()
+        engine = db_config.engine
 
         with engine.begin() as conn:
             # Check if table exists

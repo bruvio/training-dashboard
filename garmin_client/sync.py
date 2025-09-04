@@ -8,7 +8,7 @@ Returns normalized structures ready for the Dash page.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -130,7 +130,6 @@ def sync_range(
     # Optional: comprehensive wellness data sync
     wellness_records = 0
     wellness_days: List[Dict[str, Any]] = []
-    comprehensive_wellness = {}
     if fetch_wellness:
         try:
             # Use comprehensive wellness sync manager
@@ -138,7 +137,6 @@ def sync_range(
             wellness_result = wellness_manager.sync_comprehensive_wellness(days=days)
 
             if wellness_result.get("success"):
-                comprehensive_wellness = wellness_result
                 wellness_records = wellness_result.get("total_records", 0)
                 logger.info(f"Comprehensive wellness sync completed: {wellness_records} records")
             else:

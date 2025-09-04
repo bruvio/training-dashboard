@@ -23,15 +23,10 @@ from .garmin_models import (
     DailyStress,
     DailyHeartRate,
     DailyBodyBattery,
-    DailyHydration,
-    DailyRespiration,
     DailySpo2,
     DailyTrainingReadiness,
-    TrainingStatus,
     MaxMetrics,
     PersonalRecords,
-    BloodPressureReadings,
-    UserProfile,
 )
 from .models import Activity, Lap, Sample
 
@@ -880,21 +875,23 @@ def get_sleep_data(days: int = 90) -> pd.DataFrame:
 
             rows = []
             for r in records:
-                rows.append({
-                    "date": getattr(r, "date", None),
-                    "bedtime_utc": getattr(r, "bedtime_utc", None),
-                    "wakeup_time_utc": getattr(r, "wakeup_time_utc", None),
-                    "total_sleep_time_s": getattr(r, "total_sleep_time_s", None),
-                    "deep_sleep_s": getattr(r, "deep_sleep_s", None),
-                    "light_sleep_s": getattr(r, "light_sleep_s", None),
-                    "rem_sleep_s": getattr(r, "rem_sleep_s", None),
-                    "awake_time_s": getattr(r, "awake_time_s", None),
-                    "sleep_score": getattr(r, "sleep_score", None),
-                    "restlessness": getattr(r, "restlessness", None),
-                    "efficiency_percentage": getattr(r, "efficiency_percentage", None),
-                    "data_source": getattr(r, "data_source", None),
-                    "retrieved_at": getattr(r, "retrieved_at", None),
-                })
+                rows.append(
+                    {
+                        "date": getattr(r, "date", None),
+                        "bedtime_utc": getattr(r, "bedtime_utc", None),
+                        "wakeup_time_utc": getattr(r, "wakeup_time_utc", None),
+                        "total_sleep_time_s": getattr(r, "total_sleep_time_s", None),
+                        "deep_sleep_s": getattr(r, "deep_sleep_s", None),
+                        "light_sleep_s": getattr(r, "light_sleep_s", None),
+                        "rem_sleep_s": getattr(r, "rem_sleep_s", None),
+                        "awake_time_s": getattr(r, "awake_time_s", None),
+                        "sleep_score": getattr(r, "sleep_score", None),
+                        "restlessness": getattr(r, "restlessness", None),
+                        "efficiency_percentage": getattr(r, "efficiency_percentage", None),
+                        "data_source": getattr(r, "data_source", None),
+                        "retrieved_at": getattr(r, "retrieved_at", None),
+                    }
+                )
 
             df = pd.DataFrame(rows)
             if df.empty:

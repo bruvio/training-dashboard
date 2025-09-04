@@ -55,6 +55,7 @@ class GarminAuthError(RuntimeError):
 
 # ---------------- Token store utilities ----------------
 
+
 def _fallback_token_dirs() -> List[Path]:
     """Writable fallbacks commonly mounted in Docker images (order matters)."""
     return [Path("/data/garmin_tokens"), Path("/tmp/garmin_tokens")]
@@ -158,6 +159,7 @@ def _temporarily_unset_env(keys: List[str]):
 
 
 # ---------------- Client ----------------
+
 
 class GarminConnectClient:
     """
