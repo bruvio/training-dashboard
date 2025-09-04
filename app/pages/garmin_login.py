@@ -1,484 +1,261 @@
 """
-Garmin Connect login and data synchronization page.
-(Updated v7: adopts tokens from temporary client to garth.client and avoids profile calls during MFA.)
+app/pages/garmin_login.py
+
+Garmin Connect login & sync page (Dash).
+Uses `python-garminconnect` via the local package `garmin_client`.
+Plots activity metrics after sync.
 """
 
-import logging
-from pathlib import Path
-from typing import Optional, Dict, Any
+from __future__ import annotations
 
-from dash import Input, Output, State, dcc, html, no_update
-from dash.exceptions import PreventUpdate
+import logging
+from typing import Any, Dict, Optional, List
+
 import dash_bootstrap_components as dbc
+from dash import Input, Output, State, dcc, html, no_update, dash_table
+from dash.exceptions import PreventUpdate
+import plotly.graph_objects as go
+
+# Import from your local package
+from garmin_client.client import GarminConnectClient, GarminAuthError
+from garmin_client.sync import sync_range
 
 logger = logging.getLogger(__name__)
 
-# Attempt project imports; otherwise use built-ins below.
-get_client = None
-GarminAuthError = None
-sync_recent = None
 
-try:
-    from garmin_client.client import get_client as _gc, GarminAuthError as _gae  # type: ignore
-
-    get_client, GarminAuthError = _gc, _gae
-except Exception:
-    try:
-        from client import get_client as _gc2, GarminAuthError as _gae2  # type: ignore
-
-        get_client, GarminAuthError = _gc2, _gae2
-    except Exception:
-        pass
-
-try:
-    from garmin_client.garth_sync import sync_recent as _sr, sync_health_data as _shd, sync_comprehensive as _sc  # type: ignore
-
-    sync_recent = _sr
-    sync_health_data = _shd
-    sync_comprehensive = _sc
-except Exception:
-    try:
-        from garth_sync import sync_recent as _sr2, sync_health_data as _shd2, sync_comprehensive as _sc2  # type: ignore
-
-        sync_recent = _sr2
-        sync_health_data = _shd2
-        sync_comprehensive = _sc2
-    except Exception:
-        pass
-
-# Built-in fallbacks when project imports are unavailable
-if get_client is None or GarminAuthError is None:
-
-    class GarminAuthError(Exception):
-        pass
-
-    try:
-        import json
-        import garth  # type: ignore
-    except Exception:
-        garth = None
-
-    DEFAULT_TOKEN_PATH = Path.home() / ".garmin" / "tokens.json"
-
-    class _MFAKick(Exception):
-        pass
-
-    def _adopt_tokens(src):
-        try:
-            garth.client.oauth1_token = getattr(src, "oauth1_token", None)
-            garth.client.oauth2_token = getattr(src, "oauth2_token", None)
-            if hasattr(src, "session"):
-                garth.client.session = src.session
-        except Exception as e:
-            logger.debug("Token adoption warning: %s", e)
-
-    class _FallbackGarminClient:
-        def __init__(self, token_file: Path = DEFAULT_TOKEN_PATH):
-            self.token_file = token_file
-            self.token_file.parent.mkdir(parents=True, exist_ok=True)
-            self._authenticated = False
-            self._pending_mfa = False
-            self._username: Optional[str] = None
-
-            self._mfa_ctx: Optional[Any] = None  # for newer garth
-            self._pending_creds: Optional[tuple[str, str]] = None  # for older garth
-            self._remember_after_mfa: bool = False
-
-            self.load_session()
-
-        @property
-        def is_authenticated(self) -> bool:
-            return self._authenticated
-
-        @property
-        def username(self) -> Optional[str]:
-            return self._username
-
-        def _save_tokens(self):
-            if garth is None:
-                return
-            try:
-                data = garth.client.dump_tokens()
-                self.token_file.write_text(json.dumps(data))
-            except Exception as e:
-                logger.exception("Failed to save tokens: %s", e)
-
-        def _load_tokens(self) -> bool:
-            if garth is None or not self.token_file.exists():
-                return False
-            try:
-                data = json.loads(self.token_file.read_text())
-                garth.client.load_tokens(data)
-                garth.client.refresh_oauth_token()
-                return True
-            except Exception as e:
-                logger.warning("Existing tokens invalid or expired: %s", e)
-                return False
-
-        def load_session(self) -> bool:
-            if garth is None:
-                self._authenticated = False
-                self._username = None
-                self._pending_mfa = False
-                self._mfa_ctx = None
-                self._pending_creds = None
-                self._remember_after_mfa = False
-                return False
-            ok = self._load_tokens()
-            self._authenticated = bool(ok)
-            if self._authenticated:
-                self._username = "Garmin User"
-            return self._authenticated
-
-        def login(self, email: str, password: str, remember: bool = False) -> Dict:
-            if garth is None:
-                self._authenticated = True
-                self._username = email.split("@")[0] if "@" in email else email
-                self._pending_mfa = False
-                return {"authenticated": True, "username": self._username, "dev_mode": True}
-            if hasattr(garth, "resume_login"):
-                try:
-                    result1, ctx = garth.login(email, password, return_on_mfa=True)
-                    if result1 == "needs_mfa":
-                        self._pending_mfa = True
-                        self._mfa_ctx = ctx
-                        self._remember_after_mfa = bool(remember)
-                        return {"mfa_required": True}
-                    self._pending_mfa = False
-                    self._authenticated = True
-                    self._mfa_ctx = None
-                    self._username = email
-                    if remember:
-                        self._save_tokens()
-                    return {"authenticated": True, "username": self._username}
-                except Exception as e:
-                    logger.exception("Login failed: %s", e)
-                    raise GarminAuthError(str(e)) from e
-            # older garth
-            try:
-                c = garth.Client()
-
-                def _kick():
-                    raise _MFAKick()
-
-                c.login(email, password, prompt_mfa=_kick)
-                _adopt_tokens(c)
-                self._pending_mfa = False
-                self._authenticated = True
-                self._pending_creds = None
-                self._username = email
-                if remember:
-                    self._save_tokens()
-                return {"authenticated": True, "username": self._username}
-            except _MFAKick:
-                self._pending_mfa = True
-                self._pending_creds = (email, password)
-                self._remember_after_mfa = bool(remember)
-                return {"mfa_required": True}
-            except Exception as e:
-                logger.exception("Login failed: %s", e)
-                raise GarminAuthError(str(e)) from e
-
-        def submit_mfa(self, code: str, remember: bool = False) -> Dict:
-            if garth is None:
-                self._pending_mfa = False
-                self._authenticated = True
-                return {"authenticated": True, "username": self._username or "Garmin User", "dev_mode": True}
-            if hasattr(garth, "resume_login"):
-                if not self._mfa_ctx:
-                    raise GarminAuthError("No MFA context. Start login first.")
-                try:
-                    _oauth1, _oauth2 = garth.resume_login(self._mfa_ctx, code)
-                    self._pending_mfa = False
-                    self._authenticated = True
-                    self._mfa_ctx = None
-                    self._username = "Garmin User"
-                    if self._remember_after_mfa or remember:
-                        self._save_tokens()
-                    return {"authenticated": True, "username": self._username}
-                except Exception as e:
-                    logger.exception("MFA verification failed: %s", e)
-                    raise GarminAuthError(str(e)) from e
-            if not self._pending_creds:
-                raise GarminAuthError("No pending credentials for MFA. Please login again.")
-            email, password = self._pending_creds
-            try:
-                c = garth.Client()
-                c.login(email, password, prompt_mfa=lambda: code)
-                _adopt_tokens(c)
-                self._pending_mfa = False
-                self._authenticated = True
-                self._pending_creds = None
-                self._username = email
-                if self._remember_after_mfa or remember:
-                    self._save_tokens()
-                return {"authenticated": True, "username": self._username}
-            except Exception as e:
-                logger.exception("MFA verification failed: %s", e)
-                raise GarminAuthError(str(e)) from e
-
-    _singleton = None
-
-    def get_client():
-        global _singleton
-        if _singleton is None:
-            _singleton = _FallbackGarminClient()
-        return _singleton
-
-
-if sync_recent is None or sync_health_data is None or sync_comprehensive is None:
-    try:
-        from datetime import datetime, timedelta, timezone
-        import garth  # type: ignore
-    except Exception:
-        garth = None
-
-    def sync_recent(days: int):
-        if garth is None:
-            return {
-                "ok": True,
-                "activities_fetched": 0,
-                "wellness_synced": False,
-                "dev_mode": True,
-                "msg": f"(dev) Would sync last {days} days of activities.",
-            }
-        try:
-            c = garth.client
-            end = datetime.now(timezone.utc)
-            start = end - timedelta(days=days)
-            activities = c.activities(start=start.date(), limit=500)
-            count = 0
-            for _ in activities:
-                count += 1
-            return {
-                "ok": True,
-                "activities_fetched": count,
-                "wellness_synced": False,
-                "msg": f"Synced {count} activities from the last {days} days.",
-            }
-        except Exception as e:
-            logger.exception("Sync failed: %s", e)
-            return {"ok": False, "error": str(e)}
-
-    def sync_health_data(days: int, data_types: list = None):
-        """Fallback health data sync function."""
-        if garth is None:
-            return {
-                "ok": True,
-                "wellness_synced": False,
-                "dev_mode": True,
-                "msg": f"(dev) Would sync {days} days of health data.",
-                "data": {}
-            }
-        return {
-            "ok": False,
-            "error": "Health data sync not available - please update garth_sync module"
-        }
-
-    def sync_comprehensive(days: int):
-        """Fallback comprehensive sync function."""
-        activity_result = sync_recent(days)
-        health_result = sync_health_data(days)
-        return {
-            "ok": activity_result.get("ok", False) and health_result.get("ok", False),
-            "activities_fetched": activity_result.get("activities_fetched", 0),
-            "wellness_synced": health_result.get("wellness_synced", False),
-            "msg": f"Activities: {activity_result.get('msg', 'Failed')} | Health: {health_result.get('msg', 'Failed')}"
-        }
-
-
-# -------- Dash layout and callbacks (unchanged) --------
 def layout():
     return dbc.Container(
         [
+            dcc.Store(id="garmin-auth-store"),
+            dcc.Store(id="garmin-activities-store"),
             dbc.Row(
                 dbc.Col(
                     [
-                        html.H1(
-                            [html.I(className="fas fa-user-lock me-3"), "Garmin Connect Integration"], className="mb-2"
-                        ),
-                        html.P(
-                            "Connect to your Garmin Connect account to download and synchronize your activity data automatically.",
-                            className="text-muted mb-4",
-                        ),
+                        html.H2("Garmin Connect Integration"),
+                        html.P("Sign in to Garmin Connect, sync recent activities, and view charts below."),
+                        html.Div(id="garmin-status-alert"),
                     ],
                     width=12,
                 )
             ),
-            dcc.Store(id="garmin-auth-store", storage_type="session"),
             dbc.Row(
-                dbc.Col(
-                    dbc.Card(
-                        [
-                            dbc.CardHeader(html.H5("Login to Garmin Connect", className="mb-0")),
-                            dbc.CardBody(
-                                [
-                                    html.Div(id="garmin-status-alert"),
-                                    html.Div(
-                                        id="garmin-login-form",
-                                        children=[
-                                            dbc.Form(
-                                                [
-                                                    dbc.Row(
+                [
+                    dbc.Col(
+                        dbc.Card(
+                            [
+                                dbc.CardHeader("Login"),
+                                dbc.CardBody(
+                                    [
+                                        dbc.Form(
+                                            id="garmin-login-form",
+                                            children=[
+                                                dbc.Row(
+                                                    [
                                                         dbc.Col(
-                                                            [
-                                                                dbc.Label("Email / Username", html_for="garmin-email"),
-                                                                dbc.Input(
-                                                                    id="garmin-email",
-                                                                    type="text",
-                                                                    placeholder="your@email.com",
-                                                                    autoComplete="username",
-                                                                ),
-                                                            ],
-                                                            width=12,
-                                                            className="mb-3",
-                                                        )
-                                                    ),
-                                                    dbc.Row(
+                                                            dbc.Input(
+                                                                id="garmin-email",
+                                                                type="email",
+                                                                placeholder="Email",
+                                                                autoComplete="username",
+                                                            ),
+                                                            md=5,
+                                                        ),
                                                         dbc.Col(
-                                                            [
-                                                                dbc.Label("Password", html_for="garmin-password"),
-                                                                dbc.Input(
-                                                                    id="garmin-password",
-                                                                    type="password",
-                                                                    placeholder="••••••••",
-                                                                    autoComplete="current-password",
-                                                                ),
-                                                            ],
-                                                            width=12,
-                                                            className="mb-3",
-                                                        )
-                                                    ),
-                                                    dbc.Row(
-                                                        [
-                                                            dbc.Col(
-                                                                dbc.Checkbox(
-                                                                    id="garmin-remember-me",
-                                                                    label="Remember me on this device",
-                                                                    value=True,
-                                                                ),
-                                                                width=6,
+                                                            dbc.Input(
+                                                                id="garmin-password",
+                                                                type="password",
+                                                                placeholder="Password",
+                                                                autoComplete="current-password",
                                                             ),
-                                                            dbc.Col(
-                                                                dbc.Button(
-                                                                    "Login",
-                                                                    id="garmin-login-btn",
-                                                                    color="primary",
-                                                                    className="w-100",
-                                                                    n_clicks=0,
-                                                                ),
-                                                                width=6,
-                                                            ),
-                                                        ],
-                                                        className="g-2 mb-1",
-                                                    ),
-                                                ]
-                                            )
-                                        ],
-                                    ),
-                                    html.Div(
-                                        id="garmin-mfa-form",
-                                        hidden=True,
-                                        children=[
-                                            html.Hr(),
-                                            html.P("Two-factor authentication required (TOTP).", className="mb-1"),
-                                            dbc.Row(
-                                                [
-                                                    dbc.Col(
-                                                        dbc.Input(
-                                                            id="garmin-mfa-code",
-                                                            type="text",
-                                                            placeholder="Enter 6-digit code",
-                                                            maxLength=8,
-                                                            inputMode="numeric",
+                                                            md=5,
                                                         ),
-                                                        width=8,
-                                                    ),
-                                                    dbc.Col(
-                                                        dbc.Button(
-                                                            "Verify",
-                                                            id="garmin-mfa-verify-btn",
-                                                            color="secondary",
-                                                            className="w-100",
-                                                            n_clicks=0,
+                                                        dbc.Col(
+                                                            dbc.Button("Login", id="garmin-login-btn", color="primary", className="w-100"),
+                                                            md=2,
                                                         ),
-                                                        width=4,
-                                                    ),
-                                                ],
-                                                className="g-2",
-                                            ),
-                                        ],
-                                    ),
-                                ]
-                            ),
-                        ]
+                                                    ],
+                                                    className="g-2",
+                                                ),
+                                                dbc.Checkbox(
+                                                    id="garmin-remember-me",
+                                                    label="Remember me (save tokens)",
+                                                    value=True,
+                                                    className="mt-2",
+                                                ),
+                                            ],
+                                        )
+                                    ]
+                                ),
+                            ]
+                        ),
+                        width=12,
+                        lg=8,
                     ),
-                    width=12,
-                )
+                ],
+                className="mt-3",
             ),
             dbc.Row(
-                dbc.Col(
-                    dbc.Card(
-                        [
-                            dbc.CardHeader(html.H5("Synchronize Health & Activity Data", className="mb-0")),
-                            dbc.CardBody(
-                                [
-                                    html.Div(
-                                        [
-                                            dbc.Row(
-                                                [
-                                                    dbc.Col(
-                                                        [
-                                                            dbc.Label("Days to sync"),
-                                                            dcc.Dropdown(
-                                                                id="garmin-days-dropdown",
-                                                                options=[
-                                                                    {"label": "7 days", "value": 7},
-                                                                    {"label": "14 days", "value": 14},
-                                                                    {"label": "30 days", "value": 30},
-                                                                    {"label": "90 days", "value": 90},
-                                                                ],
-                                                                value=7,
-                                                                clearable=False,
-                                                            ),
-                                                        ],
-                                                        md=6,
-                                                        className="mb-2",
-                                                    ),
-                                                    dbc.Col(
-                                                        [
-                                                            dbc.Label(" "),
-                                                            dbc.Button(
-                                                                "Sync Health Data",
-                                                                id="garmin-sync-btn",
-                                                                color="success",
-                                                                className="w-100",
-                                                                n_clicks=0,
-                                                                disabled=True,
-                                                            ),
-                                                        ],
-                                                        md=6,
-                                                        className="mb-2",
-                                                    ),
-                                                ]
-                                            )
-                                        ]
-                                    ),
-                                    html.Div(id="garmin-sync-result"),
-                                ]
-                            ),
-                        ]
+                [
+                    dbc.Col(
+                        dbc.Card(
+                            [
+                                dbc.CardHeader("Two‑Factor Authentication"),
+                                dbc.CardBody(
+                                    [
+                                        html.Div(
+                                            id="garmin-mfa-form",
+                                            hidden=True,
+                                            children=[
+                                                dbc.Input(id="garmin-mfa-code", placeholder="Enter 6‑digit code"),
+                                                dbc.Button("Verify", id="garmin-mfa-verify-btn", color="info", className="mt-2"),
+                                                html.Small("Check your email/SMS for the Garmin verification code."),
+                                            ],
+                                        )
+                                    ]
+                                ),
+                            ]
+                        ),
+                        width=12,
+                        lg=8,
                     ),
-                    width=12,
-                )
+                ],
+                className="mt-3",
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dbc.Card(
+                            [
+                                dbc.CardHeader("Sync & Preview"),
+                                dbc.CardBody(
+                                    [
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    dbc.Select(
+                                                        id="garmin-days-dropdown",
+                                                        options=[
+                                                            {"label": "7 days", "value": 7},
+                                                            {"label": "14 days", "value": 14},
+                                                            {"label": "30 days", "value": 30},
+                                                            {"label": "90 days", "value": 90},
+                                                        ],
+                                                        value=30,
+                                                    ),
+                                                    md=3,
+                                                ),
+                                                dbc.Col(
+                                                    dbc.Button("Sync now", id="garmin-sync-btn", color="success", className="w-100"),
+                                                    md=3,
+                                                ),
+                                                dbc.Col(
+                                                    dbc.Select(
+                                                        id="garmin-metric-select",
+                                                        options=[
+                                                            {"label": "Distance (km)", "value": "distance_km"},
+                                                            {"label": "Duration (min)", "value": "duration_min"},
+                                                            {"label": "Avg HR (bpm)", "value": "avg_hr"},
+                                                            {"label": "Speed (km/h)", "value": "speed_kmh"},
+                                                            {"label": "Pace (min/km)", "value": "pace_min_per_km"},
+                                                            {"label": "Calories", "value": "calories"},
+                                                            {"label": "Elev Gain (m)", "value": "elev_gain_m"},
+                                                        ],
+                                                        value="distance_km",
+                                                    ),
+                                                    md=3,
+                                                ),
+                                                dbc.Col(
+                                                    dbc.Select(
+                                                        id="garmin-type-filter",
+                                                        options=[
+                                                            {"label": "All types", "value": ""},
+                                                            {"label": "Running", "value": "running"},
+                                                            {"label": "Cycling", "value": "cycling"},
+                                                            {"label": "Swimming", "value": "swimming"},
+                                                            {"label": "Strength", "value": "strength_training"},
+                                                            {"label": "Other", "value": "other"},
+                                                        ],
+                                                        value="",
+                                                    ),
+                                                    md=3,
+                                                ),
+                                            ],
+                                            className="g-2",
+                                        ),
+                                        html.Div(id="garmin-sync-result", className="mt-3"),
+                                    ]
+                                ),
+                            ]
+                        ),
+                        width=12,
+                        lg=10,
+                    ),
+                ],
+                className="mt-3",
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dbc.Card(
+                            [
+                                dbc.CardHeader("Activity Chart"),
+                                dbc.CardBody([html.Div(id="garmin-activity-chart")]),
+                            ]
+                        ),
+                        width=12,
+                        lg=10,
+                    )
+                ],
+                className="mt-3",
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dbc.Card(
+                            [
+                                dbc.CardHeader("Recent Activities"),
+                                dbc.CardBody(
+                                    [
+                                        dash_table.DataTable(
+                                            id="garmin-activity-table",
+                                            columns=[
+                                                {"name": "Date/Time", "id": "start"},
+                                                {"name": "Type", "id": "type"},
+                                                {"name": "Title", "id": "name"},
+                                                {"name": "Distance (km)", "id": "distance_km"},
+                                                {"name": "Duration (min)", "id": "duration_min"},
+                                                {"name": "Avg HR", "id": "avg_hr"},
+                                                {"name": "Speed (km/h)", "id": "speed_kmh"},
+                                                {"name": "Pace (min/km)", "id": "pace_min_per_km"},
+                                                {"name": "Calories", "id": "calories"},
+                                            ],
+                                            data=[],
+                                            page_size=10,
+                                            sort_action="native",
+                                            filter_action="native",
+                                            style_table={"overflowX": "auto"},
+                                            style_cell={"padding": "6px", "fontSize": "0.9rem"},
+                                        )
+                                    ]
+                                ),
+                            ]
+                        ),
+                        width=12,
+                        lg=10,
+                    )
+                ],
+                className="mt-3 mb-5",
             ),
         ],
-        className="py-3",
         fluid=True,
+        className="py-3",
     )
 
 
+# --------- Callbacks
+
 def register_callbacks(app):
+    # On page load — try restoring tokens
     @app.callback(
         Output("garmin-auth-store", "data"),
         Output("garmin-status-alert", "children"),
@@ -487,22 +264,15 @@ def register_callbacks(app):
     )
     def _bootstrap_auth(_):
         try:
-            cli = get_client()
-            cli.load_session()
+            cli = GarminConnectClient()
+            state = cli.load_session()
+            if state.get("is_authenticated"):
+                return state, dbc.Alert(f"Signed in as {state.get('username')}.", color="success", dismissable=True)
+            return state, no_update
         except Exception as e:
-            return (
-                {"is_authenticated": False, "username": None, "mfa_required": False},
-                dbc.Alert(f"Garmin client error: {e}", color="danger", dismissable=True),
-            )
-        if getattr(cli, "is_authenticated", False):
-            return (
-                {"is_authenticated": True, "username": getattr(cli, "username", None), "mfa_required": False},
-                dbc.Alert(
-                    f"Logged in as {getattr(cli, 'username', 'Garmin User')}.", color="success", dismissable=True
-                ),
-            )
-        return ({"is_authenticated": False, "username": None, "mfa_required": False}, no_update)
+            return {"is_authenticated": False, "username": None, "mfa_required": False}, dbc.Alert(str(e), color="danger")
 
+    # Login
     @app.callback(
         Output("garmin-auth-store", "data", allow_duplicate=True),
         Output("garmin-status-alert", "children", allow_duplicate=True),
@@ -519,32 +289,25 @@ def register_callbacks(app):
         if not email or not password:
             return no_update, dbc.Alert("Please enter both email and password.", color="warning"), True
         try:
-            cli = get_client()
-            result = cli.login(email=email, password=password, remember=bool(remember))
+            cli = GarminConnectClient()
+            result = cli.login(str(email).strip(), str(password), remember=bool(remember))
             if result.get("mfa_required"):
-                return (
-                    {"is_authenticated": False, "username": None, "mfa_required": True},
-                    dbc.Alert("Two-factor authentication required. Please enter the code.", color="info"),
-                    False,
-                )
-            return (
-                {"is_authenticated": True, "username": result.get("username"), "mfa_required": False},
-                dbc.Alert(f"Logged in as {result.get('username')}.", color="success", dismissable=True),
-                True,
-            )
+                return {"is_authenticated": False, "username": None, "mfa_required": True}, dbc.Alert(
+                    "Two‑factor authentication required. Enter the code to continue.", color="info"
+                ), False
+            return {"is_authenticated": True, "username": result.get("username"), "mfa_required": False}, dbc.Alert(
+                f"Logged in as {result.get('username')}.", color="success", dismissable=True
+            ), True
         except GarminAuthError as e:
-            return (
-                {"is_authenticated": False, "username": None, "mfa_required": False},
-                dbc.Alert(f"Login failed: {e}", color="danger", dismissable=True),
-                True,
-            )
+            return {"is_authenticated": False, "username": None, "mfa_required": False}, dbc.Alert(
+                f"Login failed: {e}", color="danger", dismissable=True
+            ), True
         except Exception as e:
-            return (
-                {"is_authenticated": False, "username": None, "mfa_required": False},
-                dbc.Alert(f"Login error: {e}", color="danger", dismissable=True),
-                True,
-            )
+            return {"is_authenticated": False, "username": None, "mfa_required": False}, dbc.Alert(
+                f"Login error: {e}", color="danger", dismissable=True
+            ), True
 
+    # Complete MFA
     @app.callback(
         Output("garmin-auth-store", "data", allow_duplicate=True),
         Output("garmin-status-alert", "children", allow_duplicate=True),
@@ -560,60 +323,117 @@ def register_callbacks(app):
         if not code:
             return no_update, dbc.Alert("Please enter the MFA code.", color="warning"), False
         try:
-            cli = get_client()
-            result = cli.submit_mfa(code=str(code).strip(), remember=bool(remember))
-            return (
-                {"is_authenticated": True, "username": result.get("username"), "mfa_required": False},
-                dbc.Alert("MFA verified. Logged in successfully.", color="success", dismissable=True),
-                True,
-            )
+            cli = GarminConnectClient()
+            result = cli.submit_mfa(str(code).strip(), remember=bool(remember))
+            return {"is_authenticated": True, "username": result.get("username"), "mfa_required": False}, dbc.Alert(
+                f"MFA successful. Logged in as {result.get('username')}.", color="success", dismissable=True
+            ), True
         except GarminAuthError as e:
             return no_update, dbc.Alert(f"MFA failed: {e}", color="danger"), False
         except Exception as e:
             return no_update, dbc.Alert(f"MFA error: {e}", color="danger"), False
 
-    @app.callback(
-        Output("garmin-sync-btn", "disabled"),
-        Input("garmin-auth-store", "data"),
-    )
-    def _toggle_sync(auth):
-        return not (auth and auth.get("is_authenticated"))
-
+    # Sync button -> message + store data
     @app.callback(
         Output("garmin-sync-result", "children"),
+        Output("garmin-activities-store", "data"),
         Input("garmin-sync-btn", "n_clicks"),
-        State("garmin-days-dropdown", "value"),
         State("garmin-auth-store", "data"),
+        State("garmin-days-dropdown", "value"),
+        State("garmin-email", "value"),
+        State("garmin-password", "value"),
+        State("garmin-type-filter", "value"),
         prevent_initial_call=True,
     )
-    def _run_sync(n_clicks, days, auth):
+    def _sync(n_clicks, auth, days, email, password, type_filter):
         if not n_clicks:
             raise PreventUpdate
-        if not (auth and auth.get("is_authenticated")):
-            return dbc.Alert("Please login first to enable data synchronization.", color="warning")
-        days = int(days or 7)
-        
-        # Use comprehensive sync to get both activities and health data
-        result = sync_comprehensive(days=days)
-        
-        if result.get("ok"):
-            msg = result.get("msg") or f"Synced last {days} days."
-            extra = " (dev mode)" if result.get("dev_mode") else ""
-            
-            # Show detailed success message for health data
-            activities_count = result.get("activities_fetched", 0)
-            health_records = result.get("total_health_records", 0)
-            wellness_synced = result.get("wellness_synced", False)
-            
-            if wellness_synced and health_records > 0:
-                success_msg = f"✅ Successfully synced {days} days of data:\n"
-                success_msg += f"• Activities: {activities_count} records\n"
-                success_msg += f"• Health data: {health_records} records (sleep, HRV, steps, stress)"
-                success_msg += extra
+        is_authed = bool(auth and auth.get("is_authenticated"))
+        try:
+            if is_authed:
+                summary = sync_range(days=int(days or 30), fetch_wellness=True)
             else:
-                success_msg = msg + extra
-            
-            return dbc.Alert(success_msg, color="success", dismissable=True, style={"white-space": "pre-line"})
-        else:
-            error_msg = result.get("error") or result.get("msg") or "unknown error"
-            return dbc.Alert(f"Sync failed: {error_msg}", color="danger")
+                if not email or not password:
+                    return dbc.Alert("Please login first or provide credentials.", color="warning"), no_update
+                summary = sync_range(email=str(email).strip(), password=str(password), days=int(days or 30), fetch_wellness=True)
+            if not summary.get("ok"):
+                if summary.get("mfa_required"):
+                    return dbc.Alert("MFA is required. Complete login first.", color="info"), no_update
+                return dbc.Alert(f"Sync failed: {summary.get('error')}", color="danger"), no_update
+
+            activities = summary.get("activities_norm", [])
+            # Apply type filter if any
+            if type_filter:
+                activities = [a for a in activities if (a.get("type") or "").lower() == str(type_filter).lower()]
+
+            msg = (
+                f"✅ Synced {summary['activities_count']} activities "
+                f"from {summary['start_date']} to {summary['end_date']}."
+            )
+            if summary.get("wellness_records"):
+                msg += f" Added {summary['wellness_records']} wellness records."
+            if summary.get("fit_downloaded"):
+                msg += f" Downloaded {summary['fit_downloaded']} FIT files."
+            return dbc.Alert(msg, color="success", dismissable=True), activities
+        except Exception as e:
+            return dbc.Alert(f"Sync error: {e}", color="danger"), no_update
+
+    # Activities table renderer
+    @app.callback(
+        Output("garmin-activity-table", "data"),
+        Input("garmin-activities-store", "data"),
+        prevent_initial_call=True,
+    )
+    def _render_table(activities):
+        if not activities:
+            raise PreventUpdate
+        # Sort by start descending if available
+        try:
+            return sorted(activities, key=lambda a: a.get("start") or "", reverse=True)
+        except Exception:
+            return activities
+
+    # Activity chart renderer
+    @app.callback(
+        Output("garmin-activity-chart", "children"),
+        Input("garmin-activities-store", "data"),
+        Input("garmin-metric-select", "value"),
+        prevent_initial_call=True,
+    )
+    def _render_chart(activities, metric):
+        if not activities:
+            return dbc.Alert("No activities to chart yet. Click Sync.", color="secondary")
+        metric = metric or "distance_km"
+        # Build a time-series scatter/line chart
+        x = [a.get("start") for a in activities]
+        y = [a.get(metric) for a in activities]
+        names = [a.get("name") or "" for a in activities]
+
+        # Fallback: filter out None values to avoid gaps
+        points = [(xi, yi, ni) for xi, yi, ni in zip(x, y, names) if yi is not None and xi is not None]
+        if not points:
+            return dbc.Alert("Selected metric has no data for this window.", color="warning")
+
+        x, y, names = zip(*points)
+
+        title_map = {
+            "distance_km": "Distance (km)",
+            "duration_min": "Duration (min)",
+            "avg_hr": "Avg HR (bpm)",
+            "speed_kmh": "Speed (km/h)",
+            "pace_min_per_km": "Pace (min/km)",
+            "calories": "Calories",
+            "elev_gain_m": "Elevation Gain (m)",
+        }
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=list(x), y=list(y), mode="lines+markers", text=list(names),
+                                 hovertemplate="<b>%{text}</b><br>%{x}<br>%{y}<extra></extra>"))
+        fig.update_layout(
+            title=f"Activities — {title_map.get(metric, metric)}",
+            xaxis_title="Date/Time",
+            yaxis_title=title_map.get(metric, metric),
+            height=420,
+            hovermode="x unified",
+            margin=dict(l=40, r=20, t=60, b=40),
+        )
+        return dcc.Graph(figure=fig)

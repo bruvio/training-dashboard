@@ -1,307 +1,148 @@
 """
-Garmin Connect data synchronization module.
-Handles downloading and processing activity data from Garmin Connect.
+garmin_client/sync.py
+
+Fetch activities and (optionally) wellness data using `python-garminconnect`.
+Returns normalized structures ready for the Dash page.
 """
 
-from datetime import datetime, timedelta
+from __future__ import annotations
+
 import logging
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta, date
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from app.data.db import session_scope
-from app.data.models import Activity, Sample
-
-from .client import GarminConnectClient
+from .client import GarminConnectClient, GarminAuthError
 
 logger = logging.getLogger(__name__)
 
 
-def sync_activities_from_garmin(
-    email: str,
-    password: str,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    max_activities: Optional[int] = None,
-) -> Dict:
+def _daterange_days(end: datetime, days: int) -> Tuple[datetime, datetime]:
+    end = end.replace(hour=0, minute=0, second=0, microsecond=0)
+    start = end - timedelta(days=days - 1)
+    return start, end
+
+
+def _get(d: Dict[str, Any], *path, default=None):
+    cur = d
+    for k in path:
+        if cur is None:
+            return default
+        if isinstance(cur, dict):
+            cur = cur.get(k)
+        else:
+            return default
+    return cur if cur is not None else default
+
+
+def _normalize_activities(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    norm: List[Dict[str, Any]] = []
+    for a in items:
+        act_id = a.get("activityId") or a.get("activityIdStr") or a.get("activity_id")
+        start_local = a.get("startTimeLocal") or a.get("startTimeGMT") or a.get("startTime")
+        name = a.get("activityName") or a.get("activityNameOriginal") or a.get("title") or ""
+        act_type = _get(a, "activityType", "typeKey") or _get(a, "activityTypeDTO", "typeKey") or a.get("activityType")
+
+        dist_m = a.get("distance") or a.get("distanceInMeters") or _get(a, "summaryDTO", "distance")
+        dur_s = a.get("duration") or a.get("elapsedDuration") or _get(a, "summaryDTO", "duration")
+        cal = a.get("calories") or _get(a, "summaryDTO", "calories")
+        avg_hr = a.get("averageHR") or a.get("avgHr") or _get(a, "summaryDTO", "averageHR")
+        max_hr = a.get("maxHR") or _get(a, "summaryDTO", "maxHR")
+        avg_speed = a.get("averageSpeed") or _get(a, "summaryDTO", "averageSpeed")  # m/s
+        elev_gain = a.get("elevationGain") or _get(a, "summaryDTO", "elevationGain")
+
+        # Derived
+        distance_km = float(dist_m) / 1000.0 if dist_m else None
+        duration_min = float(dur_s) / 60.0 if dur_s else None
+        speed_kmh = float(avg_speed) * 3.6 if avg_speed else (distance_km * 60.0 / duration_min if distance_km and duration_min else None)
+        pace_min_per_km = (duration_min / distance_km) if (duration_min and distance_km and distance_km > 0) else None
+
+        norm.append({
+            "activity_id": act_id,
+            "name": name,
+            "type": act_type,
+            "start": start_local,
+            "distance_km": round(distance_km, 3) if distance_km is not None else None,
+            "duration_min": round(duration_min, 2) if duration_min is not None else None,
+            "avg_hr": avg_hr,
+            "max_hr": max_hr,
+            "speed_kmh": round(speed_kmh, 2) if speed_kmh is not None else None,
+            "pace_min_per_km": round(pace_min_per_km, 2) if pace_min_per_km is not None else None,
+            "calories": cal,
+            "elev_gain_m": elev_gain,
+        })
+    return norm
+
+
+def sync_range(
+    email: Optional[str] = None,
+    password: Optional[str] = None,
+    days: int = 30,
+    download_fit: bool = False,
+    fit_dir: Optional[Path] = None,
+    fetch_wellness: bool = True,
+) -> Dict[str, Any]:
     """
-    Sync activities from Garmin Connect to local database.
-
-    Args:
-        email: Garmin Connect email
-        password: Garmin Connect password
-        start_date: Start date for activity sync (defaults to 30 days ago)
-        end_date: End date for activity sync (defaults to today)
-        max_activities: Maximum number of activities to sync
-
-    Returns:
-        Dictionary with sync results and statistics
+    High-level orchestrator; returns a summary dict for the UI.
     """
+    now = datetime.now()
+    start = (now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=max(1, int(days)) - 1)).date()
+    end = now.date()
 
-    results = {
-        "success": False,
-        "activities_processed": 0,
-        "activities_new": 0,
-        "activities_updated": 0,
-        "errors": [],
-        "start_time": datetime.now(),
-        "end_time": None,
-    }
+    client = GarminConnectClient()
+    state = client.load_session()
+    if not state.get("is_authenticated"):
+        if not email or not password:
+            return {"ok": False, "error": "No valid session. Email & password required."}
+        login_result = client.login(email, password, remember=True)
+        if login_result.get("mfa_required"):
+            return {"ok": False, "mfa_required": True, "message": "MFA required"}
 
+    # Fetch activities
     try:
-        # Initialize Garmin Connect client
-        client = GarminConnectClient()
+        activities = client.get_activities_by_date(start, end, activity_type="")
+    except GarminAuthError as e:
+        return {"ok": False, "error": str(e)}
 
-        # Login to Garmin Connect
-        logger.info(f"Logging in to Garmin Connect for {email}")
-        login_result = client.login(email, password)
-
-        if not login_result.get("success"):
-            results["errors"].append(f"Login failed: {login_result.get('message', 'Unknown error')}")
-            return results
-
-        # Set default date range if not provided
-        if end_date is None:
-            end_date = datetime.now()
-        if start_date is None:
-            start_date = end_date - timedelta(days=30)
-
-        logger.info(f"Syncing activities from {start_date.date()} to {end_date.date()}")
-
-        # Get activities from Garmin Connect
-        activities = client.get_activities(start_date=start_date, end_date=end_date, max_activities=max_activities)
-
-        if not activities:
-            logger.info("No activities found in the specified date range")
-            results["success"] = True
-            return results
-
-        logger.info(f"Found {len(activities)} activities to process")
-
-        # Process each activity
-        with session_scope() as session:
-            for activity_data in activities:
-                try:
-                    # Check if activity already exists
-                    garmin_id = activity_data.get("activityId")
-                    if existing_activity := session.query(Activity).filter_by(garmin_activity_id=garmin_id).first():
-                        # Update existing activity
-                        updated = update_activity_from_garmin(session, existing_activity, activity_data, client)
-                        if updated:
-                            results["activities_updated"] += 1
-                    else:
-                        # Create new activity
-                        new_activity = create_activity_from_garmin(session, activity_data, client)
-                        if new_activity:
-                            results["activities_new"] += 1
-
-                    results["activities_processed"] += 1
-
-                except Exception as e:
-                    error_msg = f"Error processing activity {garmin_id}: {str(e)}"
-                    logger.error(error_msg)
-                    results["errors"].append(error_msg)
-                    continue
-
-            # Commit all changes
-            session.commit()
-            logger.info("Successfully committed all activity data to database")
-
-        results["success"] = True
-        logger.info(
-            f"Sync completed successfully. Processed: {results['activities_processed']}, New: {results['activities_new']}, Updated: {results['activities_updated']}"
-        )
-
-    except Exception as e:
-        error_msg = f"Sync failed with error: {str(e)}"
-        logger.error(error_msg)
-        results["errors"].append(error_msg)
-
-    finally:
-        results["end_time"] = datetime.now()
-        results["duration_seconds"] = (results["end_time"] - results["start_time"]).total_seconds()
-
-    return results
-
-
-def create_activity_from_garmin(session, activity_data: Dict, client: GarminConnectClient) -> Optional[Activity]:
-    """
-    Create a new Activity record from Garmin Connect data.
-
-    Args:
-        session: Database session
-        activity_data: Raw activity data from Garmin Connect
-        client: Garmin Connect client for additional data requests
-
-    Returns:
-        Created Activity object or None if creation failed
-    """
-    try:
-        # Extract basic activity information
-        garmin_id = activity_data.get("activityId")
-
-        # Create new Activity record
-        activity = Activity(
-            garmin_activity_id=garmin_id,
-            sport=activity_data.get("activityType", {}).get("typeKey", "unknown"),
-            start_time_utc=(
-                datetime.fromisoformat(activity_data.get("startTimeGMT", "").replace("Z", "+00:00"))
-                if activity_data.get("startTimeGMT")
-                else None
-            ),
-            elapsed_time_s=activity_data.get("elapsedDuration"),
-            distance_m=activity_data.get("distance"),
-            avg_speed_mps=activity_data.get("averageSpeed"),
-            max_speed_mps=activity_data.get("maxSpeed"),
-            elevation_gain_m=activity_data.get("elevationGain"),
-            elevation_loss_m=activity_data.get("elevationLoss"),
-            avg_heart_rate=activity_data.get("averageHR"),
-            max_heart_rate=activity_data.get("maxHR"),
-            calories=activity_data.get("calories"),
-            source="garmin_connect",
-        )
-
-        session.add(activity)
-        session.flush()  # Get the ID
-
-        # Download detailed activity data if available
-        try:
-            detailed_data = client.get_activity_details(garmin_id)
-            if detailed_data and detailed_data.get("samples"):
-                create_samples_from_garmin(session, activity.id, detailed_data["samples"])
-
-        except Exception as e:
-            logger.warning(f"Could not download detailed data for activity {garmin_id}: {e}")
-
-        logger.info(f"Created new activity: {garmin_id} ({activity.sport})")
-        return activity
-
-    except Exception as e:
-        logger.error(f"Failed to create activity from Garmin data: {e}")
-        return None
-
-
-def update_activity_from_garmin(session, activity: Activity, activity_data: Dict, client: GarminConnectClient) -> bool:
-    """
-    Update an existing Activity record with fresh Garmin Connect data.
-
-    Args:
-        session: Database session
-        activity: Existing Activity object
-        activity_data: Fresh activity data from Garmin Connect
-        client: Garmin Connect client for additional data requests
-
-    Returns:
-        True if activity was updated, False otherwise
-    """
-    try:
-        updated = False
-
-        # Update basic fields if they've changed
-        new_distance = activity_data.get("distance")
-        if new_distance and new_distance != activity.distance_m:
-            activity.distance_m = new_distance
-            updated = True
-
-        new_duration = activity_data.get("elapsedDuration")
-        if new_duration and new_duration != activity.elapsed_time_s:
-            activity.elapsed_time_s = new_duration
-            updated = True
-
-        new_calories = activity_data.get("calories")
-        if new_calories and new_calories != activity.calories:
-            activity.calories = new_calories
-            updated = True
-
-        # Update timestamp for tracking
-        if updated:
-            activity.updated_at = datetime.utcnow()
-            logger.info(f"Updated activity: {activity.garmin_activity_id}")
-
-        return updated
-
-    except Exception as e:
-        logger.error(f"Failed to update activity {activity.garmin_activity_id}: {e}")
-        return False
-
-
-def create_samples_from_garmin(session, activity_id: int, samples_data: List[Dict]) -> int:
-    """
-    Create Sample records from Garmin Connect detailed activity data.
-
-    Args:
-        session: Database session
-        activity_id: ID of the parent Activity
-        samples_data: List of sample data points from Garmin
-
-    Returns:
-        Number of samples created
-    """
-    try:
-        samples_created = 0
-
-        for sample_data in samples_data:
-            try:
-                sample = Sample(
-                    activity_id=activity_id,
-                    elapsed_time_s=sample_data.get("elapsed_time", 0),
-                    latitude=sample_data.get("latitude"),
-                    longitude=sample_data.get("longitude"),
-                    altitude_m=sample_data.get("altitude"),
-                    heart_rate=sample_data.get("heart_rate"),
-                    speed_mps=sample_data.get("speed"),
-                    power_w=sample_data.get("power"),
-                    cadence_rpm=sample_data.get("cadence"),
-                    temperature_c=sample_data.get("temperature"),
-                )
-
-                session.add(sample)
-                samples_created += 1
-
-            except Exception as e:
-                logger.warning(f"Could not create sample at time {sample_data.get('elapsed_time', 'unknown')}: {e}")
+    # Optional: download FIT files
+    fit_saved = 0
+    fit_paths: List[Path] = []
+    if download_fit:
+        fit_dir = fit_dir or Path("./data/fit")
+        for act in activities:
+            act_id = act.get("activityId") or act.get("activity_id") or act.get("activityIdStr")
+            if act_id is None:
                 continue
+            try:
+                p = client.download_activity_fit(act_id, fit_dir)
+                fit_paths.append(p)
+                fit_saved += 1
+            except Exception as e:
+                logger.warning("Failed to download FIT for %s: %s", act_id, e)
 
-        logger.info(f"Created {samples_created} samples for activity {activity_id}")
-        return samples_created
+    # Optional: wellness summaries (one per day)
+    wellness_records = 0
+    wellness_days: List[Dict[str, Any]] = []
+    if fetch_wellness:
+        d = start
+        while d <= end:
+            try:
+                w = client.wellness_summary_for_day(d)
+                wellness_days.append({"date": d.isoformat(), **w})
+                wellness_records += sum(1 for k, v in w.items() if v)
+            except Exception:
+                pass
+            d = d + timedelta(days=1)
 
-    except Exception as e:
-        logger.error(f"Failed to create samples for activity {activity_id}: {e}")
-        return 0
-
-
-def get_sync_status() -> Dict:
-    """
-    Get current synchronization status and statistics.
-
-    Returns:
-        Dictionary with sync status information
-    """
-    try:
-        with session_scope() as session:
-            # Count activities by source
-            total_activities = session.query(Activity).count()
-            garmin_activities = session.query(Activity).filter_by(source="garmin_connect").count()
-            fit_file_activities = session.query(Activity).filter_by(source="fit_file").count()
-
-            # Get latest activity dates
-            latest_activity = session.query(Activity).order_by(Activity.start_time_utc.desc()).first()
-            latest_garmin_activity = (
-                session.query(Activity)
-                .filter_by(source="garmin_connect")
-                .order_by(Activity.start_time_utc.desc())
-                .first()
-            )
-
-            return {
-                "total_activities": total_activities,
-                "garmin_activities": garmin_activities,
-                "fit_file_activities": fit_file_activities,
-                "latest_activity_date": latest_activity.start_time_utc.isoformat() if latest_activity else None,
-                "latest_garmin_sync_date": (
-                    latest_garmin_activity.start_time_utc.isoformat() if latest_garmin_activity else None
-                ),
-                "last_updated": datetime.utcnow().isoformat(),
-            }
-
-    except Exception as e:
-        logger.error(f"Failed to get sync status: {e}")
-        return {"error": str(e), "last_updated": datetime.utcnow().isoformat()}
+    return {
+        "ok": True,
+        "activities_count": len(activities),
+        "activities": activities,
+        "activities_norm": _normalize_activities(activities),
+        "fit_downloaded": fit_saved,
+        "fit_paths": [str(p) for p in fit_paths],
+        "wellness_records": wellness_records,
+        "wellness_days": wellness_days,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+    }
