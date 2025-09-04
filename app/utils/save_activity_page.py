@@ -19,7 +19,7 @@ def save_rendered_page(url: str, output: str):
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page()
                 print(f"[INFO] Loading: {url}")
-                
+
                 try:
                     page.goto(url)
                     # Wait until network is idle (no new requests for 500ms)
@@ -32,11 +32,15 @@ def save_rendered_page(url: str, output: str):
                     print(f"[ERROR] Failed to load or render page: {url}\nReason: {e}")
                 finally:
                     browser.close()
-                    
+
             except Exception as e:
-                raise RuntimeError(f"Failed to launch Playwright browser: {e}. Make sure playwright is properly installed with 'playwright install'.")
+                raise RuntimeError(
+                    f"Failed to launch Playwright browser: {e}. Make sure playwright is properly installed with 'playwright install'."
+                )
     except ImportError as e:
-        raise ImportError(f"Playwright is not installed. Install with: pip install playwright && playwright install") from e
+        raise ImportError(
+            f"Playwright is not installed. Install with: pip install playwright && playwright install"
+        ) from e
 
 
 def main():
