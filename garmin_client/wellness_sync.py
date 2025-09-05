@@ -183,11 +183,13 @@ class WellnessSyncManager:
                             )
 
                         # Add HRV data if available
-                        if hrv_data:
+                        if hrv_data and hrv_data.get("hrvSummary"):
+                            hrv_summary = hrv_data["hrvSummary"]
                             hr_record.update(
                                 {
-                                    "hrv_score": hrv_data.get("hrvScore"),
-                                    "hrv_status": hrv_data.get("hrvStatus"),
+                                    # Map to database field names
+                                    "hrv_score": hrv_summary.get("lastNightAvg"),  # Use last night avg as the main score
+                                    "hrv_status": hrv_summary.get("status"),
                                 }
                             )
 
@@ -389,14 +391,15 @@ class WellnessSyncManager:
 
                         tr_record = {
                             "date": current_date,
-                            "score": tr_record_data.get("score"),
+                            # Map to database field names
+                            "training_readiness_score": tr_record_data.get("score"),
+                            "hrv_score": tr_record_data.get("hrvWeeklyAverage"),
+                            "sleep_score": tr_record_data.get("sleepScore"),
+                            "recovery_time_hours": tr_record_data.get("recoveryTime"),
+                            # Note: level, feedback fields not in database schema, but kept for reference
                             "level": tr_record_data.get("level"),
                             "feedback_short": tr_record_data.get("feedbackShort"),
                             "feedback_long": tr_record_data.get("feedbackLong"),
-                            "sleep_score": tr_record_data.get("sleepScore"),
-                            "hrv_weekly_average": tr_record_data.get("hrvWeeklyAverage"),
-                            "recovery_time": tr_record_data.get("recoveryTime"),
-                            "acute_load": tr_record_data.get("acuteLoad"),
                         }
                         tr_data.append(tr_record)
 
@@ -426,20 +429,43 @@ class WellnessSyncManager:
             # Get personal records
             pr_data = self.client.api.get_personal_record()
 
+            # Map typeId to record type names
+            record_type_map = {
+                1: "1k_time",      # 1km time
+                2: "2k_time",      # 2km time  
+                3: "5k_time",      # 5km time
+                4: "half_marathon", # Half marathon time
+                5: "marathon",     # Marathon time
+                6: "longest_distance", # Longest distance
+                7: "max_elevation_gain", # Max elevation gain
+                8: "fastest_pace", # Fastest pace
+                9: "max_power",    # Max power
+                # Add more mappings as needed
+            }
+
             records = []
             if pr_data:
                 for record in pr_data:
+                    # Parse the activity start date
+                    achieved_date = None
+                    if record.get("actStartDateTimeInGMTFormatted"):
+                        try:
+                            achieved_date = datetime.fromisoformat(
+                                record.get("actStartDateTimeInGMTFormatted").replace('T', ' ').replace('.0', '')
+                            ).date()
+                        except (ValueError, AttributeError):
+                            logger.warning(f"Could not parse date: {record.get('actStartDateTimeInGMTFormatted')}")
+
                     pr_record = {
                         "activity_type": record.get("activityType"),
-                        "record_type": record.get("recordType"),
+                        "record_type": record_type_map.get(record.get("typeId"), f"type_{record.get('typeId')}"),
                         "record_value": record.get("value"),
-                        "record_unit": record.get("unit"),
+                        "record_unit": None,  # API doesn't provide units, would need separate mapping
                         "activity_id": record.get("activityId"),
-                        "achieved_date": datetime.fromisoformat(record.get("recordDate")).date()
-                        if record.get("recordDate")
-                        else None,
+                        "achieved_date": achieved_date,
                         "activity_name": record.get("activityName"),
-                        "location": record.get("location"),
+                        "location": None,  # Not provided in API response
+                        "type_id": record.get("typeId"),  # Keep original typeId for reference
                     }
                     records.append(pr_record)
 
@@ -448,6 +474,43 @@ class WellnessSyncManager:
 
         except Exception as e:
             logger.error(f"Personal records sync failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    def sync_spo2_data(self, start_date: date, end_date: date) -> Dict[str, Any]:
+        """Sync SpO2 (blood oxygen saturation) data for date range."""
+        try:
+            if not self.client.is_authenticated():
+                raise GarminAuthError("Client not authenticated")
+
+            spo2_data = []
+            current_date = start_date
+
+            while current_date <= end_date:
+                try:
+                    date_str = current_date.isoformat()
+                    daily_spo2 = self.client.api.get_spo2_data(date_str)
+
+                    if daily_spo2:
+                        spo2_record = {
+                            "date": current_date,
+                            "average_spo2": daily_spo2.get("averageSpO2"),
+                            "lowest_spo2": daily_spo2.get("lowestSpO2"),
+                            "last_7_days_avg_spo2": daily_spo2.get("lastSevenDaysAvgSpO2"),
+                            "latest_spo2": daily_spo2.get("latestSpO2"),
+                            "avg_sleep_spo2": daily_spo2.get("avgSleepSpO2"),
+                        }
+                        spo2_data.append(spo2_record)
+
+                except Exception as e:
+                    logger.warning(f"Could not get SpO2 data for {current_date}: {e}")
+
+                current_date += timedelta(days=1)
+
+            logger.info(f"Synced {len(spo2_data)} days of SpO2 data")
+            return {"success": True, "data": spo2_data, "days_synced": len(spo2_data)}
+
+        except Exception as e:
+            logger.error(f"SpO2 data sync failed: {e}")
             return {"success": False, "error": str(e)}
 
     def sync_max_metrics(self, start_date: date, end_date: date) -> Dict[str, Any]:
@@ -633,7 +696,18 @@ class WellnessSyncManager:
             except Exception as e:
                 results["errors"].append(f"Personal records sync error: {e}")
 
-            # 8. Sync max metrics
+            # 9. Sync SpO2 data
+            try:
+                spo2_result = self.sync_spo2_data(start_date, end_date)
+                results["data_types"]["spo2"] = spo2_result
+                if spo2_result["success"]:
+                    results["total_records"] += spo2_result.get("days_synced", 0)
+                else:
+                    results["errors"].append(f"SpO2 data: {spo2_result.get('error', 'Unknown error')}")
+            except Exception as e:
+                results["errors"].append(f"SpO2 sync error: {e}")
+
+            # 10. Sync max metrics
             try:
                 metrics_result = self.sync_max_metrics(start_date, end_date)
                 results["data_types"]["max_metrics"] = metrics_result
@@ -659,6 +733,8 @@ class WellnessSyncManager:
                         .get("training_readiness", {})
                         .get("data", []),
                         "stress": results.get("data_types", {}).get("stress", {}).get("data", []),
+                        "spo2": results.get("data_types", {}).get("spo2", {}).get("data", []),
+                        "personal_records": results.get("data_types", {}).get("personal_records", {}).get("data", []),
                     }
 
                     persistence_results = self.wellness_service.persist_comprehensive_wellness_data(wellness_data)

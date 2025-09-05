@@ -9,7 +9,6 @@ import plotly.graph_objects as go
 from app.data.web_queries import (
     get_activity_statistics,
     get_activity_trends,
-    get_intensity_data,
     get_sleep_data,
     get_steps_data,
     get_stress_data,
@@ -96,7 +95,6 @@ def layout():
                                                 value="steps",
                                                 children=[
                                                     dcc.Tab(label="Daily Steps", value="steps"),
-                                                    dcc.Tab(label="Intensity Minutes", value="intensity"),
                                                 ],
                                             ),
                                             html.Div(id="activity-chart"),
@@ -120,7 +118,6 @@ def layout():
                                                 value="resting-hr",
                                                 children=[
                                                     dcc.Tab(label="Resting Heart Rate", value="resting-hr"),
-                                                    dcc.Tab(label="HR Zones", value="hr-zones"),
                                                     dcc.Tab(label="HRV", value="hrv"),
                                                 ],
                                             ),
@@ -428,31 +425,6 @@ def register_callbacks(app):
                                             html.P("Avg Daily Steps", className="mb-0 text-muted"),
                                             html.Small(
                                                 f"{stats['steps']['total_walking_distance_km']} km total",
-                                                className="text-muted",
-                                            ),
-                                        ],
-                                        className="text-center",
-                                    )
-                                ]
-                            )
-                        ],
-                        md=3,
-                        className="mb-3",
-                    ),
-                    # Intensity stats
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardBody(
-                                        [
-                                            html.H4(
-                                                f"{stats['intensity']['avg_vigorous_minutes']}",
-                                                className="text-danger mb-1",
-                                            ),
-                                            html.P("Avg Vigorous Min", className="mb-0 text-muted"),
-                                            html.Small(
-                                                f"{stats['intensity']['avg_moderate_minutes']} moderate",
                                                 className="text-muted",
                                             ),
                                         ],
@@ -781,48 +753,6 @@ def register_callbacks(app):
                     hovermode="x unified",
                 )
 
-            elif active_tab == "intensity":
-                intensity_df = get_intensity_data(days=90)
-
-                if intensity_df.empty:
-                    return dbc.Alert(
-                        [
-                            html.I(className="fas fa-info-circle me-2"),
-                            "No intensity data available. Please sync your Garmin data to see intensity analysis.",
-                        ],
-                        color="info",
-                    )
-
-                fig = go.Figure()
-
-                # Moderate intensity minutes
-                fig.add_trace(
-                    go.Bar(
-                        x=intensity_df.index,
-                        y=intensity_df["moderate_minutes"],
-                        name="Moderate Minutes",
-                        marker_color="orange",
-                    )
-                )
-
-                # Vigorous intensity minutes (stacked)
-                fig.add_trace(
-                    go.Bar(
-                        x=intensity_df.index,
-                        y=intensity_df["vigorous_minutes"],
-                        name="Vigorous Minutes",
-                        marker_color="red",
-                    )
-                )
-
-                fig.update_layout(
-                    title="Daily Intensity Minutes (Moderate vs Vigorous)",
-                    xaxis_title="Date",
-                    yaxis_title="Minutes",
-                    height=400,
-                    barmode="stack",
-                    hovermode="x unified",
-                )
 
             return dcc.Graph(figure=fig)
 
@@ -866,20 +796,6 @@ def register_callbacks(app):
                     hovermode="x unified",
                 )
 
-            elif active_tab == "hr-zones":
-                # HR zones stacked bar chart
-                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_1_time"], name="Zone 1", marker_color="lightblue"))
-                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_2_time"], name="Zone 2", marker_color="green"))
-                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_3_time"], name="Zone 3", marker_color="orange"))
-                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_4_time"], name="Zone 4", marker_color="red"))
-                fig.add_trace(go.Bar(x=hr_df.index, y=hr_df["hr_zone_5_time"], name="Zone 5", marker_color="darkred"))
-                fig.update_layout(
-                    title="Daily Heart Rate Zone Distribution",
-                    yaxis_title="Time (minutes)",
-                    height=400,
-                    barmode="stack",
-                    hovermode="x unified",
-                )
 
             elif active_tab == "hrv":
                 # HRV score trend

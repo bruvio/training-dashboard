@@ -20,6 +20,7 @@ from app.data.garmin_models import (
     DailyBodyBattery,
     DailyHeartRate,
     DailyTrainingReadiness,
+    PersonalRecords,
 )
 
 logger = logging.getLogger(__name__)
@@ -379,6 +380,70 @@ class WellnessDataService:
             logger.error(f"Failed to persist stress data: {e}")
             return False
 
+    def persist_personal_records_data(self, pr_records: List[Dict[str, Any]]) -> bool:
+        """
+        Persist personal records data to the database.
+
+        Args:
+            pr_records: List of personal record dictionaries
+
+        Returns:
+            bool: True if persistence was successful
+        """
+        try:
+            with session_scope() as session:
+                persisted_count = 0
+                for pr_data in pr_records:
+                    try:
+                        # Check if record already exists
+                        existing_record = (
+                            session.query(PersonalRecords)
+                            .filter(
+                                PersonalRecords.activity_type == pr_data.get("activity_type"),
+                                PersonalRecords.record_type == pr_data.get("record_type"),
+                                PersonalRecords.activity_id == pr_data.get("activity_id")
+                            )
+                            .first()
+                        )
+
+                        if existing_record:
+                            # Update existing record if it's newer or has better value
+                            if (pr_data.get("achieved_date") and 
+                                (not existing_record.achieved_date or pr_data["achieved_date"] >= existing_record.achieved_date)):
+                                existing_record.record_value = pr_data.get("record_value")
+                                existing_record.record_unit = pr_data.get("record_unit")
+                                existing_record.achieved_date = pr_data.get("achieved_date")
+                                existing_record.activity_name = pr_data.get("activity_name")
+                                existing_record.location = pr_data.get("location")
+                                existing_record.retrieved_at = datetime.now(timezone.utc)
+                                persisted_count += 1
+                        else:
+                            # Create new record
+                            new_record = PersonalRecords(
+                                activity_type=pr_data.get("activity_type"),
+                                record_type=pr_data.get("record_type"),
+                                record_value=pr_data.get("record_value"),
+                                record_unit=pr_data.get("record_unit"),
+                                activity_id=pr_data.get("activity_id"),
+                                achieved_date=pr_data.get("achieved_date"),
+                                activity_name=pr_data.get("activity_name"),
+                                location=pr_data.get("location"),
+                            )
+                            session.add(new_record)
+                            persisted_count += 1
+
+                    except Exception as e:
+                        logger.warning(f"Failed to persist personal record: {e}")
+                        continue
+
+                session.commit()
+                logger.info(f"Successfully persisted {persisted_count} personal records")
+                return persisted_count > 0
+
+        except Exception as e:
+            logger.error(f"Failed to persist personal records data: {e}")
+            return False
+
     def persist_comprehensive_wellness_data(self, wellness_data: Dict[str, Any]) -> Dict[str, bool]:
         """
         Persist comprehensive wellness data from sync operations.
@@ -419,15 +484,17 @@ class WellnessDataService:
         if "stress" in wellness_data and wellness_data["stress"]:
             results["stress"] = self.persist_stress_data(wellness_data["stress"])
 
+        # Personal records data
+        if "personal_records" in wellness_data and wellness_data["personal_records"]:
+            results["personal_records"] = self.persist_personal_records_data(wellness_data["personal_records"])
+
         # TODO: Implement persistence for remaining data types:
         # - intensity_minutes
         # - hydration
         # - respiration
         # - spo2
-        # - training_readiness
         # - training_status
         # - max_metrics
-        # - personal_records
 
         successful_types = sum(1 for success in results.values() if success)
         total_types = len(results)
