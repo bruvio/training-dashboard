@@ -107,14 +107,30 @@ class WellnessSyncManager:
 
                         steps_record = {
                             "date": current_date,
-                            "total_steps": daily_steps.get("totalSteps"),
-                            "step_goal": daily_steps.get("dailyStepGoal"),
-                            "total_distance_m": daily_steps.get("totalDistance"),
-                            "calories_burned": daily_steps.get("wellnessActiveKilocalories"),
-                            "calories_bmr": daily_steps.get("wellnessBmrKilocalories"),
-                            "calories_active": daily_steps.get("activeKilocalories"),
-                            "floors_climbed": daily_steps.get("floorsAscended"),
-                            "floors_goal": daily_steps.get("floorsAscendedGoal"),
+                            "total_steps": daily_steps.get("totalSteps")
+                            or daily_steps.get("steps")
+                            or daily_steps.get("dailyStepCount"),
+                            "step_goal": daily_steps.get("dailyStepGoal")
+                            or daily_steps.get("stepGoal")
+                            or daily_steps.get("goal"),
+                            "total_distance_m": daily_steps.get("totalDistance")
+                            or daily_steps.get("distance")
+                            or daily_steps.get("totalDistanceMeters"),
+                            "calories_burned": daily_steps.get("wellnessActiveKilocalories")
+                            or daily_steps.get("activeKilocalories")
+                            or daily_steps.get("calories"),
+                            "calories_bmr": daily_steps.get("wellnessBmrKilocalories")
+                            or daily_steps.get("bmrKilocalories")
+                            or daily_steps.get("restingMetabolism"),
+                            "calories_active": daily_steps.get("activeKilocalories")
+                            or daily_steps.get("wellnessActiveKilocalories")
+                            or daily_steps.get("activeCalories"),
+                            "floors_climbed": daily_steps.get("floorsAscended")
+                            or daily_steps.get("floorsClimbed")
+                            or daily_steps.get("floorsUp"),
+                            "floors_goal": daily_steps.get("floorsAscendedGoal")
+                            or daily_steps.get("floorsGoal")
+                            or daily_steps.get("floorsUpGoal"),
                         }
                         steps_data.append(steps_record)
 
@@ -164,7 +180,14 @@ class WellnessSyncManager:
                     if rhr_data or hr_zones:
                         hr_record = {
                             "date": current_date,
-                            "resting_hr": rhr_data.get("restingHeartRate") if rhr_data else None,
+                            "resting_hr": (
+                                rhr_data.get("value")
+                                or rhr_data.get("restingHR")
+                                or rhr_data.get("restingHeartRate")
+                                or rhr_data.get("rhr")
+                            )
+                            if rhr_data
+                            else None,
                             "max_hr": hr_zones.get("maxHeartRate") if hr_zones else None,
                             "avg_hr": hr_zones.get("averageHeartRate") if hr_zones else None,
                         }
@@ -241,12 +264,24 @@ class WellnessSyncManager:
                             )
                             if daily_sleep.get("sleepEndTimestampLocal")
                             else None,
-                            "total_sleep_time_s": daily_sleep.get("sleepTimeSeconds"),
-                            "deep_sleep_s": daily_sleep.get("deepSleepSeconds"),
-                            "light_sleep_s": daily_sleep.get("lightSleepSeconds"),
-                            "rem_sleep_s": daily_sleep.get("remSleepSeconds"),
-                            "awake_time_s": daily_sleep.get("awakeDurationSeconds"),
-                            "sleep_score": daily_sleep.get("overallSleepScore"),
+                            "total_sleep_time_s": daily_sleep.get("sleepTimeSeconds")
+                            or daily_sleep.get("totalSleepTimeSeconds")
+                            or daily_sleep.get("sleepTime"),
+                            "deep_sleep_s": daily_sleep.get("deepSleepSeconds")
+                            or daily_sleep.get("deepSleepDurationSeconds")
+                            or daily_sleep.get("deepSleepTime"),
+                            "light_sleep_s": daily_sleep.get("lightSleepSeconds")
+                            or daily_sleep.get("lightSleepDurationSeconds")
+                            or daily_sleep.get("lightSleepTime"),
+                            "rem_sleep_s": daily_sleep.get("remSleepSeconds")
+                            or daily_sleep.get("remSleepDurationSeconds")
+                            or daily_sleep.get("remSleepTime"),
+                            "awake_time_s": daily_sleep.get("awakeDurationSeconds")
+                            or daily_sleep.get("awakeTimeSeconds")
+                            or daily_sleep.get("awakeDuration"),
+                            "sleep_score": daily_sleep.get("overallSleepScore")
+                            or daily_sleep.get("sleepScore")
+                            or daily_sleep.get("score"),
                             "restlessness": daily_sleep.get("restlessMoments"),
                             "efficiency_percentage": daily_sleep.get("sleepEfficiency"),
                         }
