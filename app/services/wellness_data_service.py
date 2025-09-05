@@ -247,21 +247,23 @@ class WellnessDataService:
                         existing = session.query(DailyBodyBattery).filter_by(date=bb_date).first()
 
                         if existing:
-                            # Update existing record
-                            existing.charged_value = bb_data.get("charged", 0)
-                            existing.drained_value = bb_data.get("drained", 0)
-                            existing.highest_value = bb_data.get("highestLevel", 0)
-                            existing.lowest_value = bb_data.get("lowestLevel", 0)
+                            # Update existing record with corrected field names
+                            existing.body_battery_score = bb_data.get("body_battery_score")
+                            existing.charged_value = bb_data.get("charged_value", 0)
+                            existing.drained_value = bb_data.get("drained_value", 0)
+                            existing.highest_value = bb_data.get("highest_value", 0)
+                            existing.lowest_value = bb_data.get("lowest_value", 0)
                             existing.data_source = "garminconnect"
                             existing.retrieved_at = datetime.utcnow()
                         else:
-                            # Create new record
+                            # Create new record with corrected field names
                             bb_record = DailyBodyBattery(
                                 date=bb_date,
-                                charged_value=bb_data.get("charged", 0),
-                                drained_value=bb_data.get("drained", 0),
-                                highest_value=bb_data.get("highestLevel", 0),
-                                lowest_value=bb_data.get("lowestLevel", 0),
+                                body_battery_score=bb_data.get("body_battery_score"),
+                                charged_value=bb_data.get("charged_value", 0),
+                                drained_value=bb_data.get("drained_value", 0),
+                                highest_value=bb_data.get("highest_value", 0),
+                                lowest_value=bb_data.get("lowest_value", 0),
                                 data_source="garminconnect",
                                 retrieved_at=datetime.utcnow(),
                             )
@@ -296,28 +298,24 @@ class WellnessDataService:
                         existing = session.query(DailyTrainingReadiness).filter_by(date=tr_date).first()
 
                         if existing:
-                            # Update existing record
-                            existing.training_readiness_score = tr_data.get("score")
-                            existing.hrv_score = tr_data.get("hrv_weekly_average")
+                            # Update existing record with corrected field names
+                            existing.training_readiness_score = tr_data.get("training_readiness_score")
+                            existing.hrv_score = tr_data.get("hrv_score")
                             existing.sleep_score = tr_data.get("sleep_score")
-                            existing.recovery_time_hours = (
-                                tr_data.get("recovery_time", 0) // 60 if tr_data.get("recovery_time") else None
-                            )
+                            existing.recovery_time_hours = tr_data.get("recovery_time_hours")
                             existing.hrv_status = tr_data.get("level")
                             existing.sleep_status = tr_data.get("feedback_short")
                             existing.stress_status = tr_data.get("feedback_long")
                             existing.data_source = "garminconnect"
                             existing.retrieved_at = datetime.utcnow()
                         else:
-                            # Create new record
+                            # Create new record with corrected field names
                             tr_record = DailyTrainingReadiness(
                                 date=tr_date,
-                                training_readiness_score=tr_data.get("score"),
-                                hrv_score=tr_data.get("hrv_weekly_average"),
+                                training_readiness_score=tr_data.get("training_readiness_score"),
+                                hrv_score=tr_data.get("hrv_score"),
                                 sleep_score=tr_data.get("sleep_score"),
-                                recovery_time_hours=tr_data.get("recovery_time", 0) // 60
-                                if tr_data.get("recovery_time")
-                                else None,
+                                recovery_time_hours=tr_data.get("recovery_time_hours"),
                                 hrv_status=tr_data.get("level"),
                                 sleep_status=tr_data.get("feedback_short"),
                                 stress_status=tr_data.get("feedback_long"),

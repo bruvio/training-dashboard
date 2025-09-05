@@ -369,7 +369,7 @@ class WellnessSyncManager:
                         body_battery = self.client.api.get_body_battery(date_str, date_str)
 
                     if body_battery:
-                        # Handle both dict and list responses
+                        # Handle both dict and list responses - API returns list
                         if isinstance(body_battery, list):
                             body_battery = body_battery[0] if body_battery else {}
 
@@ -382,12 +382,15 @@ class WellnessSyncManager:
                             if len(value) > 1 and value[1] is not None and isinstance(value[1], (int, float))
                         ]
 
+                        # Calculate main score as average of all values or use highest
+                        main_score = None
+                        if battery_values:
+                            main_score = sum(battery_values) // len(battery_values)  # Average
+
                         bb_record = {
                             "date": current_date,
-                            # Map to database field names
-                            "body_battery_score": max(battery_values)
-                            if battery_values
-                            else 0,  # Use highest as main score
+                            # Map to database field names with correct API fields
+                            "body_battery_score": main_score,
                             "charged_value": body_battery.get("charged", 0),
                             "drained_value": body_battery.get("drained", 0),
                             "highest_value": max(battery_values) if battery_values else 0,
@@ -427,16 +430,18 @@ class WellnessSyncManager:
                     training_readiness = self.client.api.get_training_readiness(date_str)
 
                     if training_readiness and isinstance(training_readiness, list):
-                        # Get the most recent/best record for the day
+                        # Get the most recent/best record for the day (API returns list)
                         tr_record_data = training_readiness[0] if training_readiness else {}
 
                         tr_record = {
                             "date": current_date,
-                            # Map to database field names
+                            # Map to database field names with correct API fields
                             "training_readiness_score": tr_record_data.get("score"),
                             "hrv_score": tr_record_data.get("hrvWeeklyAverage"),
                             "sleep_score": tr_record_data.get("sleepScore"),
-                            "recovery_time_hours": tr_record_data.get("recoveryTime"),
+                            "recovery_time_hours": tr_record_data.get("recoveryTime") / 60
+                            if tr_record_data.get("recoveryTime")
+                            else None,  # Convert minutes to hours
                             # Note: level, feedback fields not in database schema, but kept for reference
                             "level": tr_record_data.get("level"),
                             "feedback_short": tr_record_data.get("feedbackShort"),
@@ -531,7 +536,10 @@ class WellnessSyncManager:
                     date_str = current_date.isoformat()
                     daily_spo2 = self.client.api.get_spo2_data(date_str)
 
-                    if daily_spo2:
+                    # API returns data but values are None if device doesn't support SpO2
+                    if daily_spo2 and any(
+                        daily_spo2.get(field) is not None for field in ["averageSpO2", "lowestSpO2", "avgSleepSpO2"]
+                    ):
                         spo2_record = {
                             "date": current_date,
                             "average_spo2": daily_spo2.get("averageSpO2"),
@@ -567,10 +575,12 @@ class WellnessSyncManager:
                 try:
                     date_str = current_date.isoformat()
 
-                    # Get VO2 Max data
+                    # Get VO2 Max data - API method is get_max_metrics
                     vo2_max = None
                     try:
-                        vo2_max = self.client.api.get_max_metric_data(date_str)
+                        vo2_max_response = self.client.api.get_max_metrics(date_str)
+                        if vo2_max_response and isinstance(vo2_max_response, list):
+                            vo2_max = vo2_max_response[0].get("generic", {}) if vo2_max_response else {}
                     except Exception:
                         pass
 
@@ -585,10 +595,10 @@ class WellnessSyncManager:
                         metrics_record = {
                             "date": current_date,
                             "vo2_max_value": vo2_max.get("vo2MaxValue") if vo2_max else None,
-                            "vo2_max_running": vo2_max.get("vo2MaxRunning") if vo2_max else None,
-                            "vo2_max_cycling": vo2_max.get("vo2MaxCycling") if vo2_max else None,
-                            "fitness_age": fitness_age if fitness_age else None,
-                            "performance_condition": vo2_max.get("performanceCondition") if vo2_max else None,
+                            "vo2_max_precise_value": vo2_max.get("vo2MaxPreciseValue") if vo2_max else None,
+                            "fitness_age": vo2_max.get("fitnessAge") if vo2_max else fitness_age,
+                            "fitness_age_description": vo2_max.get("fitnessAgeDescription") if vo2_max else None,
+                            "max_met_category": vo2_max.get("maxMetCategory") if vo2_max else None,
                         }
                         metrics_data.append(metrics_record)
 

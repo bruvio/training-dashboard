@@ -985,9 +985,7 @@ def register_callbacks(app):
                                     if record["record_value"]
                                     else "N/A"
                                 ),
-                                html.Td(
-                                    record["achieved_date"].strftime("%Y-%m-%d") if record["achieved_date"] else "N/A"
-                                ),
+                                html.Td(str(record["achieved_date"]) if record["achieved_date"] else "N/A"),
                             ]
                         )
                     )
