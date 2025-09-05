@@ -26,7 +26,6 @@ class ActivityImportService:
 
     def __init__(self, client: GarminConnectClient):
         self.client = client
-        self.parser = ActivityParser()
 
     def import_activity_by_id(self, activity_id: str, download_fit: bool = True) -> Dict[str, Any]:
         """
@@ -73,21 +72,28 @@ class ActivityImportService:
                 activity_name = activity_summary.get("activityName", "")
                 start_time_str = activity_summary.get("startTimeGMT") or activity_summary.get("startTimeLocal")
                 start_time = self._parse_datetime(start_time_str)
-                
+
                 if not garmin_id_from_summary and start_time and activity_name:
                     # Check for activities with same name and start time (within 1 minute)
                     from datetime import timedelta
+
                     time_window = timedelta(minutes=1)
-                    
-                    similar_activities = session.query(Activity).filter(
-                        Activity.name == activity_name,
-                        Activity.start_time_utc >= start_time - time_window,
-                        Activity.start_time_utc <= start_time + time_window
-                    ).all()
-                    
+
+                    similar_activities = (
+                        session.query(Activity)
+                        .filter(
+                            Activity.name == activity_name,
+                            Activity.start_time_utc >= start_time - time_window,
+                            Activity.start_time_utc <= start_time + time_window,
+                        )
+                        .all()
+                    )
+
                     if similar_activities:
                         existing = similar_activities[0]
-                        logger.info(f"Activity with similar characteristics already exists (DB ID: {existing.id}) - Name: '{activity_name}', Start: {start_time}")
+                        logger.info(
+                            f"Activity with similar characteristics already exists (DB ID: {existing.id}) - Name: '{activity_name}', Start: {start_time}"
+                        )
                         return {
                             "success": True,
                             "status": "already_exists",
@@ -108,9 +114,13 @@ class ActivityImportService:
                 # Final duplicate check within the same transaction to prevent race conditions
                 garmin_id_from_summary = activity_summary.get("activityId") or activity_summary.get("activityIdStr")
                 if garmin_id_from_summary:
-                    final_check = session.query(Activity).filter_by(garmin_activity_id=str(garmin_id_from_summary)).first()
+                    final_check = (
+                        session.query(Activity).filter_by(garmin_activity_id=str(garmin_id_from_summary)).first()
+                    )
                     if final_check:
-                        logger.info(f"Activity {garmin_id_from_summary} already exists (caught in transaction) - ID: {final_check.id}")
+                        logger.info(
+                            f"Activity {garmin_id_from_summary} already exists (caught in transaction) - ID: {final_check.id}"
+                        )
                         return {
                             "success": True,
                             "status": "already_exists",
@@ -125,26 +135,26 @@ class ActivityImportService:
                 activity_db_id = activity.id
 
                 # Add laps if available
-                if parsed_data and parsed_data.get("laps"):
-                    for lap_data in parsed_data["laps"]:
+                if parsed_data and parsed_data.laps:
+                    for lap_data in parsed_data.laps:
                         lap = self._create_lap_record(activity_db_id, lap_data)
                         session.add(lap)
 
                 # Add samples if available
-                if parsed_data and parsed_data.get("samples"):
-                    for sample_data in parsed_data["samples"]:
+                if parsed_data and parsed_data.samples:
+                    for sample_data in parsed_data.samples:
                         sample = self._create_sample_record(activity_db_id, sample_data)
                         session.add(sample)
 
                 # Add route points if available
-                if parsed_data and parsed_data.get("route_points"):
-                    for point_data in parsed_data["route_points"]:
+                if parsed_data and parsed_data.route_points:
+                    for point_data in parsed_data.route_points:
                         point = self._create_route_point_record(activity_db_id, point_data)
                         session.add(point)
 
-                samples_count = len(parsed_data.get("samples", [])) if parsed_data else 0
-                laps_count = len(parsed_data.get("laps", [])) if parsed_data else 0
-                route_points_count = len(parsed_data.get("route_points", [])) if parsed_data else 0
+                samples_count = len(parsed_data.samples) if parsed_data and parsed_data.samples else 0
+                laps_count = len(parsed_data.laps) if parsed_data and parsed_data.laps else 0
+                route_points_count = len(parsed_data.route_points) if parsed_data and parsed_data.route_points else 0
 
                 logger.info(f"Successfully imported activity {activity_id} as database ID {activity_db_id}")
 
@@ -268,7 +278,7 @@ class ActivityImportService:
                 fit_path = self.client.download_activity_fit(activity_id, Path(temp_dir))
 
                 if fit_path and fit_path.exists():
-                    return self.parser.parse_file(fit_path)
+                    return ActivityParser.parse_activity_file(fit_path)
 
         except Exception as e:
             logger.warning(f"Failed to download/parse FIT for {activity_id}: {e}")
@@ -279,12 +289,9 @@ class ActivityImportService:
         """Create Activity database record from summary and parsed data."""
         # Extract Garmin activity ID with multiple fallbacks
         garmin_id = (
-            summary.get("activityId") or 
-            summary.get("activityIdStr") or 
-            summary.get("id") or 
-            summary.get("activity_id")
+            summary.get("activityId") or summary.get("activityIdStr") or summary.get("id") or summary.get("activity_id")
         )
-        
+
         # Log if no Garmin ID found for debugging
         if not garmin_id:
             logger.warning(f"No Garmin activity ID found in summary: {list(summary.keys())[:10]}...")
@@ -311,45 +318,60 @@ class ActivityImportService:
             ingested_on=datetime.now(timezone.utc),
         )
 
-    def _create_lap_record(self, activity_id: int, lap_data: Dict[str, Any]) -> Lap:
-        """Create Lap database record."""
+    def _create_lap_record(self, activity_id: int, lap_data) -> Lap:
+        """Create Lap database record from LapData object."""
         return Lap(
             activity_id=activity_id,
-            lap_number=lap_data.get("lap_number", 0),
-            start_time=self._parse_datetime(lap_data.get("start_time")),
-            end_time=self._parse_datetime(lap_data.get("end_time")),
-            distance_m=lap_data.get("distance_m", 0.0),
-            duration_s=lap_data.get("duration_s", 0),
-            calories=lap_data.get("calories"),
-            avg_heart_rate=lap_data.get("avg_heart_rate"),
-            max_heart_rate=lap_data.get("max_heart_rate"),
-            avg_speed_ms=lap_data.get("avg_speed_ms"),
-            max_speed_ms=lap_data.get("max_speed_ms"),
+            lap_index=lap_data.lap_index,
+            start_time_utc=lap_data.start_time_utc,
+            elapsed_time_s=lap_data.elapsed_time_s,
+            distance_m=lap_data.distance_m,
+            avg_speed_mps=lap_data.avg_speed_mps,
+            avg_hr=lap_data.avg_hr,
+            max_hr=lap_data.max_hr,
+            avg_power_w=lap_data.avg_power_w,
+            max_power_w=lap_data.max_power_w,
         )
 
-    def _create_sample_record(self, activity_id: int, sample_data: Dict[str, Any]) -> Sample:
-        """Create Sample database record."""
+    def _create_sample_record(self, activity_id: int, sample_data) -> Sample:
+        """Create Sample database record from SampleData object."""
         return Sample(
             activity_id=activity_id,
-            timestamp=self._parse_datetime(sample_data.get("timestamp")),
-            latitude=sample_data.get("latitude"),
-            longitude=sample_data.get("longitude"),
-            elevation_m=sample_data.get("elevation_m"),
-            heart_rate=sample_data.get("heart_rate"),
-            cadence=sample_data.get("cadence"),
-            power_w=sample_data.get("power_w"),
-            speed_ms=sample_data.get("speed_ms"),
-            temperature_c=sample_data.get("temperature_c"),
+            timestamp=sample_data.timestamp,
+            elapsed_time_s=sample_data.elapsed_time_s,
+            latitude=sample_data.latitude,
+            longitude=sample_data.longitude,
+            altitude_m=sample_data.altitude_m,
+            heart_rate=sample_data.heart_rate,
+            cadence_rpm=sample_data.cadence_rpm,
+            power_w=sample_data.power_w,
+            speed_mps=sample_data.speed_mps,
+            temperature_c=sample_data.temperature_c,
         )
 
-    def _create_route_point_record(self, activity_id: int, point_data: Dict[str, Any]) -> RoutePoint:
-        """Create RoutePoint database record."""
+    def _create_route_point_record(self, activity_id: int, point_data) -> RoutePoint:
+        """Create RoutePoint database record from tuple (lat, lon, alt)."""
+        sequence = getattr(point_data, "sequence", 0) if hasattr(point_data, "sequence") else 0
+
+        # Handle tuple format (lat, lon, alt) from parser
+        if isinstance(point_data, tuple) and len(point_data) >= 2:
+            lat, lon = point_data[0], point_data[1]
+            alt = point_data[2] if len(point_data) > 2 else None
+            return RoutePoint(
+                activity_id=activity_id,
+                sequence=sequence,
+                latitude=lat,
+                longitude=lon,
+                altitude_m=alt,
+            )
+
+        # Handle object format (fallback)
         return RoutePoint(
             activity_id=activity_id,
-            latitude=point_data.get("latitude"),
-            longitude=point_data.get("longitude"),
-            elevation_m=point_data.get("elevation_m"),
-            timestamp=self._parse_datetime(point_data.get("timestamp")),
+            sequence=sequence,
+            latitude=getattr(point_data, "latitude", None),
+            longitude=getattr(point_data, "longitude", None),
+            altitude_m=getattr(point_data, "altitude_m", None),
         )
 
     def _parse_datetime(self, dt_str: Any) -> Optional[datetime]:
@@ -387,58 +409,64 @@ class ActivityImportService:
         try:
             with session_scope() as session:
                 from sqlalchemy import func
-                
+
                 # Find activities with duplicate garmin_activity_ids
-                duplicate_ids = session.query(
-                    Activity.garmin_activity_id, 
-                    func.count(Activity.garmin_activity_id)
-                ).filter(
-                    Activity.garmin_activity_id.isnot(None)
-                ).group_by(Activity.garmin_activity_id).having(
-                    func.count(Activity.garmin_activity_id) > 1
-                ).all()
-                
+                duplicate_ids = (
+                    session.query(Activity.garmin_activity_id, func.count(Activity.garmin_activity_id))
+                    .filter(Activity.garmin_activity_id.isnot(None))
+                    .group_by(Activity.garmin_activity_id)
+                    .having(func.count(Activity.garmin_activity_id) > 1)
+                    .all()
+                )
+
                 removed_count = 0
                 for garmin_id, count in duplicate_ids:
                     # Get all activities with this garmin_activity_id, keep the oldest one
-                    duplicates = session.query(Activity).filter_by(
-                        garmin_activity_id=garmin_id
-                    ).order_by(Activity.ingested_on.asc()).all()
-                    
+                    duplicates = (
+                        session.query(Activity)
+                        .filter_by(garmin_activity_id=garmin_id)
+                        .order_by(Activity.ingested_on.asc())
+                        .all()
+                    )
+
                     # Keep the first (oldest) one, remove the rest
                     for activity in duplicates[1:]:
-                        logger.info(f"Removing duplicate activity: ID {activity.id}, Garmin ID {garmin_id}, Name: '{activity.name}'")
+                        logger.info(
+                            f"Removing duplicate activity: ID {activity.id}, Garmin ID {garmin_id}, Name: '{activity.name}'"
+                        )
                         session.delete(activity)
                         removed_count += 1
-                
+
                 # Find activities with similar characteristics but no garmin_activity_id
                 none_activities = session.query(Activity).filter(Activity.garmin_activity_id.is_(None)).all()
                 name_time_groups = {}
-                
+
                 for activity in none_activities:
                     if activity.name and activity.start_time_utc:
                         key = (activity.name.strip().lower(), activity.start_time_utc.date())
                         if key not in name_time_groups:
                             name_time_groups[key] = []
                         name_time_groups[key].append(activity)
-                
+
                 # Remove duplicates from None activities
                 for key, activities in name_time_groups.items():
                     if len(activities) > 1:
                         # Keep the first one, remove others
                         for activity in activities[1:]:
-                            logger.info(f"Removing duplicate activity with no Garmin ID: ID {activity.id}, Name: '{activity.name}'")
+                            logger.info(
+                                f"Removing duplicate activity with no Garmin ID: ID {activity.id}, Name: '{activity.name}'"
+                            )
                             session.delete(activity)
                             removed_count += 1
-                
+
                 logger.info(f"Cleanup completed: removed {removed_count} duplicate activities")
                 return {
                     "success": True,
                     "removed_count": removed_count,
                     "duplicate_garmin_ids": len(duplicate_ids),
-                    "message": f"Removed {removed_count} duplicate activities"
+                    "message": f"Removed {removed_count} duplicate activities",
                 }
-                
+
         except Exception as e:
             logger.error(f"Failed to cleanup duplicate activities: {e}")
             return {"success": False, "error": str(e)}

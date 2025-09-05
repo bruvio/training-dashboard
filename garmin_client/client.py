@@ -32,6 +32,9 @@ try:
         GarminConnectConnectionError,
         GarminConnectTooManyRequestsError,
     )
+
+    # Import the enum for proper type hints
+    from garminconnect import Garmin as GarminAPI
 except Exception:  # pragma: no cover
     Garmin = None  # type: ignore
     GarminConnectAuthenticationError = Exception  # type: ignore
@@ -406,10 +409,34 @@ class GarminConnectClient:
             raise GarminAuthError("Not authenticated")
         dest = Path(dest_dir)
         dest.mkdir(parents=True, exist_ok=True)
-        content = self.api.download_activity(activity_id, dl_fmt="fit")
-        out = dest / f"{activity_id}.fit"
-        out.write_bytes(content)
-        return out
+
+        # Download the original format (usually a ZIP containing the FIT file)
+        content = self.api.download_activity(activity_id, dl_fmt=GarminAPI.ActivityDownloadFormat.ORIGINAL)
+
+        # Check if it's a ZIP file
+        if content.startswith(b"PK"):
+            # It's a ZIP file, extract the FIT file
+            import zipfile
+            import io
+
+            with zipfile.ZipFile(io.BytesIO(content)) as zip_file:
+                # Look for .FIT files in the ZIP
+                fit_files = [name for name in zip_file.namelist() if name.lower().endswith(".fit")]
+                if not fit_files:
+                    raise ValueError(f"No .FIT file found in downloaded ZIP for activity {activity_id}")
+
+                # Extract the first FIT file
+                fit_filename = fit_files[0]
+                fit_content = zip_file.read(fit_filename)
+
+                out = dest / f"{activity_id}.fit"
+                out.write_bytes(fit_content)
+                return out
+        else:
+            # It's already a FIT file
+            out = dest / f"{activity_id}.fit"
+            out.write_bytes(content)
+            return out
 
     def wellness_summary_for_day(self, d: Union[str, date, datetime]) -> Dict[str, Any]:
         if self.api is None:

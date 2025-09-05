@@ -137,11 +137,33 @@ def initialize_garmin_session():
         logger.info("   App will continue normally - users can login manually")
 
 
-# Initialize Garmin session after all imports are complete
+# Initialize database tables
+def initialize_database():
+    """Initialize database tables on app startup."""
+    try:
+        from app.data.db import init_database
+
+        logger.info("🗄️ Initializing database tables...")
+        db_config = init_database()
+        logger.info("✅ Database tables initialized successfully")
+
+        # Log database stats
+        db_info = db_config.get_database_info()
+        logger.info(
+            f"   Database: {db_info['activities']} activities, {db_info['samples']} samples, {db_info['laps']} laps"
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Error during database initialization: {e}")
+        logger.info("   App will continue but may not function properly")
+
+
+# Initialize database and Garmin session after all imports are complete
 try:
+    initialize_database()
     initialize_garmin_session()
 except Exception as e:
-    logger.warning(f"Session initialization failed: {e}")
+    logger.warning(f"Initialization failed: {e}")
 
 
 # Main application layout with navigation and page container

@@ -50,25 +50,16 @@ def reset_client():
 def update_sync_progress(status: str, message: str, progress: int = 0, details: list = None):
     """Update global sync progress."""
     global _sync_progress
-    _sync_progress.update({
-        "status": status,
-        "message": message,
-        "progress": progress,
-        "details": details or []
-    })
+    _sync_progress.update({"status": status, "message": message, "progress": progress, "details": details or []})
 
 
 def update_import_progress(status: str, message: str, current: int = 0, total: int = 0):
     """Update global import progress."""
     global _import_progress
     progress = int((current / total) * 100) if total > 0 else 0
-    _import_progress.update({
-        "status": status,
-        "message": message,
-        "progress": progress,
-        "current": current,
-        "total": total
-    })
+    _import_progress.update(
+        {"status": status, "message": message, "progress": progress, "current": current, "total": total}
+    )
 
 
 def sync_with_progress(days: int, fetch_wellness: bool = True):
@@ -76,25 +67,30 @@ def sync_with_progress(days: int, fetch_wellness: bool = True):
     try:
         update_sync_progress("running", "Starting sync...", 10)
         time.sleep(0.1)  # Allow UI to update
-        
+
         update_sync_progress("running", "Fetching activities...", 30)
         summary = sync_range(days=days, fetch_wellness=fetch_wellness)
-        
+
         if not summary.get("ok"):
             update_sync_progress("error", f"Sync failed: {summary.get('error')}")
             return summary
-            
+
         update_sync_progress("running", "Processing wellness data...", 70)
         time.sleep(0.1)
-        
-        update_sync_progress("completed", "Sync completed successfully!", 100, [
-            f"Activities: {summary.get('activities_count', 0)}",
-            f"Wellness records: {summary.get('wellness_records', 0)}",
-            f"Date range: {summary.get('start_date')} to {summary.get('end_date')}",
-        ])
-        
+
+        update_sync_progress(
+            "completed",
+            "Sync completed successfully!",
+            100,
+            [
+                f"Activities: {summary.get('activities_count', 0)}",
+                f"Wellness records: {summary.get('wellness_records', 0)}",
+                f"Date range: {summary.get('start_date')} to {summary.get('end_date')}",
+            ],
+        )
+
         return summary
-        
+
     except Exception as e:
         update_sync_progress("error", f"Sync error: {e}")
         return {"ok": False, "error": str(e)}
@@ -106,21 +102,21 @@ def import_activities_with_progress(import_service, activities_to_import):
     imported_count = 0
     skipped_count = 0
     failed_count = 0
-    
+
     update_import_progress("running", "Starting import...", 0, total)
-    
+
     for i, activity in enumerate(activities_to_import):
         activity_id = activity.get("activity_id")
         activity_name = activity.get("name", "Unknown Activity")
-        
+
         update_import_progress("running", f"Importing: {activity_name}", i, total)
-        
+
         if not activity_id:
             failed_count += 1
             continue
-            
+
         result = import_service.import_activity_by_id(str(activity_id), download_fit=True)
-        
+
         if result.get("success"):
             if result.get("status") == "imported":
                 imported_count += 1
@@ -128,21 +124,21 @@ def import_activities_with_progress(import_service, activities_to_import):
                 skipped_count += 1
         else:
             failed_count += 1
-    
+
     # Final message
     message = f"Import completed: {imported_count} imported"
     if skipped_count > 0:
         message += f", {skipped_count} skipped"
     if failed_count > 0:
         message += f", {failed_count} failed"
-        
+
     update_import_progress("completed", message, total, total)
-    
+
     return {
         "imported_count": imported_count,
         "skipped_count": skipped_count,
         "failed_count": failed_count,
-        "total": total
+        "total": total,
     }
 
 
@@ -322,7 +318,9 @@ def layout():
                                             className="g-2",
                                         ),
                                         html.Div(id="garmin-sync-result", className="mt-3"),
-                                        html.Div(id="sync-progress-container", className="mt-2", style={"display": "none"}),  # Progress container
+                                        html.Div(
+                                            id="sync-progress-container", className="mt-2", style={"display": "none"}
+                                        ),  # Progress container
                                     ]
                                 ),
                             ]
@@ -382,9 +380,13 @@ def layout():
                                                 dbc.Col(
                                                     [
                                                         html.Div(id="import-status", className="text-end"),
-                                                        html.Div(id="import-progress-container", className="mt-2", style={"display": "none"}),
-                                                    ], 
-                                                    width=6
+                                                        html.Div(
+                                                            id="import-progress-container",
+                                                            className="mt-2",
+                                                            style={"display": "none"},
+                                                        ),
+                                                    ],
+                                                    width=6,
                                                 ),
                                             ],
                                             className="mb-3",
@@ -536,12 +538,12 @@ def register_callbacks(app):
     def _sync(n_clicks, auth, days, email, password, type_filter):
         if not n_clicks:
             raise PreventUpdate
-        
+
         is_authed = bool(auth and auth.get("is_authenticated"))
-        
+
         # Reset progress and start interval
         update_sync_progress("running", "Starting sync...", 5)
-        
+
         def run_sync():
             global _sync_progress
             try:
@@ -560,25 +562,27 @@ def register_callbacks(app):
                     else:
                         update_sync_progress("error", f"Sync failed: {summary.get('error')}")
                     return summary
-                
+
                 # Store the activities data for completion handling
                 if summary.get("ok"):
                     activities = summary.get("activities_norm", [])
                     # Apply type filter if any
                     if type_filter:
-                        activities = [a for a in activities if (a.get("type") or "").lower() == str(type_filter).lower()]
+                        activities = [
+                            a for a in activities if (a.get("type") or "").lower() == str(type_filter).lower()
+                        ]
                     _sync_progress["activities_data"] = activities
-                    
+
                 return summary
             except Exception as e:
                 update_sync_progress("error", f"Sync error: {e}")
                 return {"ok": False, "error": str(e)}
-        
+
         # Start sync in background thread
         sync_thread = threading.Thread(target=run_sync)
         sync_thread.daemon = True
         sync_thread.start()
-        
+
         return False  # Enable progress interval
 
     # Activities table renderer
@@ -707,10 +711,10 @@ def register_callbacks(app):
 
             # Reset import progress
             update_import_progress("idle", "", 0, 0)
-            
+
             def run_import():
                 return import_activities_with_progress(import_service, activities_to_import)
-            
+
             # Start import in background thread
             import_thread = threading.Thread(target=run_import)
             import_thread.daemon = True
@@ -718,7 +722,7 @@ def register_callbacks(app):
 
             return (
                 dbc.Alert(f"Import started for {len(activities_to_import)} {action} activities...", color="info"),
-                False  # Enable progress interval
+                False,  # Enable progress interval
             )
 
         except Exception as e:
@@ -737,31 +741,31 @@ def register_callbacks(app):
     )
     def _update_sync_progress(n_intervals):
         global _sync_progress
-        
+
         if _sync_progress["status"] == "idle":
             return "", {"display": "none"}, no_update, no_update, no_update
-            
+
         progress_bar = dbc.Progress(
             value=_sync_progress["progress"],
             striped=True,
             animated=_sync_progress["status"] == "running",
             color="success" if _sync_progress["status"] == "completed" else "info",
-            className="mb-2"
+            className="mb-2",
         )
-        
+
         details = []
         if _sync_progress.get("details"):
             for detail in _sync_progress["details"]:
                 details.append(html.Li(detail))
-        
+
         progress_content = [
             html.H6(f"{_sync_progress['message']} ({_sync_progress['progress']}%)", className="mb-2"),
             progress_bar,
         ]
-        
+
         if details:
             progress_content.append(html.Ul(details, className="small"))
-            
+
         # Handle completion
         if _sync_progress["status"] == "completed":
             # Get the completed sync data from our progress tracking
@@ -769,9 +773,11 @@ def register_callbacks(app):
             return (
                 progress_content,
                 {"display": "block"},
-                dbc.Alert("✅ Sync completed successfully! Check the activity table below.", color="success", dismissable=True),
+                dbc.Alert(
+                    "✅ Sync completed successfully! Check the activity table below.", color="success", dismissable=True
+                ),
                 activities_data,  # Return the activities data
-                True  # Disable progress interval
+                True,  # Disable progress interval
             )
         elif _sync_progress["status"] == "error":
             return (
@@ -779,9 +785,9 @@ def register_callbacks(app):
                 {"display": "block"},
                 dbc.Alert(f"❌ {_sync_progress['message']}", color="danger", dismissable=True),
                 no_update,
-                True  # Disable progress interval
+                True,  # Disable progress interval
             )
-        
+
         return progress_content, {"display": "block"}, no_update, no_update, no_update
 
     @app.callback(
@@ -792,22 +798,22 @@ def register_callbacks(app):
     )
     def _update_import_progress(n_intervals):
         global _import_progress
-        
+
         if _import_progress["status"] == "idle":
             return "", {"display": "none"}
-            
+
         progress_bar = dbc.Progress(
             value=_import_progress["progress"],
             striped=True,
             animated=_import_progress["status"] == "running",
             color="success" if _import_progress["status"] == "completed" else "info",
-            className="mb-1"
+            className="mb-1",
         )
-        
+
         progress_text = f"{_import_progress['message']}"
         if _import_progress["status"] == "running":
             progress_text += f" ({_import_progress['current']}/{_import_progress['total']})"
-        
+
         return [
             html.H6(progress_text, className="mb-2 small"),
             progress_bar,

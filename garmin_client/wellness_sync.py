@@ -338,7 +338,8 @@ class WellnessSyncManager:
                         values_array = body_battery.get("bodyBatteryValuesArray", [])
                         # Filter out None values and ensure we have valid numbers
                         battery_values = [
-                            value[1] for value in values_array 
+                            value[1]
+                            for value in values_array
                             if len(value) > 1 and value[1] is not None and isinstance(value[1], (int, float))
                         ]
 
