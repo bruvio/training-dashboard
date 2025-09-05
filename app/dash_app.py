@@ -47,6 +47,12 @@ try:
     if "/app/app" not in sys.path:
         sys.path.insert(0, "/app/app")
 
+    # Import database models to ensure they're registered
+    from app.data import models
+    from app.data import garmin_models  # Import all wellness models
+    # Note: garth_models has conflicting table names with garmin_models, so we skip it
+    logger.info("✅ All database models imported - tables will be available for creation")
+    
     # Import pages to register their callbacks with the app
     sys.path.insert(0, "/app")  # Ensure /app is first for pages import
     from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats

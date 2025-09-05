@@ -109,7 +109,7 @@ def import_activities_with_progress(import_service, activities_to_import):
         activity_id = activity.get("activity_id")
         activity_name = activity.get("name", "Unknown Activity")
 
-        update_import_progress("running", f"Importing: {activity_name}", i, total)
+        update_import_progress("running", f"Importing: {activity_name} ({i+1}/{total})", i, total)
 
         if not activity_id:
             failed_count += 1
@@ -124,6 +124,9 @@ def import_activities_with_progress(import_service, activities_to_import):
                 skipped_count += 1
         else:
             failed_count += 1
+        
+        # Update progress after processing each activity
+        update_import_progress("running", f"Processed {i+1}/{total} activities", i+1, total)
 
     # Final message
     message = f"Import completed: {imported_count} imported"
@@ -814,7 +817,53 @@ def register_callbacks(app):
         if _import_progress["status"] == "running":
             progress_text += f" ({_import_progress['current']}/{_import_progress['total']})"
 
-        return [
+        content = [
             html.H6(progress_text, className="mb-2 small"),
             progress_bar,
-        ], {"display": "block"}
+        ]
+        
+        # Add completion message and auto-hide after delay
+        if _import_progress["status"] == "completed":
+            content.append(
+                dbc.Alert(
+                    [html.I(className="fas fa-check-circle me-2"), "Import completed successfully!"],
+                    color="success",
+                    className="mt-2 mb-0",
+                    dismissable=True
+                )
+            )
+            # Auto-reset progress after 5 seconds
+            import threading
+            def reset_after_delay():
+                import time
+                time.sleep(5)
+                update_import_progress("idle", "", 0, 0)
+            threading.Thread(target=reset_after_delay, daemon=True).start()
+
+        return content, {"display": "block"}
+    
+    # Update import status based on completion
+    @app.callback(
+        Output("import-status", "children", allow_duplicate=True),
+        Input("progress-interval", "n_intervals"),
+        prevent_initial_call=True,
+    )
+    def _update_import_status_completion(n_intervals):
+        global _import_progress
+        
+        if _import_progress["status"] == "completed":
+            return dbc.Alert(
+                f"✅ {_import_progress['message']}", 
+                color="success", 
+                className="mb-2",
+                dismissable=True
+            )
+        elif _import_progress["status"] == "error":
+            return dbc.Alert(
+                f"❌ Import failed: {_import_progress.get('error', 'Unknown error')}", 
+                color="danger", 
+                className="mb-2",
+                dismissable=True
+            )
+        
+        return no_update
