@@ -109,7 +109,8 @@ def import_activities_with_progress(import_service, activities_to_import):
         activity_id = activity.get("activity_id")
         activity_name = activity.get("name", "Unknown Activity")
 
-        update_import_progress("running", f"Importing: {activity_name} ({i+1}/{total})", i, total)
+        # Show current activity being imported 
+        update_import_progress("running", f"Importing {i+1}/{total}: {activity_name}", i+1, total)
 
         if not activity_id:
             failed_count += 1
@@ -124,10 +125,7 @@ def import_activities_with_progress(import_service, activities_to_import):
                 skipped_count += 1
         else:
             failed_count += 1
-        
-        # Update progress after processing each activity
-        update_import_progress("running", f"Processed {i+1}/{total} activities", i+1, total)
-
+    
     # Final message
     message = f"Import completed: {imported_count} imported"
     if skipped_count > 0:
