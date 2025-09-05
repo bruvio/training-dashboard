@@ -9,8 +9,9 @@ import pickle
 from dash import Input, Output, State, ctx, dcc, html
 import dash_bootstrap_components as dbc
 
-# Import the garth sync functionality
-from garmin_client.garth_sync import sync_garmin_wellness_data
+# Import the wellness sync functionality
+from garmin_client.wellness_sync import WellnessSyncManager
+from garmin_client.client import GarminConnectClient
 
 logger = logging.getLogger(__name__)
 
@@ -587,12 +588,27 @@ def register_callbacks(app):
                 color="info",
             )
 
-            # Perform sync
-            results = sync_garmin_wellness_data(days)
+            # Perform sync using new WellnessSyncManager
+            client = GarminConnectClient()
+            wellness_sync = WellnessSyncManager(client)
+            wellness_result = wellness_sync.sync_comprehensive_wellness(days)
 
-            # Create results summary
-            total_inserted = sum(r[0] for r in results.values())
-            total_updated = sum(r[1] for r in results.values())
+            # Create results summary from new format for compatibility
+            if wellness_result.get("success"):
+                sync_results = wellness_result.get("sync_results", {})
+                total_inserted = 0
+                total_updated = wellness_result.get("total_records", 0)
+
+                # Create a compatible results dict for the UI
+                results = {}
+                for sync_type, result in sync_results.items():
+                    if result.get("success"):
+                        count = result.get("days_synced", 0)
+                        results[sync_type] = (0, count)  # (inserted, updated) format
+            else:
+                results = {}
+                total_inserted = 0
+                total_updated = 0
 
             if total_inserted + total_updated > 0:
                 result_items = []

@@ -1296,12 +1296,132 @@ def get_spo2_data(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def get_personal_records_data() -> List[Dict[str, Any]]:
+# Personal Record Type ID mappings for human-readable display
+PERSONAL_RECORD_TYPE_MAPPING = {
+    # Distance Records
+    1: "5K Time",
+    2: "10K Time",
+    3: "15K Time",
+    4: "20K Time",
+    5: "Half Marathon Time",
+    6: "Marathon Time",
+    7: "50K Time",
+    8: "100K Time",
+    9: "Fastest Mile",
+    10: "Fastest 1500m",
+    11: "Fastest 3K",
+    12: "Longest Run",
+    13: "Longest Bike Ride",
+    # Swimming Records
+    18: "100m Swim Time",
+    19: "200m Swim Time",
+    20: "400m Swim Time",
+    21: "800m Swim Time",
+    22: "1500m Swim Time",
+    23: "Longest Swim",
+    24: "100m Backstroke",
+    25: "200m Backstroke",
+    26: "100m Breaststroke",
+    27: "200m Breaststroke",
+    28: "100m Butterfly",
+    29: "200m Butterfly",
+    30: "200m Individual Medley",
+    31: "400m Individual Medley",
+    # Cycling Records
+    40: "Fastest 40K Bike",
+    41: "Fastest 100K Bike",
+    42: "Fastest Century Ride",
+    # General Fitness
+    50: "Max Push-ups",
+    51: "Max Pull-ups",
+    52: "Max Sit-ups",
+    53: "Plank Hold",
+    54: "Fastest 100m Sprint",
+    55: "Highest Jump",
+    56: "Longest Jump",
+    # Type patterns from PRP examples
+    "type_31": "Swimming Personal Record",
+    "type_23": "Distance Swimming Record",
+    "type_22": "Swimming Time Record",
+    "type_20": "Swimming Distance Record",
+    "type_18": "Sprint Swimming Record",
+    "type_25": "Long Distance Swimming Record",
+    "type_11": "Cycling Distance Record",
+    "1k_time": "1K Run Time",
+    "fastest_pace": "Fastest Pace",
+    "marathon": "Marathon Time",
+}
+
+
+def format_personal_record_value(value: float, record_type: str, unit: str = None) -> str:
     """
-    Get personal records data for display.
+    Format personal record value based on type for human-readable display.
+
+    Args:
+        value: Raw record value
+        record_type: Type of record
+        unit: Unit of measurement
 
     Returns:
-        List of personal record dictionaries
+        Formatted string for display
+    """
+    if value is None:
+        return "N/A"
+
+    # Time-based records (convert from seconds/milliseconds)
+    time_based_types = [
+        "1k_time",
+        "5K Time",
+        "10K Time",
+        "Marathon Time",
+        "fastest_pace",
+        "Swimming Time Record",
+        "Sprint Swimming Record",
+    ]
+
+    if any(time_type in record_type for time_type in time_based_types):
+        # Convert milliseconds to seconds if value is very large
+        if value > 86400:  # More than 24 hours in milliseconds
+            value = value / 1000
+
+        # Format as time
+        if value < 3600:  # Less than 1 hour
+            minutes = int(value // 60)
+            seconds = int(value % 60)
+            return f"{minutes}:{seconds:02d}"
+        else:  # More than 1 hour
+            hours = int(value // 3600)
+            minutes = int((value % 3600) // 60)
+            seconds = int(value % 60)
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+
+    # Distance-based records
+    elif "Distance" in record_type or "Longest" in record_type:
+        if value >= 1000:
+            return f"{value/1000:.2f} km"
+        else:
+            return f"{value:.0f} m"
+
+    # Count-based records
+    elif any(count_type in record_type for count_type in ["Push-ups", "Pull-ups", "Sit-ups"]):
+        return f"{int(value)}"
+
+    # Default formatting
+    else:
+        if unit:
+            return f"{value:.1f} {unit}"
+        elif value.is_integer():
+            return f"{int(value)}"
+        else:
+            return f"{value:.2f}"
+
+
+def get_personal_records_data() -> List[Dict[str, Any]]:
+    """
+    Get personal records data for display with human-readable formatting.
+
+    Returns:
+        List of personal record dictionaries with readable record types and formatted values
     """
     try:
         with session_scope() as session:
@@ -1312,14 +1432,26 @@ def get_personal_records_data() -> List[Dict[str, Any]]:
 
             data = []
             for record in pr_records:
+                # Get human-readable record type
+                raw_record_type = record.record_type or "Unknown"
+                readable_record_type = PERSONAL_RECORD_TYPE_MAPPING.get(raw_record_type, raw_record_type)
+
+                # Format the record value
+                formatted_value = format_personal_record_value(
+                    record.record_value, readable_record_type, record.record_unit
+                )
+
                 data.append(
                     {
-                        "activity_type": record.activity_type,
-                        "record_type": record.record_type,
-                        "record_value": record.record_value,
+                        "activity_type": record.activity_type or "Unknown",
+                        "record_type": readable_record_type,
+                        "record_value": formatted_value,
+                        "raw_value": record.record_value,
                         "record_unit": record.record_unit,
                         "activity_id": record.activity_id,
-                        "achieved_date": record.achieved_date,
+                        "achieved_date": record.achieved_date.strftime("%Y-%m-%d")
+                        if record.achieved_date
+                        else "Unknown",
                         "activity_name": record.activity_name,
                         "location": record.location,
                     }
