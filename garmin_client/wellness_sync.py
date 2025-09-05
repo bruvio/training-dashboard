@@ -336,7 +336,11 @@ class WellnessSyncManager:
 
                         # Extract highest and lowest from bodyBatteryValuesArray
                         values_array = body_battery.get("bodyBatteryValuesArray", [])
-                        battery_values = [value[1] for value in values_array if len(value) > 1]
+                        # Filter out None values and ensure we have valid numbers
+                        battery_values = [
+                            value[1] for value in values_array 
+                            if len(value) > 1 and value[1] is not None and isinstance(value[1], (int, float))
+                        ]
 
                         bb_record = {
                             "date": current_date,

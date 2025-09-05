@@ -43,16 +43,19 @@ class ActivityImportService:
             if not self.client.is_authenticated():
                 raise GarminAuthError("Client not authenticated")
 
-            # Check if activity already exists in database
+            # Check if activity already exists in database - Enhanced duplicate detection
             with session_scope() as session:
-                existing = session.query(Activity).filter_by(garmin_activity_id=activity_id).first()
-                if existing:
-                    return {
-                        "success": True,
-                        "status": "already_exists",
-                        "activity_id": existing.id,
-                        "message": f"Activity {activity_id} already exists in database",
-                    }
+                # Primary check: by garmin_activity_id
+                if activity_id:
+                    existing = session.query(Activity).filter_by(garmin_activity_id=str(activity_id)).first()
+                    if existing:
+                        logger.info(f"Activity {activity_id} already exists in database (ID: {existing.id})")
+                        return {
+                            "success": True,
+                            "status": "already_exists",
+                            "activity_id": existing.id,
+                            "message": f"Activity {activity_id} already exists in database",
+                        }
 
             # Get activity summary from Garmin Connect - try to get from recent activities first
             activity_summary = self._get_activity_from_recent_list(activity_id)
@@ -64,6 +67,34 @@ class ActivityImportService:
             if not activity_summary:
                 return {"success": False, "error": f"Could not retrieve activity {activity_id} from Garmin Connect"}
 
+            # Secondary duplicate check: by activity characteristics if garmin_activity_id is missing/None
+            with session_scope() as session:
+                garmin_id_from_summary = activity_summary.get("activityId") or activity_summary.get("activityIdStr")
+                activity_name = activity_summary.get("activityName", "")
+                start_time_str = activity_summary.get("startTimeGMT") or activity_summary.get("startTimeLocal")
+                start_time = self._parse_datetime(start_time_str)
+                
+                if not garmin_id_from_summary and start_time and activity_name:
+                    # Check for activities with same name and start time (within 1 minute)
+                    from datetime import timedelta
+                    time_window = timedelta(minutes=1)
+                    
+                    similar_activities = session.query(Activity).filter(
+                        Activity.name == activity_name,
+                        Activity.start_time_utc >= start_time - time_window,
+                        Activity.start_time_utc <= start_time + time_window
+                    ).all()
+                    
+                    if similar_activities:
+                        existing = similar_activities[0]
+                        logger.info(f"Activity with similar characteristics already exists (DB ID: {existing.id}) - Name: '{activity_name}', Start: {start_time}")
+                        return {
+                            "success": True,
+                            "status": "already_exists",
+                            "activity_id": existing.id,
+                            "message": f"Activity with similar characteristics already exists: '{activity_name}' at {start_time}",
+                        }
+
             # Download and parse FIT file if requested
             parsed_data = None
             if download_fit:
@@ -72,8 +103,21 @@ class ActivityImportService:
                 except Exception as e:
                     logger.warning(f"Failed to download/parse FIT for {activity_id}: {e}")
 
-            # Import to database
+            # Import to database with final duplicate check in transaction
             with session_scope() as session:
+                # Final duplicate check within the same transaction to prevent race conditions
+                garmin_id_from_summary = activity_summary.get("activityId") or activity_summary.get("activityIdStr")
+                if garmin_id_from_summary:
+                    final_check = session.query(Activity).filter_by(garmin_activity_id=str(garmin_id_from_summary)).first()
+                    if final_check:
+                        logger.info(f"Activity {garmin_id_from_summary} already exists (caught in transaction) - ID: {final_check.id}")
+                        return {
+                            "success": True,
+                            "status": "already_exists",
+                            "activity_id": final_check.id,
+                            "message": f"Activity {garmin_id_from_summary} already exists in database",
+                        }
+
                 activity = self._create_activity_record(activity_summary, parsed_data)
                 session.add(activity)
                 session.flush()  # Get the ID
@@ -233,7 +277,17 @@ class ActivityImportService:
 
     def _create_activity_record(self, summary: Dict[str, Any], parsed_data: Optional[Dict[str, Any]]) -> Activity:
         """Create Activity database record from summary and parsed data."""
-        garmin_id = summary.get("activityId") or summary.get("activityIdStr")
+        # Extract Garmin activity ID with multiple fallbacks
+        garmin_id = (
+            summary.get("activityId") or 
+            summary.get("activityIdStr") or 
+            summary.get("id") or 
+            summary.get("activity_id")
+        )
+        
+        # Log if no Garmin ID found for debugging
+        if not garmin_id:
+            logger.warning(f"No Garmin activity ID found in summary: {list(summary.keys())[:10]}...")
 
         # Extract activity type - it might be a dict or string
         activity_type = summary.get("activityType", "unknown")
@@ -327,6 +381,67 @@ class ActivityImportService:
             logger.warning(f"Failed to parse datetime {dt_str}: {e}")
 
         return None
+
+    def cleanup_duplicate_activities(self) -> Dict[str, Any]:
+        """Clean up duplicate activities in the database."""
+        try:
+            with session_scope() as session:
+                from sqlalchemy import func
+                
+                # Find activities with duplicate garmin_activity_ids
+                duplicate_ids = session.query(
+                    Activity.garmin_activity_id, 
+                    func.count(Activity.garmin_activity_id)
+                ).filter(
+                    Activity.garmin_activity_id.isnot(None)
+                ).group_by(Activity.garmin_activity_id).having(
+                    func.count(Activity.garmin_activity_id) > 1
+                ).all()
+                
+                removed_count = 0
+                for garmin_id, count in duplicate_ids:
+                    # Get all activities with this garmin_activity_id, keep the oldest one
+                    duplicates = session.query(Activity).filter_by(
+                        garmin_activity_id=garmin_id
+                    ).order_by(Activity.ingested_on.asc()).all()
+                    
+                    # Keep the first (oldest) one, remove the rest
+                    for activity in duplicates[1:]:
+                        logger.info(f"Removing duplicate activity: ID {activity.id}, Garmin ID {garmin_id}, Name: '{activity.name}'")
+                        session.delete(activity)
+                        removed_count += 1
+                
+                # Find activities with similar characteristics but no garmin_activity_id
+                none_activities = session.query(Activity).filter(Activity.garmin_activity_id.is_(None)).all()
+                name_time_groups = {}
+                
+                for activity in none_activities:
+                    if activity.name and activity.start_time_utc:
+                        key = (activity.name.strip().lower(), activity.start_time_utc.date())
+                        if key not in name_time_groups:
+                            name_time_groups[key] = []
+                        name_time_groups[key].append(activity)
+                
+                # Remove duplicates from None activities
+                for key, activities in name_time_groups.items():
+                    if len(activities) > 1:
+                        # Keep the first one, remove others
+                        for activity in activities[1:]:
+                            logger.info(f"Removing duplicate activity with no Garmin ID: ID {activity.id}, Name: '{activity.name}'")
+                            session.delete(activity)
+                            removed_count += 1
+                
+                logger.info(f"Cleanup completed: removed {removed_count} duplicate activities")
+                return {
+                    "success": True,
+                    "removed_count": removed_count,
+                    "duplicate_garmin_ids": len(duplicate_ids),
+                    "message": f"Removed {removed_count} duplicate activities"
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to cleanup duplicate activities: {e}")
+            return {"success": False, "error": str(e)}
 
     def _generate_activity_hash(self, summary: Dict[str, Any]) -> str:
         """Generate hash for activity summary."""
