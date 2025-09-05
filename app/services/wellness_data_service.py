@@ -6,21 +6,20 @@ from the Garmin API sync operations to the database. It acts as the critical
 bridge between the sync layer and the database models.
 """
 
+from datetime import date, datetime, timedelta, timezone
 import logging
-from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
-
 
 from app.data.db import session_scope
 from app.data.garmin_models import (
-    UserProfile,
-    DailySleep,
-    DailyStress,
-    DailySteps,
     DailyBodyBattery,
     DailyHeartRate,
+    DailySleep,
+    DailySteps,
+    DailyStress,
     DailyTrainingReadiness,
     PersonalRecords,
+    UserProfile,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,7 +81,7 @@ class WellnessDataService:
 
                 for sleep_data in sleep_records:
                     try:
-                        sleep_date = self._parse_date(sleep_data.get("calendarDate"))
+                        sleep_date = self._parse_date(sleep_data.get("date"))
                         if not sleep_date:
                             continue
 
@@ -96,17 +95,18 @@ class WellnessDataService:
                             # Create new record
                             sleep_record = DailySleep(
                                 date=sleep_date,
-                                bedtime_utc=self._parse_datetime(sleep_data.get("sleepTimeSeconds")),
-                                wakeup_time_utc=self._parse_datetime(sleep_data.get("sleepEndTimestampGMT")),
-                                total_sleep_time_s=sleep_data.get("sleepTimeSeconds", 0),
-                                deep_sleep_s=sleep_data.get("deepSleepSeconds", 0),
-                                light_sleep_s=sleep_data.get("lightSleepSeconds", 0),
-                                rem_sleep_s=sleep_data.get("remSleepSeconds", 0),
-                                awake_time_s=sleep_data.get("awakeSleepSeconds", 0),
-                                sleep_score=sleep_data.get("overallSleepScore"),
+                                bedtime_utc=sleep_data.get("bedtime_utc"),
+                                wakeup_time_utc=sleep_data.get("wakeup_time_utc"),
+                                total_sleep_time_s=sleep_data.get("total_sleep_time_s", 0),
+                                deep_sleep_s=sleep_data.get("deep_sleep_s", 0),
+                                light_sleep_s=sleep_data.get("light_sleep_s", 0),
+                                rem_sleep_s=sleep_data.get("rem_sleep_s", 0),
+                                awake_time_s=sleep_data.get("awake_time_s", 0),
+                                sleep_score=sleep_data.get("sleep_score"),
                                 restlessness=sleep_data.get("restlessness"),
+                                efficiency_percentage=sleep_data.get("efficiency_percentage"),
                                 data_source="garminconnect",
-                                retrieved_at=datetime.utcnow(),
+                                retrieved_at=datetime.now(timezone.utc),
                             )
                             session.add(sleep_record)
 
@@ -131,7 +131,7 @@ class WellnessDataService:
 
                 for steps_data in steps_records:
                     try:
-                        steps_date = self._parse_date(steps_data.get("calendarDate"))
+                        steps_date = self._parse_date(steps_data.get("date"))
                         if not steps_date:
                             continue
 
@@ -140,22 +140,30 @@ class WellnessDataService:
 
                         if existing:
                             # Update existing record
-                            existing.total_steps = steps_data.get("totalSteps", 0)
-                            existing.step_goal = steps_data.get("dailyStepGoal", 0)
-                            existing.total_distance_m = steps_data.get("totalDistance", 0)
-                            existing.calories_burned = steps_data.get("wellnessKilocalories", 0)
+                            existing.total_steps = steps_data.get("total_steps", 0)
+                            existing.step_goal = steps_data.get("step_goal", 0)
+                            existing.total_distance_m = steps_data.get("total_distance_m", 0)
+                            existing.calories_burned = steps_data.get("calories_burned", 0)
+                            existing.calories_bmr = steps_data.get("calories_bmr", 0)
+                            existing.calories_active = steps_data.get("calories_active", 0)
+                            existing.floors_climbed = steps_data.get("floors_climbed", 0)
+                            existing.floors_goal = steps_data.get("floors_goal", 0)
                             existing.data_source = "garminconnect"
-                            existing.retrieved_at = datetime.utcnow()
+                            existing.retrieved_at = datetime.now(timezone.utc)
                         else:
                             # Create new record
                             steps_record = DailySteps(
                                 date=steps_date,
-                                total_steps=steps_data.get("totalSteps", 0),
-                                step_goal=steps_data.get("dailyStepGoal", 0),
-                                total_distance_m=steps_data.get("totalDistance", 0),
-                                calories_burned=steps_data.get("wellnessKilocalories", 0),
+                                total_steps=steps_data.get("total_steps", 0),
+                                step_goal=steps_data.get("step_goal", 0),
+                                total_distance_m=steps_data.get("total_distance_m", 0),
+                                calories_burned=steps_data.get("calories_burned", 0),
+                                calories_bmr=steps_data.get("calories_bmr", 0),
+                                calories_active=steps_data.get("calories_active", 0),
+                                floors_climbed=steps_data.get("floors_climbed", 0),
+                                floors_goal=steps_data.get("floors_goal", 0),
                                 data_source="garminconnect",
-                                retrieved_at=datetime.utcnow(),
+                                retrieved_at=datetime.now(timezone.utc),
                             )
                             session.add(steps_record)
 
@@ -180,7 +188,7 @@ class WellnessDataService:
 
                 for hr_data in hr_records:
                     try:
-                        hr_date = self._parse_date(hr_data.get("calendarDate"))
+                        hr_date = self._parse_date(hr_data.get("date"))
                         if not hr_date:
                             continue
 
@@ -189,20 +197,24 @@ class WellnessDataService:
 
                         if existing:
                             # Update existing record
-                            existing.resting_hr = hr_data.get("restingHeartRate")
-                            existing.max_hr = hr_data.get("maxHeartRate")
-                            existing.avg_hr = hr_data.get("averageHeartRate")
+                            existing.resting_hr = hr_data.get("resting_hr")
+                            existing.max_hr = hr_data.get("max_hr")
+                            existing.avg_hr = hr_data.get("avg_hr")
+                            existing.hrv_score = hr_data.get("hrv_score")
+                            existing.hrv_status = hr_data.get("hrv_status")
                             existing.data_source = "garminconnect"
-                            existing.retrieved_at = datetime.utcnow()
+                            existing.retrieved_at = datetime.now(timezone.utc)
                         else:
                             # Create new record
                             hr_record = DailyHeartRate(
                                 date=hr_date,
-                                resting_hr=hr_data.get("restingHeartRate"),
-                                max_hr=hr_data.get("maxHeartRate"),
-                                avg_hr=hr_data.get("averageHeartRate"),
+                                resting_hr=hr_data.get("resting_hr"),
+                                max_hr=hr_data.get("max_hr"),
+                                avg_hr=hr_data.get("avg_hr"),
+                                hrv_score=hr_data.get("hrv_score"),
+                                hrv_status=hr_data.get("hrv_status"),
                                 data_source="garminconnect",
-                                retrieved_at=datetime.utcnow(),
+                                retrieved_at=datetime.now(timezone.utc),
                             )
                             session.add(hr_record)
 
@@ -335,7 +347,7 @@ class WellnessDataService:
 
                 for stress_data in stress_records:
                     try:
-                        stress_date = self._parse_date(stress_data.get("calendarDate"))
+                        stress_date = self._parse_date(stress_data.get("date"))
                         if not stress_date:
                             continue
 
@@ -344,26 +356,30 @@ class WellnessDataService:
 
                         if existing:
                             # Update existing record
-                            existing.avg_stress_level = stress_data.get("overallStressLevel")
-                            existing.rest_minutes = stress_data.get("restStressDuration", 0) // 60
-                            existing.low_minutes = stress_data.get("lowStressDuration", 0) // 60
-                            existing.medium_minutes = stress_data.get("mediumStressDuration", 0) // 60
-                            existing.high_minutes = stress_data.get("highStressDuration", 0) // 60
-                            existing.stress_qualifier = stress_data.get("stressQualifier")
+                            existing.avg_stress_level = stress_data.get("avg_stress_level")
+                            existing.max_stress_level = stress_data.get("max_stress_level")
+                            existing.rest_stress_level = stress_data.get("rest_stress_level")
+                            existing.rest_minutes = stress_data.get("rest_minutes", 0)
+                            existing.low_minutes = stress_data.get("low_minutes", 0)
+                            existing.medium_minutes = stress_data.get("medium_minutes", 0)
+                            existing.high_minutes = stress_data.get("high_minutes", 0)
+                            existing.stress_qualifier = stress_data.get("stress_qualifier")
                             existing.data_source = "garminconnect"
-                            existing.retrieved_at = datetime.utcnow()
+                            existing.retrieved_at = datetime.now(timezone.utc)
                         else:
                             # Create new record
                             stress_record = DailyStress(
                                 date=stress_date,
-                                avg_stress_level=stress_data.get("overallStressLevel"),
-                                rest_minutes=stress_data.get("restStressDuration", 0) // 60,
-                                low_minutes=stress_data.get("lowStressDuration", 0) // 60,
-                                medium_minutes=stress_data.get("mediumStressDuration", 0) // 60,
-                                high_minutes=stress_data.get("highStressDuration", 0) // 60,
-                                stress_qualifier=stress_data.get("stressQualifier"),
+                                avg_stress_level=stress_data.get("avg_stress_level"),
+                                max_stress_level=stress_data.get("max_stress_level"),
+                                rest_stress_level=stress_data.get("rest_stress_level"),
+                                rest_minutes=stress_data.get("rest_minutes", 0),
+                                low_minutes=stress_data.get("low_minutes", 0),
+                                medium_minutes=stress_data.get("medium_minutes", 0),
+                                high_minutes=stress_data.get("high_minutes", 0),
+                                stress_qualifier=stress_data.get("stress_qualifier"),
                                 data_source="garminconnect",
-                                retrieved_at=datetime.utcnow(),
+                                retrieved_at=datetime.now(timezone.utc),
                             )
                             session.add(stress_record)
 
@@ -401,15 +417,17 @@ class WellnessDataService:
                             .filter(
                                 PersonalRecords.activity_type == pr_data.get("activity_type"),
                                 PersonalRecords.record_type == pr_data.get("record_type"),
-                                PersonalRecords.activity_id == pr_data.get("activity_id")
+                                PersonalRecords.activity_id == pr_data.get("activity_id"),
                             )
                             .first()
                         )
 
                         if existing_record:
                             # Update existing record if it's newer or has better value
-                            if (pr_data.get("achieved_date") and 
-                                (not existing_record.achieved_date or pr_data["achieved_date"] >= existing_record.achieved_date)):
+                            if pr_data.get("achieved_date") and (
+                                not existing_record.achieved_date
+                                or pr_data["achieved_date"] >= existing_record.achieved_date
+                            ):
                                 existing_record.record_value = pr_data.get("record_value")
                                 existing_record.record_unit = pr_data.get("record_unit")
                                 existing_record.achieved_date = pr_data.get("achieved_date")
@@ -505,18 +523,26 @@ class WellnessDataService:
 
         return results
 
-    def _parse_date(self, date_str: str) -> Optional[date]:
-        """Parse date string in various formats."""
-        if not date_str:
+    def _parse_date(self, date_input: Any) -> Optional[date]:
+        """Parse date input in various formats."""
+        if not date_input:
             return None
+
+        # If it's a datetime object, extract the date part
+        if isinstance(date_input, datetime):
+            return date_input.date()
+
+        # If it's already a date object, return it
+        if isinstance(date_input, date):
+            return date_input
 
         try:
             # Try YYYY-MM-DD format
-            return datetime.strptime(str(date_str), "%Y-%m-%d").date()
+            return datetime.strptime(str(date_input), "%Y-%m-%d").date()
         except (ValueError, TypeError):
             try:
                 # Try timestamp format
-                return datetime.fromtimestamp(int(date_str) / 1000).date()
+                return datetime.fromtimestamp(int(date_input) / 1000).date()
             except (ValueError, TypeError):
                 return None
 
@@ -544,17 +570,18 @@ class WellnessDataService:
 
     def _update_sleep_record(self, existing_record: DailySleep, sleep_data: Dict[str, Any]):
         """Update existing sleep record with new data."""
-        existing_record.bedtime_utc = self._parse_datetime(sleep_data.get("sleepTimeSeconds"))
-        existing_record.wakeup_time_utc = self._parse_datetime(sleep_data.get("sleepEndTimestampGMT"))
-        existing_record.total_sleep_time_s = sleep_data.get("sleepTimeSeconds", 0)
-        existing_record.deep_sleep_s = sleep_data.get("deepSleepSeconds", 0)
-        existing_record.light_sleep_s = sleep_data.get("lightSleepSeconds", 0)
-        existing_record.rem_sleep_s = sleep_data.get("remSleepSeconds", 0)
-        existing_record.awake_time_s = sleep_data.get("awakeSleepSeconds", 0)
-        existing_record.sleep_score = sleep_data.get("overallSleepScore")
+        existing_record.bedtime_utc = sleep_data.get("bedtime_utc")
+        existing_record.wakeup_time_utc = sleep_data.get("wakeup_time_utc")
+        existing_record.total_sleep_time_s = sleep_data.get("total_sleep_time_s", 0)
+        existing_record.deep_sleep_s = sleep_data.get("deep_sleep_s", 0)
+        existing_record.light_sleep_s = sleep_data.get("light_sleep_s", 0)
+        existing_record.rem_sleep_s = sleep_data.get("rem_sleep_s", 0)
+        existing_record.awake_time_s = sleep_data.get("awake_time_s", 0)
+        existing_record.sleep_score = sleep_data.get("sleep_score")
         existing_record.restlessness = sleep_data.get("restlessness")
+        existing_record.efficiency_percentage = sleep_data.get("efficiency_percentage")
         existing_record.data_source = "garminconnect"
-        existing_record.retrieved_at = datetime.utcnow()
+        existing_record.retrieved_at = datetime.now(timezone.utc)
 
     def get_wellness_summary(self, days: int = 30) -> Dict[str, Any]:
         """Get wellness data summary for the dashboard."""

@@ -14,7 +14,7 @@ These models support all wellness data types specified in the PRP:
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, Float, Index, Integer, String, Text, Boolean
+from sqlalchemy import Boolean, Date, DateTime, Float, Index, Integer, String, Text
 
 # Use same base class as other models
 from .models import Base, mapped_column

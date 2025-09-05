@@ -7,12 +7,12 @@ Returns normalized structures ready for the Dash page.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .client import GarminConnectClient, GarminAuthError
+from .client import GarminAuthError, GarminConnectClient
 from .wellness_sync import WellnessSyncManager
 
 logger = logging.getLogger(__name__)

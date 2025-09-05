@@ -13,11 +13,11 @@ Implements all wellness data types specified in the PRP:
 
 from __future__ import annotations
 
-import logging
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, Any
+import logging
+from typing import Any, Dict
 
-from .client import GarminConnectClient, GarminAuthError
+from .client import GarminAuthError, GarminConnectClient
 
 # Import wellness data service for persistence
 try:
@@ -188,7 +188,9 @@ class WellnessSyncManager:
                             hr_record.update(
                                 {
                                     # Map to database field names
-                                    "hrv_score": hrv_summary.get("lastNightAvg"),  # Use last night avg as the main score
+                                    "hrv_score": hrv_summary.get(
+                                        "lastNightAvg"
+                                    ),  # Use last night avg as the main score
                                     "hrv_status": hrv_summary.get("status"),
                                 }
                             )
@@ -347,10 +349,14 @@ class WellnessSyncManager:
 
                         bb_record = {
                             "date": current_date,
-                            "charged": body_battery.get("charged", 0),
-                            "drained": body_battery.get("drained", 0),
-                            "highestLevel": max(battery_values) if battery_values else 0,
-                            "lowestLevel": min(battery_values) if battery_values else 0,
+                            # Map to database field names
+                            "body_battery_score": max(battery_values)
+                            if battery_values
+                            else 0,  # Use highest as main score
+                            "charged_value": body_battery.get("charged", 0),
+                            "drained_value": body_battery.get("drained", 0),
+                            "highest_value": max(battery_values) if battery_values else 0,
+                            "lowest_value": min(battery_values) if battery_values else 0,
                         }
                         bb_data.append(bb_record)
 
@@ -431,15 +437,15 @@ class WellnessSyncManager:
 
             # Map typeId to record type names
             record_type_map = {
-                1: "1k_time",      # 1km time
-                2: "2k_time",      # 2km time  
-                3: "5k_time",      # 5km time
-                4: "half_marathon", # Half marathon time
-                5: "marathon",     # Marathon time
-                6: "longest_distance", # Longest distance
-                7: "max_elevation_gain", # Max elevation gain
-                8: "fastest_pace", # Fastest pace
-                9: "max_power",    # Max power
+                1: "1k_time",  # 1km time
+                2: "2k_time",  # 2km time
+                3: "5k_time",  # 5km time
+                4: "half_marathon",  # Half marathon time
+                5: "marathon",  # Marathon time
+                6: "longest_distance",  # Longest distance
+                7: "max_elevation_gain",  # Max elevation gain
+                8: "fastest_pace",  # Fastest pace
+                9: "max_power",  # Max power
                 # Add more mappings as needed
             }
 
@@ -451,7 +457,7 @@ class WellnessSyncManager:
                     if record.get("actStartDateTimeInGMTFormatted"):
                         try:
                             achieved_date = datetime.fromisoformat(
-                                record.get("actStartDateTimeInGMTFormatted").replace('T', ' ').replace('.0', '')
+                                record.get("actStartDateTimeInGMTFormatted").replace("T", " ").replace(".0", "")
                             ).date()
                         except (ValueError, AttributeError):
                             logger.warning(f"Could not parse date: {record.get('actStartDateTimeInGMTFormatted')}")

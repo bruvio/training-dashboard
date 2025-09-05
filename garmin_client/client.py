@@ -16,25 +16,24 @@ Hardened for Docker & first-run:
 
 from __future__ import annotations
 
-import os
-import json
-import time
-import logging
-from datetime import date, datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
 from contextlib import contextmanager
+from datetime import date, datetime
+import json
+import logging
+import os
+from pathlib import Path
+import time
+from typing import Any, Dict, List, Optional, Union
 
 try:
+    # Import the enum for proper type hints
     from garminconnect import (  # type: ignore
         Garmin,
+        Garmin as GarminAPI,
         GarminConnectAuthenticationError,
         GarminConnectConnectionError,
         GarminConnectTooManyRequestsError,
     )
-
-    # Import the enum for proper type hints
-    from garminconnect import Garmin as GarminAPI
 except Exception:  # pragma: no cover
     Garmin = None  # type: ignore
     GarminConnectAuthenticationError = Exception  # type: ignore
@@ -416,8 +415,8 @@ class GarminConnectClient:
         # Check if it's a ZIP file
         if content.startswith(b"PK"):
             # It's a ZIP file, extract the FIT file
-            import zipfile
             import io
+            import zipfile
 
             with zipfile.ZipFile(io.BytesIO(content)) as zip_file:
                 # Look for .FIT files in the ZIP

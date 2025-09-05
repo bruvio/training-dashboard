@@ -6,29 +6,30 @@ This script extends the existing database with comprehensive wellness tracking.
 """
 
 import logging
+
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from .db import get_db_config
-from .models import Base
 from .garmin_models import (
-    UserProfile,
-    DailySleep,
-    DailyStress,
-    DailySteps,
-    DailyIntensityMinutes,
-    DailyBodyBattery,
     BloodPressureReadings,
+    DailyBodyBattery,
+    DailyHeartRate,
     DailyHydration,
+    DailyIntensityMinutes,
     DailyRespiration,
+    DailySleep,
     DailySpo2,
+    DailySteps,
+    DailyStress,
     DailyTrainingReadiness,
-    TrainingStatus,
+    GarminSession,
     MaxMetrics,
     PersonalRecords,
-    DailyHeartRate,
-    GarminSession,
+    TrainingStatus,
+    UserProfile,
 )
+from .models import Base
 
 logger = logging.getLogger(__name__)
 

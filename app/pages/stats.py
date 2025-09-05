@@ -9,16 +9,16 @@ import plotly.graph_objects as go
 from app.data.web_queries import (
     get_activity_statistics,
     get_activity_trends,
+    get_body_battery_data,
+    get_heart_rate_data,
+    get_max_metrics_data,
+    get_personal_records_data,
     get_sleep_data,
+    get_spo2_data,
     get_steps_data,
     get_stress_data,
-    get_wellness_statistics,
-    get_heart_rate_data,
-    get_body_battery_data,
     get_training_readiness_data,
-    get_spo2_data,
-    get_personal_records_data,
-    get_max_metrics_data,
+    get_wellness_statistics,
 )
 from app.utils import get_logger
 
@@ -753,7 +753,6 @@ def register_callbacks(app):
                     hovermode="x unified",
                 )
 
-
             return dcc.Graph(figure=fig)
 
         except Exception as e:
@@ -795,7 +794,6 @@ def register_callbacks(app):
                     height=400,
                     hovermode="x unified",
                 )
-
 
             elif active_tab == "hrv":
                 # HRV score trend

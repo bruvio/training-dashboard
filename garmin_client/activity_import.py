@@ -5,18 +5,18 @@ Handles importing activities from Garmin Connect into the local database,
 including downloading FIT files and parsing them for detailed metrics.
 """
 
-import logging
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-import tempfile
 import hashlib
+import logging
+from pathlib import Path
+import tempfile
+from typing import Any, Dict, List, Optional
 
 from app.data.db import session_scope
-from app.data.models import Activity, Lap, Sample, RoutePoint
+from app.data.models import Activity, Lap, RoutePoint, Sample
 from ingest.parser import ActivityParser
 
-from .client import GarminConnectClient, GarminAuthError
+from .client import GarminAuthError, GarminConnectClient
 
 logger = logging.getLogger(__name__)
 

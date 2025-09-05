@@ -11,17 +11,17 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Dict, Any
 
-import dash_bootstrap_components as dbc
-from dash import Input, Output, State, dcc, html, no_update, dash_table
+from dash import Input, Output, State, dash_table, dcc, html, no_update
 from dash.exceptions import PreventUpdate
+import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 
-# Import from your local package
-from garmin_client.client import GarminConnectClient, GarminAuthError
-from garmin_client.sync import sync_range
 from garmin_client.activity_import import ActivityImportService
+
+# Import from your local package
+from garmin_client.client import GarminAuthError, GarminConnectClient
+from garmin_client.sync import sync_range
 
 logger = logging.getLogger(__name__)
 

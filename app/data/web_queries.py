@@ -17,13 +17,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..utils import get_logger, log_error
 from .db import session_scope
 from .garmin_models import (
+    DailyBodyBattery,
+    DailyHeartRate,
     DailyIntensityMinutes,
     DailySleep,
+    DailySpo2,
     DailySteps,
     DailyStress,
-    DailyHeartRate,
-    DailyBodyBattery,
-    DailySpo2,
     DailyTrainingReadiness,
     MaxMetrics,
     PersonalRecords,
@@ -902,9 +902,17 @@ def get_sleep_data(days: int = 90) -> pd.DataFrame:
             df = df.sort_values("date").set_index("date")
 
             # Helpful derived columns for plotting (hours from seconds)
-            for col in ["total_sleep_time_s", "deep_sleep_s", "light_sleep_s", "rem_sleep_s", "awake_time_s"]:
+            sleep_time_columns = {
+                "total_sleep_time_s": "total_sleep_time_hours",
+                "deep_sleep_s": "deep_sleep_hours",
+                "light_sleep_s": "light_sleep_hours",
+                "rem_sleep_s": "rem_sleep_hours",
+                "awake_time_s": "awake_hours",
+            }
+
+            for col, hour_col in sleep_time_columns.items():
                 if col in df.columns:
-                    df[col.replace("_s", "_h")] = df[col] / 3600.0
+                    df[hour_col] = df[col] / 3600.0
 
             return df
 

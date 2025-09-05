@@ -5,9 +5,9 @@ Singleton pattern to manage authentication state across all Dash callbacks,
 eliminating multiple client instances and state conflicts.
 """
 
-import logging
 from datetime import datetime
-from typing import Dict, Optional, Any
+import logging
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
