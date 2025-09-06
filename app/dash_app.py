@@ -55,15 +55,14 @@ try:
     logger.info("✅ All database models imported - tables will be available for creation")
 
     # Import pages to register their callbacks with the app
-    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats
-
-    # sync module imported in the routing callback when needed
+    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats, sync
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)
     settings.register_callbacks(app)
     fit_upload.register_callbacks(app)
     stats.register_callbacks(app)
+    # Note: sync page uses @callback decorator, so callbacks are auto-registered on import
     logger.info("✅ All page modules imported successfully - callbacks registered")
 
 except ImportError as e:

@@ -201,7 +201,7 @@ def layout():
                             html.Div(
                                 [
                                     # Sync Progress Bar
-                                    html.Div(id="sync-progress-container", style={"display": "none"}),
+                                    html.Div(id="wellness-sync-progress-container", style={"display": "none"}),
                                     # Sync Status Messages
                                     html.Div(id="sync-status-messages"),
                                     # Sync Results
@@ -251,8 +251,8 @@ def update_date_summary(start_date, end_date):
 @callback(
     [
         Output("sync-results-container", "children"),
-        Output("sync-progress-container", "children"),
-        Output("sync-progress-container", "style"),
+        Output("wellness-sync-progress-container", "children"),
+        Output("wellness-sync-progress-container", "style"),
         Output("sync-status-messages", "children"),
         Output("sync-data-btn", "disabled"),
         Output("sync-data-btn", "children"),
