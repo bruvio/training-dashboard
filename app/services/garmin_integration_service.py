@@ -23,12 +23,14 @@ class GarminIntegrationService:
         self.client = GarminConnectClient()
         self.wellness_service = WellnessDataService()
         self.logger = logger
-        
+
         # Try to load existing session automatically
         try:
             session_data = self.client.load_session()
             if session_data.get("is_authenticated"):
-                self.logger.info(f"✅ Loaded existing Garmin session for user: {session_data.get('username', 'unknown')}")
+                self.logger.info(
+                    f"✅ Loaded existing Garmin session for user: {session_data.get('username', 'unknown')}"
+                )
             else:
                 self.logger.warning("⚠️ No valid existing session found")
         except Exception as e:
@@ -102,18 +104,18 @@ class GarminIntegrationService:
                     session_data = self.client.load_session()
                     if not session_data.get("is_authenticated"):
                         return {
-                            "success": False, 
-                            "error": "Not authenticated with Garmin Connect. Please log in first on the Garmin login page (/garmin).", 
-                            "requires_auth": True
+                            "success": False,
+                            "error": "Not authenticated with Garmin Connect. Please log in first on the Garmin login page (/garmin).",
+                            "requires_auth": True,
                         }
                     else:
                         self.logger.info("✅ Successfully restored Garmin session")
                 except Exception as e:
                     self.logger.warning(f"⚠️ Could not restore session: {e}")
                     return {
-                        "success": False, 
-                        "error": "Authentication required. Please log in first on the Garmin login page (/garmin).", 
-                        "requires_auth": True
+                        "success": False,
+                        "error": "Authentication required. Please log in first on the Garmin login page (/garmin).",
+                        "requires_auth": True,
                     }
 
             self.logger.info(f"🔄 Starting wellness data sync from {start_date} to {end_date}")

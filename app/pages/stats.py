@@ -23,6 +23,8 @@ from app.data.web_queries import (
     get_wellness_statistics,
 )
 from app.utils import get_logger
+from garmin_client.wellness_sync import WellnessSync, get_client
+import pandas as pd
 
 logger = get_logger(__name__)
 
@@ -110,6 +112,8 @@ def layout():
                             ),
                             # Wellness Statistics Header
                             html.H2([html.I(className="fas fa-heart me-3"), "Wellness Data"], className="mb-4 mt-5"),
+                            # Real-time wellness charts with date filtering
+                            html.Div(id="real-time-wellness-charts"),
                             # Wellness statistics cards
                             html.Div(id="wellness-stats-container"),
                             # Sleep data visualization
@@ -1135,3 +1139,96 @@ def register_callbacks(app):
         except Exception as e:
             logger.error(f"Error updating health chart: {e}")
             return dbc.Alert("Error loading health data.", color="danger")
+
+
+def create_wellness_chart(df, title, y_columns):
+    """Create a simple wellness data chart using plotly."""
+    if df.empty:
+        return dbc.Alert(f"No data available for {title}", color="info", className="text-center")
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+
+    fig = go.Figure()
+    colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8"]
+
+    for i, col in enumerate(y_columns):
+        if col not in df.columns:
+            continue
+
+        data = df[df[col].notna()]
+        if data.empty:
+            continue
+
+        fig.add_trace(
+            go.Scatter(
+                x=data["date"],
+                y=data[col],
+                mode="lines+markers",
+                name=col.replace("_", " ").title(),
+                line=dict(color=colors[i % len(colors)], width=2),
+                marker=dict(size=6),
+            )
+        )
+
+    fig.update_layout(title=title, xaxis_title="Date", yaxis_title="Value", height=400, showlegend=True)
+
+    return dcc.Graph(figure=fig)
+
+
+@app.callback(
+    Output("real-time-wellness-charts", "children"),
+    [Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")],
+)
+def update_real_time_wellness_charts(start_date, end_date):
+    """Display real-time wellness charts based on selected date range."""
+    if not start_date or not end_date:
+        return dbc.Alert("Please select a date range to view wellness charts", color="info")
+
+    try:
+        from datetime import datetime
+
+        start = datetime.fromisoformat(start_date).date()
+        end = datetime.fromisoformat(end_date).date()
+
+        # Fetch wellness data using WellnessSync
+        client = get_client()
+        wellness_sync = WellnessSync(client)
+
+        wellness_data = wellness_sync.fetch_range(
+            start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), include_extras=True
+        )
+
+        if not wellness_data:
+            return dbc.Alert("No wellness data available for selected date range", color="warning")
+
+        charts = []
+
+        for data_type, df in wellness_data.items():
+            if hasattr(df, "empty") and not df.empty:
+                data_columns = []
+                for col in df.columns:
+                    if col != "date" and df[col].notna().any():
+                        data_columns.append(col)
+
+                if data_columns:
+                    chart_title = f"{data_type.replace('_', ' ').title()} Data"
+                    chart = create_wellness_chart(df, chart_title, data_columns)
+
+                    chart_card = dbc.Card([dbc.CardBody([chart])], className="mb-4")
+
+                    charts.append(chart_card)
+
+        if not charts:
+            return dbc.Alert("No wellness data to display for selected period", color="info")
+
+        return html.Div(
+            [
+                html.H4([html.I(className="fas fa-chart-area me-2"), "Real-time Wellness Charts"], className="mb-3"),
+                html.Div(charts),
+            ]
+        )
+
+    except Exception as e:
+        logger.error(f"Error loading real-time wellness charts: {e}")
+        return dbc.Alert(f"Error loading wellness charts: {str(e)}", color="danger")

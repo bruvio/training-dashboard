@@ -25,16 +25,19 @@ logger = get_logger(__name__)
 # Global progress tracking for the sync page
 _sync_progress = {"status": "idle", "message": "", "progress": 0, "details": [], "result": None}
 
+
 def update_sync_progress(status: str, message: str, progress: int = 0, details: list = None):
     """Update global sync progress."""
     global _sync_progress
-    _sync_progress.update({
-        "status": status, 
-        "message": message, 
-        "progress": progress, 
-        "details": details or [],
-        "result": None if status in ["idle", "running"] else _sync_progress.get("result")
-    })
+    _sync_progress.update(
+        {
+            "status": status,
+            "message": message,
+            "progress": progress,
+            "details": details or [],
+            "result": None if status in ["idle", "running"] else _sync_progress.get("result"),
+        }
+    )
     logger.info(f"Sync progress updated: {status} - {message} ({progress}%)")
 
 
@@ -45,7 +48,6 @@ def layout():
             # Progress tracking components
             dcc.Interval(id="sync-progress-interval", interval=500, disabled=True),
             dcc.Store(id="sync-progress-store"),
-            
             # Header Section
             dbc.Row(
                 [
@@ -240,20 +242,17 @@ def layout():
             ),
             # Data Summary Section
             dbc.Row([dbc.Col([html.Div(id="data-summary-container")], lg=10, className="mx-auto")], className="mt-4"),
-            
             # Wellness Data Visualization Section
-            dbc.Row([
-                dbc.Col([
-                    dbc.Button(
-                        [html.I(className="fas fa-chart-line me-2"), "Load Wellness Charts"], 
-                        id="load-charts-btn", 
-                        color="info", 
-                        size="sm", 
-                        className="mb-3"
-                    ),
-                    html.Div(id="wellness-charts-container", style={"display": "none"})
-                ], lg=12, className="mx-auto")
-            ], className="mt-4"),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [html.Div(id="wellness-charts-container", style={"display": "none"})],
+                        lg=12,
+                        className="mx-auto",
+                    )
+                ],
+                className="mt-4",
+            ),
         ]
     )
 
@@ -319,47 +318,59 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
 
     # Reset progress and start background sync
     update_sync_progress("running", "Starting sync...", 5)
-    
+
     def run_sync():
         """Background sync function with progress updates."""
         try:
             sync_opts = sync_options or []
             wellness_enabled = "wellness" in sync_opts
-            
+
             update_sync_progress("running", "Initializing Garmin connection...", 10)
-            
+
             # Initialize WellnessSync (uses the corrected class)
             client = get_client()
             wellness_sync = WellnessSync(client)
-            
+
             # Perform sync
             if wellness_enabled:
                 update_sync_progress("running", f"Fetching {days} days of wellness data...", 30)
-                
+
                 # Fetch wellness data using WellnessSync
-                wellness_data = wellness_sync.fetch_range(
-                    start=start, end=end, include_extras=True
-                )
-                
+                wellness_data = wellness_sync.fetch_range(start=start, end=end, include_extras=True)
+
+            # Handle FIT files download if requested
+            fit_files_enabled = "fit_files" in sync_opts
+            if fit_files_enabled:
+                update_sync_progress("running", f"Downloading FIT files for {days} days...", 50)
+
+                try:
+                    # Use WellnessSync to also download activity FIT files
+                    fit_download_result = wellness_sync.download_fit_files_range(start, end)
+                    logger.info(f"FIT files download result: {fit_download_result}")
+                except Exception as e:
+                    logger.warning(f"FIT files download failed: {e}")
+                    # Continue with sync even if FIT download fails
+
+            if wellness_enabled:
                 update_sync_progress("running", "Processing and aggregating data...", 70)
-                
+
                 # Apply smoothing/aggregation if requested
                 if smoothing and smoothing != "none":
                     for key, df in wellness_data.items():
-                        if hasattr(df, 'empty') and not df.empty:
+                        if hasattr(df, "empty") and not df.empty:
                             wellness_data[key] = aggregate_df(df, smoothing)
-                
+
                 # Count total records
                 total_records = 0
                 data_types = 0
                 for key, df in wellness_data.items():
-                    if hasattr(df, 'empty') and not df.empty:
+                    if hasattr(df, "empty") and not df.empty:
                         data_types += 1
                         # Count non-null values excluding date column
                         for col in df.columns:
-                            if col != 'date':
+                            if col != "date":
                                 total_records += df[col].notna().sum()
-                
+
                 sync_result = {
                     "success": True,
                     "message": f"Successfully fetched {days} days of wellness data",
@@ -376,11 +387,11 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
                     "records_synced": 0,
                     "wellness_data": {},
                 }
-            
+
             # Store result in global progress
             global _sync_progress
             _sync_progress["result"] = sync_result
-            
+
             if sync_result.get("success"):
                 details = [
                     f"Days synced: {sync_result.get('days_synced', days)}",
@@ -390,20 +401,20 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
                 update_sync_progress("completed", "Sync completed successfully!", 100, details)
             else:
                 update_sync_progress("error", f"Sync failed: {sync_result.get('error', 'Unknown error')}")
-                
+
         except Exception as e:
             logger.error(f"Background sync error: {e}")
             update_sync_progress("error", f"Sync error: {str(e)}")
-    
+
     # Start background sync
     sync_thread = threading.Thread(target=run_sync)
     sync_thread.daemon = True
     sync_thread.start()
-    
+
     return (
         False,  # Enable progress interval
-        True,   # Disable sync button
-        [html.I(className="fas fa-spinner fa-spin me-2"), "Syncing..."]
+        True,  # Disable sync button
+        [html.I(className="fas fa-spinner fa-spin me-2"), "Syncing..."],
     )
 
 
@@ -424,16 +435,26 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
 def update_sync_progress_display(n_intervals):
     """Update the sync progress display in real-time."""
     global _sync_progress
-    
+
     if _sync_progress["status"] == "idle":
-        return "", "", {"display": "none"}, "", False, [html.I(className="fas fa-download me-2"), "Sync Garmin Data"], True
+        return (
+            "",
+            "",
+            {"display": "none"},
+            "",
+            False,
+            [html.I(className="fas fa-download me-2"), "Sync Garmin Data"],
+            True,
+        )
 
     # Progress bar
     progress_bar = dbc.Progress(
         value=_sync_progress["progress"],
         striped=True,
         animated=_sync_progress["status"] == "running",
-        color="success" if _sync_progress["status"] == "completed" else ("danger" if _sync_progress["status"] == "error" else "info"),
+        color="success"
+        if _sync_progress["status"] == "completed"
+        else ("danger" if _sync_progress["status"] == "error" else "info"),
         className="mb-2",
     )
 
@@ -447,19 +468,19 @@ def update_sync_progress_display(n_intervals):
         html.H6(f"{_sync_progress['message']} ({_sync_progress['progress']}%)", className="mb-2"),
         progress_bar,
     ]
-    
+
     if details_list:
         progress_content.append(html.Ul(details_list, className="small"))
 
     # Handle completion
     if _sync_progress["status"] == "completed":
         sync_result = _sync_progress.get("result", {})
-        
+
         # Success result card
         if sync_result and sync_result.get("success"):
             persistence = sync_result.get("persistence", {})
             successful_types = sum(1 for success in persistence.values() if success)
-            
+
             result_card = dbc.Card(
                 [
                     dbc.CardHeader(
@@ -469,26 +490,46 @@ def update_sync_progress_display(n_intervals):
                         [
                             dbc.Row(
                                 [
-                                    dbc.Col([
-                                        html.H6("Days Synced", className="text-muted"),
-                                        html.H4(str(sync_result.get("days_synced", 0)), className="text-primary"),
-                                    ], md=3),
-                                    dbc.Col([
-                                        html.H6("Records Synced", className="text-muted"),
-                                        html.H4(str(sync_result.get("records_synced", 0)), className="text-success"),
-                                    ], md=3),
-                                    dbc.Col([
-                                        html.H6("Data Types", className="text-muted"),
-                                        html.H4(str(sync_result.get("data_types_synced", successful_types)), className="text-info"),
-                                    ], md=3),
-                                    dbc.Col([
-                                        html.H6("Status", className="text-muted"),
-                                        html.P("✅ Complete", className="text-success small"),
-                                    ], md=3),
+                                    dbc.Col(
+                                        [
+                                            html.H6("Days Synced", className="text-muted"),
+                                            html.H4(str(sync_result.get("days_synced", 0)), className="text-primary"),
+                                        ],
+                                        md=3,
+                                    ),
+                                    dbc.Col(
+                                        [
+                                            html.H6("Records Synced", className="text-muted"),
+                                            html.H4(
+                                                str(sync_result.get("records_synced", 0)), className="text-success"
+                                            ),
+                                        ],
+                                        md=3,
+                                    ),
+                                    dbc.Col(
+                                        [
+                                            html.H6("Data Types", className="text-muted"),
+                                            html.H4(
+                                                str(sync_result.get("data_types_synced", successful_types)),
+                                                className="text-info",
+                                            ),
+                                        ],
+                                        md=3,
+                                    ),
+                                    dbc.Col(
+                                        [
+                                            html.H6("Status", className="text-muted"),
+                                            html.P("✅ Complete", className="text-success small"),
+                                        ],
+                                        md=3,
+                                    ),
                                 ]
                             ),
                             html.Hr(),
-                            html.P(sync_result.get("message", "Data synced successfully"), className="text-muted text-center mb-0"),
+                            html.P(
+                                sync_result.get("message", "Data synced successfully"),
+                                className="text-muted text-center mb-0",
+                            ),
                         ]
                     ),
                 ],
@@ -497,7 +538,7 @@ def update_sync_progress_display(n_intervals):
             )
         else:
             result_card = dbc.Alert("Sync completed with unknown result", color="info")
-        
+
         return (
             result_card,
             progress_content,
@@ -505,12 +546,12 @@ def update_sync_progress_display(n_intervals):
             dbc.Alert([html.I(className="fas fa-check-circle me-2"), "Sync completed successfully!"], color="success"),
             False,  # Re-enable button
             [html.I(className="fas fa-download me-2"), "Sync Garmin Data"],
-            True,   # Disable progress interval
+            True,  # Disable progress interval
         )
-    
+
     elif _sync_progress["status"] == "error":
         error_msg = _sync_progress.get("message", "Unknown error")
-        
+
         if "authentication" in error_msg.lower() or "not authenticated" in error_msg.lower():
             result_card = dbc.Alert(
                 [
@@ -518,7 +559,11 @@ def update_sync_progress_display(n_intervals):
                     html.P("You need to authenticate with Garmin Connect first."),
                     html.P(f"Error: {error_msg}", className="text-muted small"),
                     html.Hr(),
-                    dbc.Button([html.I(className="fas fa-sign-in-alt me-2"), "Go to Garmin Login"], href="/garmin", color="primary"),
+                    dbc.Button(
+                        [html.I(className="fas fa-sign-in-alt me-2"), "Go to Garmin Login"],
+                        href="/garmin",
+                        color="primary",
+                    ),
                 ],
                 color="warning",
             )
@@ -532,24 +577,26 @@ def update_sync_progress_display(n_intervals):
                 ],
                 color="danger",
             )
-        
+
         return (
             result_card,
             progress_content,
             {"display": "block"},
-            dbc.Alert([html.I(className="fas fa-exclamation-triangle me-2"), f"Sync failed: {error_msg}"], color="danger"),
+            dbc.Alert(
+                [html.I(className="fas fa-exclamation-triangle me-2"), f"Sync failed: {error_msg}"], color="danger"
+            ),
             False,  # Re-enable button
             [html.I(className="fas fa-download me-2"), "Sync Garmin Data"],
-            True,   # Disable progress interval
+            True,  # Disable progress interval
         )
-    
+
     # Still running
     return (
         "",
         progress_content,
         {"display": "block"},
         dbc.Alert([html.I(className="fas fa-spinner fa-spin me-2"), _sync_progress["message"]], color="info"),
-        True,   # Keep button disabled
+        True,  # Keep button disabled
         [html.I(className="fas fa-spinner fa-spin me-2"), "Syncing..."],
         False,  # Keep progress interval enabled
     )
@@ -652,116 +699,109 @@ def create_wellness_chart(df, title, y_columns):
     """Create a simple wellness data chart using plotly."""
     if df.empty:
         return dbc.Alert(f"No data available for {title}", color="info", className="text-center")
-    
+
     # Prepare data
     df = df.copy()
-    df['date'] = pd.to_datetime(df['date'])
-    
+    df["date"] = pd.to_datetime(df["date"])
+
     # Create simple chart
     fig = go.Figure()
-    
+
     # Add a trace for each metric that has data
-    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8']
-    
+    colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8"]
+
     for i, col in enumerate(y_columns):
         if col not in df.columns:
             continue
-            
+
         # Get data that's not null
         data = df[df[col].notna()]
         if data.empty:
             continue
-        
+
         fig.add_trace(
             go.Scatter(
-                x=data['date'],
+                x=data["date"],
                 y=data[col],
-                mode='lines+markers',
-                name=col.replace('_', ' ').title(),
+                mode="lines+markers",
+                name=col.replace("_", " ").title(),
                 line=dict(color=colors[i % len(colors)], width=2),
-                marker=dict(size=6)
+                marker=dict(size=6),
             )
         )
-    
-    fig.update_layout(
-        title=title,
-        xaxis_title="Date",
-        yaxis_title="Value",
-        height=400,
-        showlegend=True
-    )
-    
+
+    fig.update_layout(title=title, xaxis_title="Date", yaxis_title="Value", height=400, showlegend=True)
+
     return dcc.Graph(figure=fig)
 
 
 @callback(
     Output("wellness-charts-container", "children"),
     Output("wellness-charts-container", "style"),
-    [Input("sync-results-container", "children"), Input("load-charts-btn", "n_clicks")],
+    Input("sync-results-container", "children"),
     prevent_initial_call=True,
 )
-def update_wellness_charts(sync_results, load_btn_clicks):
+def update_wellness_charts(sync_results):
     """Display wellness data charts after successful sync."""
-    if not sync_results and not load_btn_clicks:
+    if not sync_results:
         raise PreventUpdate
-    
+
     global _sync_progress
     sync_result = _sync_progress.get("result", {})
-    
+
     logger.info(f"Chart callback triggered. Sync result keys: {list(sync_result.keys()) if sync_result else 'None'}")
-    
+
     wellness_data = sync_result.get("wellness_data", {}) if sync_result else {}
-    
+
     if not wellness_data:
         logger.warning("No wellness_data in sync_result")
         # Try to fetch fresh data if no stored data
         try:
             from datetime import date, timedelta
+
             client = get_client()
             wellness_sync = WellnessSync(client)
             end_date = date.today()
             start_date = end_date - timedelta(days=7)
-            wellness_data = wellness_sync.fetch_range(start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+            wellness_data = wellness_sync.fetch_range(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
             logger.info(f"Fetched fresh wellness data with keys: {list(wellness_data.keys())}")
         except Exception as e:
             logger.error(f"Failed to fetch fresh wellness data: {e}")
             return dbc.Alert("No wellness data available", color="info"), {"display": "block"}
-    
+
     if sync_result and not sync_result.get("success", True):  # Default to True for fresh data
         logger.warning("Sync not successful, not showing charts")
         return "", {"display": "none"}
-    
+
     charts = []
-    
+
     # Create charts for all available data types
     for data_type, df in wellness_data.items():
-        if hasattr(df, 'empty') and not df.empty:
+        if hasattr(df, "empty") and not df.empty:
             logger.info(f"Processing {data_type} with {len(df)} rows")
             # Get columns that have actual data (not just nulls)
             data_columns = []
             for col in df.columns:
-                if col != 'date' and df[col].notna().any():
+                if col != "date" and df[col].notna().any():
                     data_columns.append(col)
                     logger.info(f"  {col}: {df[col].notna().sum()} non-null values")
-            
+
             if data_columns:
                 chart_title = f"{data_type.replace('_', ' ').title()} Data"
                 chart = create_wellness_chart(df, chart_title, data_columns)
-                
-                chart_card = dbc.Card([
-                    dbc.CardBody([chart])
-                ], className="mb-4")
-                
+
+                chart_card = dbc.Card([dbc.CardBody([chart])], className="mb-4")
+
                 charts.append(chart_card)
                 logger.info(f"Created chart for {data_type}")
             else:
                 logger.info(f"No data columns with values for {data_type}")
         else:
             logger.info(f"Skipping {data_type}: empty or not a DataFrame")
-    
+
     if not charts:
         logger.warning("No charts created")
         return dbc.Alert("No wellness data to display", color="info"), {"display": "block"}
-    
+
     logger.info(f"Returning {len(charts)} charts")
     return charts, {"display": "block"}
