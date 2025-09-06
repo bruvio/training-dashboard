@@ -84,16 +84,29 @@ def sync_with_progress(days: int, fetch_wellness: bool = True):
         update_sync_progress("running", "Processing wellness data...", 70)
         time.sleep(0.1)
 
-        update_sync_progress(
-            "completed",
-            "Sync completed successfully!",
-            100,
-            [
+        # Fetch updated activities list to refresh the UI
+        update_sync_progress("running", "Refreshing activities list...", 90)
+        from app.data.web_queries import get_activities_for_date_range
+        from datetime import datetime, timedelta
+        
+        # Get activities from the last 30 days (or the sync range)
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=max(days, 30))
+        activities_data = get_activities_for_date_range(start_date=start_date, end_date=end_date)
+
+        # Update progress with completion and activities data
+        global _sync_progress
+        _sync_progress.update({
+            "status": "completed",
+            "message": "Sync completed successfully!",
+            "progress": 100,
+            "details": [
                 f"Activities: {summary.get('activities_count', 0)}",
                 f"Wellness records: {summary.get('wellness_records', 0)}",
                 f"Date range: {summary.get('start_date')} to {summary.get('end_date')}",
             ],
-        )
+            "activities_data": activities_data  # Add the activities data for UI refresh
+        })
 
         return summary
 
@@ -707,6 +720,16 @@ def register_callbacks(app):
 
         try:
             client = get_client()
+            
+            # Ensure client is authenticated before import
+            if not client.is_authenticated():
+                logger.warning("Client not authenticated, attempting to re-authenticate...")
+                # Try to load session from stored tokens
+                load_result = client.load_session()
+                if not load_result.get("is_authenticated", False):
+                    return dbc.Alert("❌ Authentication required. Please login again.", color="danger"), no_update
+                logger.info("Client re-authenticated successfully")
+            
             import_service = ActivityImportService(client)
 
             # Determine which activities to import
