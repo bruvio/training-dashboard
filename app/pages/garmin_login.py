@@ -55,11 +55,17 @@ def update_sync_progress(status: str, message: str, progress: int = 0, details: 
 
 def update_import_progress(status: str, message: str, current: int = 0, total: int = 0):
     """Update global import progress."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     global _import_progress
     progress = int((current / total) * 100) if total > 0 else 0
     _import_progress.update(
         {"status": status, "message": message, "progress": progress, "current": current, "total": total}
     )
+    
+    # Debug logging
+    logger.info(f"Import progress updated: status={status}, message='{message}', progress={progress}% ({current}/{total})")
 
 
 def sync_with_progress(days: int, fetch_wellness: bool = True):
@@ -98,6 +104,10 @@ def sync_with_progress(days: int, fetch_wellness: bool = True):
 
 def import_activities_with_progress(import_service, activities_to_import):
     """Import activities with progress updates."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting import of {len(activities_to_import)} activities")
+    
     total = len(activities_to_import)
     imported_count = 0
     skipped_count = 0
@@ -133,7 +143,9 @@ def import_activities_with_progress(import_service, activities_to_import):
     if failed_count > 0:
         message += f", {failed_count} failed"
 
+    logger.info(f"Import loop completed: {imported_count} imported, {skipped_count} skipped, {failed_count} failed")
     update_import_progress("completed", message, total, total)
+    logger.info(f"Import progress set to completed with message: {message}")
 
     return {
         "imported_count": imported_count,
@@ -714,12 +726,22 @@ def register_callbacks(app):
             update_import_progress("idle", "", 0, 0)
 
             def run_import():
-                return import_activities_with_progress(import_service, activities_to_import)
+                try:
+                    logger.info(f"Background thread starting import of {len(activities_to_import)} activities")
+                    result = import_activities_with_progress(import_service, activities_to_import)
+                    logger.info(f"Background thread completed import with result: {result}")
+                    return result
+                except Exception as e:
+                    logger.error(f"Background thread import failed: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    update_import_progress("error", f"Import failed: {str(e)}", 0, 0)
 
             # Start import in background thread
             import_thread = threading.Thread(target=run_import)
             import_thread.daemon = True
             import_thread.start()
+            logger.info(f"Started background import thread for {len(activities_to_import)} activities")
 
             return (
                 dbc.Alert(f"Import started for {len(activities_to_import)} {action} activities...", color="info"),
@@ -741,9 +763,13 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def _update_sync_progress(n_intervals):
-        global _sync_progress
+        global _sync_progress, _import_progress
 
         if _sync_progress["status"] == "idle":
+            return "", {"display": "none"}, no_update, no_update, no_update
+        
+        # Don't interfere with import progress - if import is active, let import handle the interval
+        if _import_progress["status"] in ["running", "completed"]:
             return "", {"display": "none"}, no_update, no_update, no_update
 
         progress_bar = dbc.Progress(
@@ -820,7 +846,7 @@ def register_callbacks(app):
             progress_bar,
         ]
         
-        # Add completion message and auto-hide after delay
+        # Add completion message 
         if _import_progress["status"] == "completed":
             content.append(
                 dbc.Alert(
@@ -830,13 +856,6 @@ def register_callbacks(app):
                     dismissable=True
                 )
             )
-            # Auto-reset progress after 5 seconds
-            import threading
-            def reset_after_delay():
-                import time
-                time.sleep(5)
-                update_import_progress("idle", "", 0, 0)
-            threading.Thread(target=reset_after_delay, daemon=True).start()
 
         return content, {"display": "block"}
     
