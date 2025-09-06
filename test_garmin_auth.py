@@ -3,9 +3,9 @@
 Test script to verify Garmin authentication flow with timeout protection.
 """
 
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 
 # Add the project root to Python path
 sys.path.insert(0, str(Path(__file__).parent))
