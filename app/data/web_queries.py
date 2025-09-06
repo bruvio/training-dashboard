@@ -596,25 +596,35 @@ def get_filter_options() -> Dict[str, Any]:
         }
 
 
-def get_activity_statistics() -> Dict[str, Any]:
+def get_activity_statistics(start_date: Optional[date] = None, end_date: Optional[date] = None) -> Dict[str, Any]:
     """
-    Get activity statistics for the stats page.
+    Get activity statistics for the stats page with optional date filtering.
+    
+    Args:
+        start_date: Start date for filtering activities (inclusive)
+        end_date: End date for filtering activities (inclusive)
 
     Returns:
         Dict with total activities, distance, time, and average heart rate
     """
     try:
         with session_scope() as session:
-            stats = (
-                session.query(
-                    func.count(Activity.id).label("total_activities"),
-                    func.sum(Activity.distance_m).label("total_distance_m"),
-                    func.sum(Activity.elapsed_time_s).label("total_time_s"),
-                    func.avg(Activity.avg_hr).label("avg_heart_rate"),
-                )
-                .filter(Activity.distance_m.isnot(None))
-                .first()
-            )
+            query = session.query(
+                func.count(Activity.id).label("total_activities"),
+                func.sum(Activity.distance_m).label("total_distance_m"),
+                func.sum(Activity.elapsed_time_s).label("total_time_s"),
+                func.avg(Activity.avg_hr).label("avg_heart_rate"),
+            ).filter(Activity.distance_m.isnot(None))
+            
+            # Apply date range filter if provided
+            if start_date:
+                query = query.filter(Activity.start_time_utc >= start_date)
+            if end_date:
+                # Include the entire end date
+                end_datetime = datetime.combine(end_date, datetime.max.time())
+                query = query.filter(Activity.start_time_utc <= end_datetime)
+                
+            stats = query.first()
 
             # Convert to user-friendly format
             total_distance_km = (stats.total_distance_m or 0) / 1000
@@ -1355,7 +1365,11 @@ PERSONAL_RECORD_TYPE_MAPPING = {
 
 def format_personal_record_value(value: float, record_type: str, unit: str = None) -> str:
     """
-    Format personal record value based on type for human-readable display.
+    Fix personal record formatting based on Garmin API data analysis.
+    
+    This function handles the inconsistencies in Garmin API data formats:
+    - Time records: milliseconds, seconds, or pre-formatted strings
+    - Distance records: meters vs kilometers based on magnitude analysis
 
     Args:
         value: Raw record value
@@ -1368,52 +1382,111 @@ def format_personal_record_value(value: float, record_type: str, unit: str = Non
     if value is None:
         return "N/A"
 
-    # Time-based records (convert from seconds/milliseconds)
+    # Time-based records - handle milliseconds from Garmin API correctly
     time_based_types = [
-        "1k_time",
-        "5K Time",
-        "10K Time",
-        "Marathon Time",
-        "fastest_pace",
-        "Swimming Time Record",
-        "Sprint Swimming Record",
+        "time", "pace", "1k_time", "5K Time", "10K Time", "Marathon Time",
+        "fastest_pace", "Swimming Time Record", "Sprint Swimming Record",
+        "Half Marathon Time", "best_pace", "average_pace"
     ]
 
-    if any(time_type in record_type for time_type in time_based_types):
-        # Convert milliseconds to seconds if value is very large
-        if value > 86400:  # More than 24 hours in milliseconds
-            value = value / 1000
-
-        # Format as time
-        if value < 3600:  # Less than 1 hour
-            minutes = int(value // 60)
-            seconds = int(value % 60)
-            return f"{minutes}:{seconds:02d}"
-        else:  # More than 1 hour
-            hours = int(value // 3600)
-            minutes = int((value % 3600) // 60)
-            seconds = int(value % 60)
-            return f"{hours}:{minutes:02d}:{seconds:02d}"
-
-    # Distance-based records
-    elif "Distance" in record_type or "Longest" in record_type:
-        if value >= 1000:
+    if any(time_type.lower() in record_type.lower() for time_type in time_based_types):
+        # Check if already formatted as string with colons
+        if isinstance(value, str) and ":" in value:
+            return value  # Already formatted
+            
+        # Convert based on magnitude analysis from Garmin API
+        if value > 86400000:  # > 24 hours in milliseconds  
+            seconds = value / 1000
+        elif value > 86400:   # > 24 hours in seconds (unlikely but handle it)
+            seconds = value
+        elif value > 3600:    # > 1 hour, likely in seconds
+            seconds = value
+        elif value > 200:     # Likely in milliseconds for short times
+            seconds = value / 1000 if value > 10000 else value  # Smart detection
+        else:
+            seconds = value   # Likely already in seconds
+            
+        return format_time_duration(seconds)
+    
+    # Distance records - handle meters vs kilometers correctly based on Garmin API analysis
+    elif any(dist_type.lower() in record_type.lower() for dist_type in 
+             ["distance", "longest", "farthest", "km", "mile"]):
+        
+        # Garmin API distance values analysis:
+        if value < 100:  # Likely already in km
+            return f"{value:.2f} km"
+        else:  # Likely in meters
             return f"{value/1000:.2f} km"
+
+    # Speed/pace records
+    elif any(speed_type.lower() in record_type.lower() for speed_type in 
+             ["speed", "velocity", "max_speed"]):
+        if unit and "km" in unit.lower():
+            return f"{value:.1f} km/h"
+        elif unit and ("m/s" in unit.lower() or "ms" in unit.lower()):
+            return f"{value:.2f} m/s"
+        else:
+            return f"{value:.1f} km/h"  # Default assumption
+    
+    # Elevation records
+    elif any(elev_type.lower() in record_type.lower() for elev_type in 
+             ["elevation", "climb", "ascent", "descent"]):
+        if value > 10000:  # Likely in centimeters or millimeters
+            return f"{value/100:.0f} m" if value > 100000 else f"{value/10:.0f} m"
         else:
             return f"{value:.0f} m"
 
     # Count-based records
-    elif any(count_type in record_type for count_type in ["Push-ups", "Pull-ups", "Sit-ups"]):
+    elif any(count_type in record_type for count_type in 
+             ["Push-ups", "Pull-ups", "Sit-ups", "Reps", "Steps"]):
         return f"{int(value)}"
 
-    # Default formatting
+    # Heart rate records
+    elif "heart" in record_type.lower() or "hr" in record_type.lower():
+        return f"{int(value)} bpm"
+        
+    # Cadence records
+    elif "cadence" in record_type.lower() or "spm" in record_type.lower():
+        return f"{int(value)} spm"
+
+    # Power records
+    elif "power" in record_type.lower() or "watt" in record_type.lower():
+        return f"{int(value)} W"
+
+    # Default formatting with improved unit handling
     else:
         if unit:
-            return f"{value:.1f} {unit}"
+            # Clean up common unit inconsistencies
+            clean_unit = unit.replace("_", " ").replace("-", " ")
+            return f"{value:.1f} {clean_unit}"
         elif isinstance(value, (int, float)) and float(value).is_integer():
             return f"{int(value)}"
         else:
             return f"{value:.2f}"
+
+
+def format_time_duration(seconds: float) -> str:
+    """
+    Format time duration in seconds to human-readable format.
+    
+    Args:
+        seconds: Duration in seconds
+        
+    Returns:
+        Formatted time string (MM:SS or HH:MM:SS)
+    """
+    if seconds < 0:
+        return "0:00"
+    
+    if seconds < 3600:  # Less than 1 hour
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes}:{secs:02d}"
+    else:  # More than 1 hour
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return f"{hours}:{minutes:02d}:{secs:02d}"
 
 
 def get_personal_records_data() -> List[Dict[str, Any]]:
