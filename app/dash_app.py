@@ -55,7 +55,7 @@ try:
     
     # Import pages to register their callbacks with the app
     sys.path.insert(0, "/app")  # Ensure /app is first for pages import
-    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats, enhanced_sync
+    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats, sync
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)
@@ -388,10 +388,10 @@ def display_page(pathname):
     elif pathname == "/sync":
         # Enhanced Garmin sync page
         try:
-            from app.pages.enhanced_sync import layout as enhanced_sync_layout
+            from app.pages.sync import layout as sync_layout
 
             logger.info("Loading enhanced sync page")
-            return enhanced_sync_layout()
+            return sync_layout()
         except Exception as e:
             logger.error(f"Error loading enhanced sync page: {e}")
             return html.Div([html.H2(f"Error loading enhanced sync: {str(e)}")])
