@@ -56,6 +56,7 @@ try:
 
     # Import pages to register their callbacks with the app
     from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats
+
     # sync module imported in the routing callback when needed
 
     # Register callbacks for pages that need them
