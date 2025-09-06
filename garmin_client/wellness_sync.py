@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional
 
 import pandas as pd
-import client as _client
+from . import client as _client
 
 
 def get_client() -> "_client.GarminConnectClient":
@@ -332,3 +332,54 @@ class WellnessSync:
             trdf = _df(rows_tr, ["date","score"])
             if not trdf.empty: result["training_readiness"] = trdf
         return result
+
+
+class WellnessSyncManager:
+    """Manager class for comprehensive wellness data syncing."""
+    
+    def __init__(self, client: Optional[_client.GarminConnectClient] = None) -> None:
+        self.client = client or get_client()
+        self.wellness_sync = WellnessSync(self.client)
+    
+    def sync_comprehensive_wellness(self, days: int = 30) -> Dict[str, Any]:
+        """
+        Perform comprehensive wellness sync for the specified number of days.
+        Returns a result dictionary with success status and metrics.
+        """
+        try:
+            from datetime import datetime, timedelta
+            
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=days-1)
+            
+            # Fetch wellness data using the WellnessSync class
+            wellness_data = self.wellness_sync.fetch_range(
+                start=start_date, 
+                end=end_date, 
+                include_extras=True
+            )
+            
+            # Count total non-null records across all wellness types
+            total_records = 0
+            for wellness_type, df in wellness_data.items():
+                if not df.empty:
+                    # Count non-null values excluding the date column
+                    data_columns = [col for col in df.columns if col != 'date']
+                    for col in data_columns:
+                        total_records += df[col].notna().sum()
+            
+            return {
+                "success": True,
+                "total_records": total_records,
+                "wellness_data": wellness_data,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days_synced": days
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "total_records": 0
+            }
