@@ -27,20 +27,15 @@ Usage
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict, dataclass
 import datetime as dt
 import json
 import logging
 import os
-import sys
-from dataclasses import dataclass, asdict
 from pathlib import Path
+import sys
 from typing import Any, Dict, List, Optional
 
-import requests
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
 from garminconnect import (
     Garmin,
     GarminConnectAuthenticationError,
@@ -48,6 +43,11 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 from garth.exc import GarthHTTPError
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+import pandas as pd
+import requests
+import seaborn as sns
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("garmin_tools")
@@ -101,6 +101,8 @@ def init_api(email: Optional[str] = EMAIL, password: Optional[str] = PASSWORD) -
 
 @dataclass
 class DailySummary:
+    """Data class for daily wellness summary from Garmin Connect."""
+
     date: str
     sleep: Any | None
     stress: Any | None
@@ -113,6 +115,7 @@ class DailySummary:
 
     @staticmethod
     def save_to_file(dailies: List["DailySummary"] | "DailySummary", filepath: str) -> None:
+        """Save daily summaries to JSON file."""
         if isinstance(dailies, DailySummary):
             data = [asdict(dailies)]
         else:

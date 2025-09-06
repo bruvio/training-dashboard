@@ -56,16 +56,19 @@ def update_sync_progress(status: str, message: str, progress: int = 0, details: 
 def update_import_progress(status: str, message: str, current: int = 0, total: int = 0):
     """Update global import progress."""
     import logging
+
     logger = logging.getLogger(__name__)
-    
+
     global _import_progress
     progress = int((current / total) * 100) if total > 0 else 0
     _import_progress.update(
         {"status": status, "message": message, "progress": progress, "current": current, "total": total}
     )
-    
+
     # Debug logging
-    logger.info(f"Import progress updated: status={status}, message='{message}', progress={progress}% ({current}/{total})")
+    logger.info(
+        f"Import progress updated: status={status}, message='{message}', progress={progress}% ({current}/{total})"
+    )
 
 
 def sync_with_progress(days: int, fetch_wellness: bool = True):
@@ -86,9 +89,10 @@ def sync_with_progress(days: int, fetch_wellness: bool = True):
 
         # Fetch updated activities list to refresh the UI
         update_sync_progress("running", "Refreshing activities list...", 90)
-        from app.data.web_queries import get_activities_for_date_range
         from datetime import datetime, timedelta
-        
+
+        from app.data.web_queries import get_activities_for_date_range
+
         # Get activities from the last 30 days (or the sync range)
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=max(days, 30))
@@ -96,17 +100,19 @@ def sync_with_progress(days: int, fetch_wellness: bool = True):
 
         # Update progress with completion and activities data
         global _sync_progress
-        _sync_progress.update({
-            "status": "completed",
-            "message": "Sync completed successfully!",
-            "progress": 100,
-            "details": [
-                f"Activities: {summary.get('activities_count', 0)}",
-                f"Wellness records: {summary.get('wellness_records', 0)}",
-                f"Date range: {summary.get('start_date')} to {summary.get('end_date')}",
-            ],
-            "activities_data": activities_data  # Add the activities data for UI refresh
-        })
+        _sync_progress.update(
+            {
+                "status": "completed",
+                "message": "Sync completed successfully!",
+                "progress": 100,
+                "details": [
+                    f"Activities: {summary.get('activities_count', 0)}",
+                    f"Wellness records: {summary.get('wellness_records', 0)}",
+                    f"Date range: {summary.get('start_date')} to {summary.get('end_date')}",
+                ],
+                "activities_data": activities_data,  # Add the activities data for UI refresh
+            }
+        )
 
         return summary
 
@@ -118,9 +124,10 @@ def sync_with_progress(days: int, fetch_wellness: bool = True):
 def import_activities_with_progress(import_service, activities_to_import):
     """Import activities with progress updates."""
     import logging
+
     logger = logging.getLogger(__name__)
     logger.info(f"Starting import of {len(activities_to_import)} activities")
-    
+
     total = len(activities_to_import)
     imported_count = 0
     skipped_count = 0
@@ -132,8 +139,8 @@ def import_activities_with_progress(import_service, activities_to_import):
         activity_id = activity.get("activity_id")
         activity_name = activity.get("name", "Unknown Activity")
 
-        # Show current activity being imported 
-        update_import_progress("running", f"Importing {i+1}/{total}: {activity_name}", i+1, total)
+        # Show current activity being imported
+        update_import_progress("running", f"Importing {i+1}/{total}: {activity_name}", i + 1, total)
 
         if not activity_id:
             failed_count += 1
@@ -148,7 +155,7 @@ def import_activities_with_progress(import_service, activities_to_import):
                 skipped_count += 1
         else:
             failed_count += 1
-    
+
     # Final message
     message = f"Import completed: {imported_count} imported"
     if skipped_count > 0:
@@ -720,7 +727,7 @@ def register_callbacks(app):
 
         try:
             client = get_client()
-            
+
             # Ensure client is authenticated before import
             if not client.is_authenticated():
                 logger.warning("Client not authenticated, attempting to re-authenticate...")
@@ -729,7 +736,7 @@ def register_callbacks(app):
                 if not load_result.get("is_authenticated", False):
                     return dbc.Alert("❌ Authentication required. Please login again.", color="danger"), no_update
                 logger.info("Client re-authenticated successfully")
-            
+
             import_service = ActivityImportService(client)
 
             # Determine which activities to import
@@ -757,6 +764,7 @@ def register_callbacks(app):
                 except Exception as e:
                     logger.error(f"Background thread import failed: {e}")
                     import traceback
+
                     logger.error(traceback.format_exc())
                     update_import_progress("error", f"Import failed: {str(e)}", 0, 0)
 
@@ -790,7 +798,7 @@ def register_callbacks(app):
 
         if _sync_progress["status"] == "idle":
             return "", {"display": "none"}, no_update, no_update, no_update
-        
+
         # Don't interfere with import progress - if import is active, let import handle the interval
         if _import_progress["status"] in ["running", "completed"]:
             return "", {"display": "none"}, no_update, no_update, no_update
@@ -868,20 +876,20 @@ def register_callbacks(app):
             html.H6(progress_text, className="mb-2 small"),
             progress_bar,
         ]
-        
-        # Add completion message 
+
+        # Add completion message
         if _import_progress["status"] == "completed":
             content.append(
                 dbc.Alert(
                     [html.I(className="fas fa-check-circle me-2"), "Import completed successfully!"],
                     color="success",
                     className="mt-2 mb-0",
-                    dismissable=True
+                    dismissable=True,
                 )
             )
 
         return content, {"display": "block"}
-    
+
     # Update import status based on completion
     @app.callback(
         Output("import-status", "children", allow_duplicate=True),
@@ -890,20 +898,15 @@ def register_callbacks(app):
     )
     def _update_import_status_completion(n_intervals):
         global _import_progress
-        
+
         if _import_progress["status"] == "completed":
-            return dbc.Alert(
-                f"✅ {_import_progress['message']}", 
-                color="success", 
-                className="mb-2",
-                dismissable=True
-            )
+            return dbc.Alert(f"✅ {_import_progress['message']}", color="success", className="mb-2", dismissable=True)
         elif _import_progress["status"] == "error":
             return dbc.Alert(
-                f"❌ Import failed: {_import_progress.get('error', 'Unknown error')}", 
-                color="danger", 
+                f"❌ Import failed: {_import_progress.get('error', 'Unknown error')}",
+                color="danger",
                 className="mb-2",
-                dismissable=True
+                dismissable=True,
             )
-        
+
         return no_update

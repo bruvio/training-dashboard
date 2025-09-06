@@ -103,11 +103,12 @@ class DatabaseConfig:
     def create_all_tables(self):
         """Create all database tables and indexes."""
         logger.info("Creating database tables...")
-        
+
         # Import all models to ensure they're registered with Base.metadata
         from . import garmin_models  # This imports all wellness models
+
         # Note: garth_models has conflicting table names with garmin_models, so we skip it
-        
+
         logger.info(f"Registered tables: {list(Base.metadata.tables.keys())}")
         Base.metadata.create_all(self.engine)
         logger.info("Database tables created successfully.")
@@ -192,11 +193,12 @@ def init_database(database_url: Optional[str] = None) -> DatabaseConfig:
     """
     global _db_config
     _db_config = DatabaseConfig(database_url)
-    
+
     # Import all models to ensure they're registered with Base.metadata
     from . import garmin_models  # This imports all wellness models
+
     # Note: garth_models has conflicting table names with garmin_models, so we skip it
-    
+
     _db_config.create_all_tables()
     return _db_config
 

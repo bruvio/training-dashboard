@@ -19,6 +19,8 @@ from typing import Any, Dict
 
 from .client import GarminAuthError, GarminConnectClient
 
+logger = logging.getLogger(__name__)
+
 # Import wellness data service for persistence
 try:
     from app.services.wellness_data_service import WellnessDataService
@@ -27,8 +29,6 @@ try:
 except ImportError:
     PERSISTENCE_AVAILABLE = False
     logger.warning("WellnessDataService not available - data will not be persisted")
-
-logger = logging.getLogger(__name__)
 
 
 class WellnessSyncManager:
@@ -364,7 +364,7 @@ class WellnessSyncManager:
                     # get_body_battery might expect date range, try single date first
                     try:
                         body_battery = self.client.api.get_body_battery(date_str)
-                    except:
+                    except Exception:
                         # Try with date range format
                         body_battery = self.client.api.get_body_battery(date_str, date_str)
 

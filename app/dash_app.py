@@ -7,6 +7,14 @@ Bootstrap theme integration and proper page container setup.
 
 import logging
 import os
+import sys
+from pathlib import Path
+
+# Fix imports for both direct execution and package import
+# Get the project root (parent of app directory) and add to sys.path
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 import dash
 from dash import Input, Output, State, dcc, html
@@ -39,23 +47,16 @@ server.config.update(
 
 # Import page modules immediately after app creation to register callbacks
 try:
-    import sys
-
-    # Add both possible paths to ensure imports work
-    if "/app" not in sys.path:
-        sys.path.insert(0, "/app")
-    if "/app/app" not in sys.path:
-        sys.path.insert(0, "/app/app")
-
     # Import database models to ensure they're registered
-    from app.data import models
-    from app.data import garmin_models  # Import all wellness models
+    from app.data import garmin_models  # Import all wellness models # noqa: F401
+    from app.data import models  # noqa: F401
+
     # Note: garth_models has conflicting table names with garmin_models, so we skip it
     logger.info("✅ All database models imported - tables will be available for creation")
-    
+
     # Import pages to register their callbacks with the app
-    sys.path.insert(0, "/app")  # Ensure /app is first for pages import
-    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats, sync
+    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats
+    # sync module imported in the routing callback when needed
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)
@@ -66,54 +67,8 @@ try:
 
 except ImportError as e:
     logger.error(f"❌ Failed to import page modules: {e}")
-    # Fallback: try absolute imports
-    try:
-        import sys
-
-        sys.path.insert(0, "/app")
-
-        # Try importing directly from /app/pages
-        import importlib.util
-
-        # Load calendar module
-        calendar_spec = importlib.util.spec_from_file_location("calendar", "/app/pages/calendar.py")
-        calendar = importlib.util.module_from_spec(calendar_spec)
-        calendar_spec.loader.exec_module(calendar)
-
-        # Load activity_detail module
-        activity_spec = importlib.util.spec_from_file_location("activity_detail", "/app/pages/activity_detail.py")
-        activity_detail = importlib.util.module_from_spec(activity_spec)
-        activity_spec.loader.exec_module(activity_detail)
-
-        # Load garmin_login module
-        garmin_spec = importlib.util.spec_from_file_location("garmin_login", "/app/pages/garmin_login.py")
-        garmin_login = importlib.util.module_from_spec(garmin_spec)
-        garmin_spec.loader.exec_module(garmin_login)
-
-        # Load settings module
-        settings_spec = importlib.util.spec_from_file_location("settings", "/app/pages/settings.py")
-        settings = importlib.util.module_from_spec(settings_spec)
-        settings_spec.loader.exec_module(settings)
-
-        # Load fit_upload module
-        fit_upload_spec = importlib.util.spec_from_file_location("fit_upload", "/app/pages/fit_upload.py")
-        fit_upload = importlib.util.module_from_spec(fit_upload_spec)
-        fit_upload_spec.loader.exec_module(fit_upload)
-
-        # Load stats module
-        stats_spec = importlib.util.spec_from_file_location("stats", "/app/pages/stats.py")
-        stats = importlib.util.module_from_spec(stats_spec)
-        stats_spec.loader.exec_module(stats)
-
-        # Register callbacks for pages that need them
-        garmin_login.register_callbacks(app)
-        settings.register_callbacks(app)
-        fit_upload.register_callbacks(app)
-        stats.register_callbacks(app)
-        logger.info("✅ Page modules imported via importlib - callbacks registered")
-
-    except Exception as e2:
-        logger.error(f"❌ Complete failure to import page modules: {e2}")
+    logger.error("   Please ensure you're running from the project root directory")
+    raise
 
 
 # Initialize Garmin session on startup

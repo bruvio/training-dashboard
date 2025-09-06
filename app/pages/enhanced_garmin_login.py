@@ -9,9 +9,10 @@ import pickle
 from dash import Input, Output, State, ctx, dcc, html
 import dash_bootstrap_components as dbc
 
+from garmin_client.client import GarminConnectClient
+
 # Import the wellness sync functionality
 from garmin_client.wellness_sync import WellnessSyncManager
-from garmin_client.client import GarminConnectClient
 
 logger = logging.getLogger(__name__)
 
@@ -228,8 +229,6 @@ def layout():
 
 
 def register_callbacks(app):
-    from garmin_client.client import GarminConnectClient
-
     # Check authentication status on page load
     @app.callback(
         [

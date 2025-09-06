@@ -52,6 +52,8 @@ def _to_iso(d: Union[str, date, datetime]) -> str:
 
 
 class GarminAuthError(RuntimeError):
+    """Exception raised when Garmin authentication fails."""
+
     pass
 
 
@@ -181,9 +183,11 @@ class GarminConnectClient:
     # -------- Session helpers
 
     def is_authenticated(self) -> bool:
+        """Check if the client is authenticated with Garmin Connect."""
         return self.api is not None
 
     def username(self) -> Optional[str]:
+        """Get the authenticated username."""
         return self._username
 
     # -------- Internals
@@ -393,11 +397,13 @@ class GarminConnectClient:
         end: Union[str, date, datetime],
         activity_type: str = "",
     ) -> List[Dict[str, Any]]:
+        """Get activities within a date range."""
         if self.api is None:
             raise GarminAuthError("Not authenticated")
         return self.api.get_activities_by_date(_to_iso(start), _to_iso(end), activity_type)
 
     def get_activities(self, start: int = 0, limit: int = 100, activity_type: str = "") -> List[Dict[str, Any]]:
+        """Get activities with pagination."""
         if self.api is None:
             raise GarminAuthError("Not authenticated")
         return self.api.get_activities(start, limit, activity_type)
@@ -438,6 +444,7 @@ class GarminConnectClient:
             return out
 
     def wellness_summary_for_day(self, d: Union[str, date, datetime]) -> Dict[str, Any]:
+        """Get wellness data summary for a specific day."""
         if self.api is None:
             raise GarminAuthError("Not authenticated")
         d_iso = _to_iso(d)

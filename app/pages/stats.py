@@ -3,7 +3,8 @@ Statistics page for activity analytics and insights with date filtering.
 """
 
 from datetime import date, timedelta
-from dash import Input, Output, State, callback, dcc, html
+
+from dash import Input, Output, callback, dcc, html
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 
@@ -35,49 +36,64 @@ def layout():
                     dbc.Col(
                         [
                             html.H1([html.I(className="fas fa-chart-line me-3"), "Statistics"], className="mb-4"),
-                            
                             # Date Range Filter Card
-                            dbc.Card([
-                                dbc.CardHeader([
-                                    html.H5([
-                                        html.I(className="fas fa-calendar-alt me-2"),
-                                        "Date Range Filter"
-                                    ], className="mb-0")
-                                ]),
-                                dbc.CardBody([
-                                    dbc.Row([
-                                        dbc.Col([
-                                            html.Label("Select Date Range", className="form-label fw-bold"),
-                                            dcc.DatePickerRange(
-                                                id="stats-date-range",
-                                                start_date=date.today() - timedelta(days=90),
-                                                end_date=date.today(),
-                                                display_format="YYYY-MM-DD",
-                                                first_day_of_week=1,  # Monday
-                                                style={"width": "100%"}
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader(
+                                        [
+                                            html.H5(
+                                                [html.I(className="fas fa-calendar-alt me-2"), "Date Range Filter"],
+                                                className="mb-0",
                                             )
-                                        ], md=8),
-                                        dbc.Col([
-                                            html.Label("Quick Select", className="form-label fw-bold"),
-                                            dcc.Dropdown(
-                                                id="stats-quick-select",
-                                                options=[
-                                                    {"label": "Last 7 days", "value": 7},
-                                                    {"label": "Last 30 days", "value": 30},
-                                                    {"label": "Last 90 days", "value": 90},
-                                                    {"label": "Last 6 months", "value": 180},
-                                                    {"label": "Last year", "value": 365}
-                                                ],
-                                                value=90,
-                                                placeholder="Quick select range"
-                                            )
-                                        ], md=4)
-                                    ]),
-                                    html.Hr(),
-                                    html.Div(id="date-range-summary", className="text-center")
-                                ])
-                            ], className="mb-4"),
-                            
+                                        ]
+                                    ),
+                                    dbc.CardBody(
+                                        [
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label(
+                                                                "Select Date Range", className="form-label fw-bold"
+                                                            ),
+                                                            dcc.DatePickerRange(
+                                                                id="stats-date-range",
+                                                                start_date=date.today() - timedelta(days=90),
+                                                                end_date=date.today(),
+                                                                display_format="YYYY-MM-DD",
+                                                                first_day_of_week=1,  # Monday
+                                                                style={"width": "100%"},
+                                                            ),
+                                                        ],
+                                                        md=8,
+                                                    ),
+                                                    dbc.Col(
+                                                        [
+                                                            html.Label("Quick Select", className="form-label fw-bold"),
+                                                            dcc.Dropdown(
+                                                                id="stats-quick-select",
+                                                                options=[
+                                                                    {"label": "Last 7 days", "value": 7},
+                                                                    {"label": "Last 30 days", "value": 30},
+                                                                    {"label": "Last 90 days", "value": 90},
+                                                                    {"label": "Last 6 months", "value": 180},
+                                                                    {"label": "Last year", "value": 365},
+                                                                ],
+                                                                value=90,
+                                                                placeholder="Quick select range",
+                                                            ),
+                                                        ],
+                                                        md=4,
+                                                    ),
+                                                ]
+                                            ),
+                                            html.Hr(),
+                                            html.Div(id="date-range-summary", className="text-center"),
+                                        ]
+                                    ),
+                                ],
+                                className="mb-4",
+                            ),
                             # Statistics cards - now dynamic with date filtering
                             html.Div(id="stats-cards-container"),
                             # Activity trends chart
@@ -224,15 +240,14 @@ def layout():
 
 # Date Range Callbacks (using @callback decorator for automatic registration)
 @callback(
-    [Output("stats-date-range", "start_date"),
-     Output("stats-date-range", "end_date")],
-    Input("stats-quick-select", "value")
+    [Output("stats-date-range", "start_date"), Output("stats-date-range", "end_date")],
+    Input("stats-quick-select", "value"),
 )
 def update_date_range_from_quick_select(days):
     """Update date range based on quick select dropdown."""
     if days is None:
         return date.today() - timedelta(days=90), date.today()
-    
+
     end_date = date.today()
     start_date = end_date - timedelta(days=days)
     return start_date, end_date
@@ -240,25 +255,28 @@ def update_date_range_from_quick_select(days):
 
 @callback(
     Output("date-range-summary", "children"),
-    [Input("stats-date-range", "start_date"),
-     Input("stats-date-range", "end_date")]
+    [Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")],
 )
 def update_date_range_summary(start_date, end_date):
     """Update the date range summary display."""
     if not start_date or not end_date:
         return ""
-    
+
     try:
         start = date.fromisoformat(start_date)
         end = date.fromisoformat(end_date)
         days = (end - start).days + 1
-        
-        return dbc.Alert([
-            html.Strong("📊 Showing data for: "),
-            f"{start.strftime('%B %d, %Y')} to {end.strftime('%B %d, %Y')} ",
-            html.Span(f"({days} days)", className="text-muted")
-        ], color="info", className="mb-0 py-2")
-        
+
+        return dbc.Alert(
+            [
+                html.Strong("📊 Showing data for: "),
+                f"{start.strftime('%B %d, %Y')} to {end.strftime('%B %d, %Y')} ",
+                html.Span(f"({days} days)", className="text-muted"),
+            ],
+            color="info",
+            className="mb-0 py-2",
+        )
+
     except Exception:
         return dbc.Alert("Invalid date range", color="warning", className="mb-0 py-2")
 
@@ -267,9 +285,8 @@ def register_callbacks(app):
     """Register callbacks for statistics page."""
 
     @app.callback(
-        Output("stats-cards-container", "children"), 
-        [Input("stats-date-range", "start_date"), 
-         Input("stats-date-range", "end_date")]
+        Output("stats-cards-container", "children"),
+        [Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")],
     )
     def update_stats_cards(start_date, end_date):
         """Update statistics cards with real data filtered by date range."""
@@ -277,12 +294,12 @@ def register_callbacks(app):
             # Convert string dates to date objects
             start_date_obj = None
             end_date_obj = None
-            
+
             if start_date:
                 start_date_obj = date.fromisoformat(start_date)
             if end_date:
                 end_date_obj = date.fromisoformat(end_date)
-                
+
             stats = get_activity_statistics(start_date_obj, end_date_obj)
 
             # Check if statistics failed to load
