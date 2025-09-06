@@ -305,8 +305,8 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
     def run_sync():
         """Background sync function with progress updates."""
         try:
-            sync_options = sync_options or []
-            wellness_enabled = "wellness" in sync_options
+            sync_opts = sync_options or []
+            wellness_enabled = "wellness" in sync_opts
             
             update_sync_progress("running", "Initializing Garmin connection...", 10)
             
