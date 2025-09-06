@@ -14,14 +14,34 @@ import dash_bootstrap_components as dbc
 from ..services.garmin_integration_service import GarminIntegrationService
 from ..services.wellness_data_service import WellnessDataService
 from ..utils import get_logger
+import threading
 
 logger = get_logger(__name__)
+
+# Global progress tracking for the sync page
+_sync_progress = {"status": "idle", "message": "", "progress": 0, "details": [], "result": None}
+
+def update_sync_progress(status: str, message: str, progress: int = 0, details: list = None):
+    """Update global sync progress."""
+    global _sync_progress
+    _sync_progress.update({
+        "status": status, 
+        "message": message, 
+        "progress": progress, 
+        "details": details or [],
+        "result": None if status in ["idle", "running"] else _sync_progress.get("result")
+    })
+    logger.info(f"Sync progress updated: {status} - {message} ({progress}%)")
 
 
 def layout():
     """Enhanced sync page layout with calendar widgets and progress tracking."""
     return dbc.Container(
         [
+            # Progress tracking components
+            dcc.Interval(id="sync-progress-interval", interval=500, disabled=True),
+            dcc.Store(id="sync-progress-store"),
+            
             # Header Section
             dbc.Row(
                 [
@@ -250,10 +270,7 @@ def update_date_summary(start_date, end_date):
 
 @callback(
     [
-        Output("sync-results-container", "children"),
-        Output("wellness-sync-progress-container", "children"),
-        Output("wellness-sync-progress-container", "style"),
-        Output("sync-status-messages", "children"),
+        Output("sync-progress-interval", "disabled"),
         Output("sync-data-btn", "disabled"),
         Output("sync-data-btn", "children"),
     ],
@@ -266,219 +283,225 @@ def update_date_summary(start_date, end_date):
     ],
     prevent_initial_call=True,
 )
-def handle_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
-    """Handle data sync with progress tracking and results display."""
+def start_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
+    """Start sync in background thread and enable progress tracking."""
     if not n_clicks:
         raise PreventUpdate
 
-    try:
-        # Validate inputs
-        if not start_date or not end_date:
-            return (
-                dbc.Alert("Please select both start and end dates", color="danger"),
-                "",
-                {"display": "none"},
-                "",
-                False,
-                [html.I(className="fas fa-download me-2"), "Sync Garmin Data"],
-            )
+    # Validate inputs
+    if not start_date or not end_date:
+        return True, False, [html.I(className="fas fa-download me-2"), "Sync Garmin Data"]
 
-        start = datetime.fromisoformat(start_date).date()
-        end = datetime.fromisoformat(end_date).date()
-        days = (end - start).days + 1
+    start = datetime.fromisoformat(start_date).date()
+    end = datetime.fromisoformat(end_date).date()
+    days = (end - start).days + 1
 
-        if days <= 0:
-            return (
-                dbc.Alert("End date must be after start date", color="danger"),
-                "",
-                {"display": "none"},
-                "",
-                False,
-                [html.I(className="fas fa-download me-2"), "Sync Garmin Data"],
-            )
+    if days <= 0 or days > 365:
+        return True, False, [html.I(className="fas fa-download me-2"), "Sync Garmin Data"]
 
-        if days > 365:
-            return (
-                dbc.Alert("Maximum sync period is 365 days. Please select a shorter range.", color="warning"),
-                "",
-                {"display": "none"},
-                "",
-                False,
-                [html.I(className="fas fa-download me-2"), "Sync Garmin Data"],
-            )
-
-        # Sync progress will be shown through final_progress and final_status variables
-
-        # Perform sync operation using Garmin Integration Service
-        sync_options = sync_options or []
-        wellness_enabled = "wellness" in sync_options
-        fit_files_enabled = "fit_files" in sync_options
-
+    # Reset progress and start background sync
+    update_sync_progress("running", "Starting sync...", 5)
+    
+    def run_sync():
+        """Background sync function with progress updates."""
         try:
+            sync_options = sync_options or []
+            wellness_enabled = "wellness" in sync_options
+            
+            update_sync_progress("running", "Initializing Garmin connection...", 10)
+            
             # Initialize Garmin Integration Service
             garmin_service = GarminIntegrationService()
-
-            # Sync wellness data using the integration service
+            
+            # Perform sync
             if wellness_enabled:
+                update_sync_progress("running", f"Syncing {days} days of wellness data...", 30)
                 sync_result = garmin_service.sync_wellness_data_range(
                     start_date=start, end_date=end, smoothing=smoothing or "none"
                 )
             else:
-                # If wellness is not enabled, just return a basic result
                 sync_result = {
                     "success": True,
                     "message": "Sync completed (wellness data disabled)",
                     "records_synced": 0,
-                    "fit_files_enabled": fit_files_enabled,
                 }
-
+            
+            # Store result in global progress
+            global _sync_progress
+            _sync_progress["result"] = sync_result
+            
             if sync_result.get("success"):
-                # Success result from Garmin Integration Service
-                persistence = sync_result.get("persistence", {})
-                successful_types = sum(1 for success in persistence.values() if success)
-
-                result_card = dbc.Card(
-                    [
-                        dbc.CardHeader(
-                            [html.I(className="fas fa-check-circle text-success me-2"), "Sync Completed Successfully"]
-                        ),
-                        dbc.CardBody(
-                            [
-                                dbc.Row(
-                                    [
-                                        dbc.Col(
-                                            [
-                                                html.H6("Days Synced", className="text-muted"),
-                                                html.H4(
-                                                    str(sync_result.get("days_synced", days)), className="text-primary"
-                                                ),
-                                            ],
-                                            md=3,
-                                        ),
-                                        dbc.Col(
-                                            [
-                                                html.H6("Records Synced", className="text-muted"),
-                                                html.H4(
-                                                    str(sync_result.get("records_synced", 0)), className="text-success"
-                                                ),
-                                            ],
-                                            md=3,
-                                        ),
-                                        dbc.Col(
-                                            [
-                                                html.H6("Data Types", className="text-muted"),
-                                                html.H4(
-                                                    str(
-                                                        sync_result.get("data_types_persisted", f"{successful_types}/?")
-                                                    ),
-                                                    className="text-info",
-                                                ),
-                                            ],
-                                            md=3,
-                                        ),
-                                        dbc.Col(
-                                            [
-                                                html.H6("Smoothing", className="text-muted"),
-                                                html.P(
-                                                    smoothing.title() if smoothing != "none" else "Raw Data",
-                                                    className="small text-capitalize",
-                                                ),
-                                            ],
-                                            md=3,
-                                        ),
-                                    ]
-                                ),
-                                html.Hr(),
-                                html.P(
-                                    sync_result.get("message", "Data synced successfully"),
-                                    className="text-muted text-center mb-0",
-                                ),
-                            ]
-                        ),
-                    ],
-                    color="success",
-                    outline=True,
-                )
-
-                # Complete progress
-                final_progress = dbc.Progress(value=100, color="success", className="mb-3")
-                final_status = dbc.Alert(
-                    [html.I(className="fas fa-check-circle me-2"), "Sync completed successfully!"], color="success"
-                )
-
+                details = [
+                    f"Days synced: {sync_result.get('days_synced', days)}",
+                    f"Records: {sync_result.get('records_synced', 0)}",
+                    f"Data types: {sync_result.get('data_types_synced', 0)}",
+                ]
+                update_sync_progress("completed", "Sync completed successfully!", 100, details)
             else:
-                # Handle sync errors from Garmin Integration Service
-                error_msg = sync_result.get("error", "Unknown sync error")
+                update_sync_progress("error", f"Sync failed: {sync_result.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            logger.error(f"Background sync error: {e}")
+            update_sync_progress("error", f"Sync error: {str(e)}")
+    
+    # Start background sync
+    sync_thread = threading.Thread(target=run_sync)
+    sync_thread.daemon = True
+    sync_thread.start()
+    
+    return (
+        False,  # Enable progress interval
+        True,   # Disable sync button
+        [html.I(className="fas fa-spinner fa-spin me-2"), "Syncing..."]
+    )
 
-                if "authentication" in error_msg.lower() or "credentials" in error_msg.lower():
-                    result_card = dbc.Alert(
+
+# Progress monitoring callback
+@callback(
+    [
+        Output("sync-results-container", "children"),
+        Output("wellness-sync-progress-container", "children"),
+        Output("wellness-sync-progress-container", "style"),
+        Output("sync-status-messages", "children"),
+        Output("sync-data-btn", "disabled", allow_duplicate=True),
+        Output("sync-data-btn", "children", allow_duplicate=True),
+        Output("sync-progress-interval", "disabled", allow_duplicate=True),
+    ],
+    Input("sync-progress-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def update_sync_progress_display(n_intervals):
+    """Update the sync progress display in real-time."""
+    global _sync_progress
+    
+    if _sync_progress["status"] == "idle":
+        return "", "", {"display": "none"}, "", False, [html.I(className="fas fa-download me-2"), "Sync Garmin Data"], True
+
+    # Progress bar
+    progress_bar = dbc.Progress(
+        value=_sync_progress["progress"],
+        striped=True,
+        animated=_sync_progress["status"] == "running",
+        color="success" if _sync_progress["status"] == "completed" else ("danger" if _sync_progress["status"] == "error" else "info"),
+        className="mb-2",
+    )
+
+    # Progress details
+    details_list = []
+    if _sync_progress.get("details"):
+        for detail in _sync_progress["details"]:
+            details_list.append(html.Li(detail))
+
+    progress_content = [
+        html.H6(f"{_sync_progress['message']} ({_sync_progress['progress']}%)", className="mb-2"),
+        progress_bar,
+    ]
+    
+    if details_list:
+        progress_content.append(html.Ul(details_list, className="small"))
+
+    # Handle completion
+    if _sync_progress["status"] == "completed":
+        sync_result = _sync_progress.get("result", {})
+        
+        # Success result card
+        if sync_result and sync_result.get("success"):
+            persistence = sync_result.get("persistence", {})
+            successful_types = sum(1 for success in persistence.values() if success)
+            
+            result_card = dbc.Card(
+                [
+                    dbc.CardHeader(
+                        [html.I(className="fas fa-check-circle text-success me-2"), "Sync Completed Successfully"]
+                    ),
+                    dbc.CardBody(
                         [
-                            html.H5("Authentication Required"),
-                            html.P(
-                                "Please authenticate with Garmin Connect first. Check your credentials in the Garmin login page."
-                            ),
-                            html.P(f"Error details: {error_msg}"),
-                            dbc.Button("Go to Garmin Login", href="/garmin", color="primary", className="mt-2"),
-                        ],
-                        color="warning",
-                    )
-                else:
-                    result_card = dbc.Alert(
-                        [
-                            html.H5("Sync Failed"),
-                            html.P(f"Error: {error_msg}"),
-                            html.Hr(),
-                            html.Small("Try the following:"),
-                            html.Ul(
+                            dbc.Row(
                                 [
-                                    html.Li("Check your internet connection"),
-                                    html.Li("Verify Garmin Connect is accessible"),
-                                    html.Li("Try a smaller date range"),
-                                    html.Li("Check the Garmin login page for authentication issues"),
+                                    dbc.Col([
+                                        html.H6("Days Synced", className="text-muted"),
+                                        html.H4(str(sync_result.get("days_synced", 0)), className="text-primary"),
+                                    ], md=3),
+                                    dbc.Col([
+                                        html.H6("Records Synced", className="text-muted"),
+                                        html.H4(str(sync_result.get("records_synced", 0)), className="text-success"),
+                                    ], md=3),
+                                    dbc.Col([
+                                        html.H6("Data Types", className="text-muted"),
+                                        html.H4(str(sync_result.get("data_types_synced", successful_types)), className="text-info"),
+                                    ], md=3),
+                                    dbc.Col([
+                                        html.H6("Status", className="text-muted"),
+                                        html.P("✅ Complete", className="text-success small"),
+                                    ], md=3),
                                 ]
                             ),
-                        ],
-                        color="danger",
-                    )
-
-                final_progress = dbc.Progress(value=0, color="danger", className="mb-3")
-                final_status = dbc.Alert(
-                    [html.I(className="fas fa-exclamation-triangle me-2"), f"Sync failed: {error_msg}"], color="danger"
-                )
-
-        except Exception as e:
-            logger.error(f"Sync operation failed: {e}")
-            result_card = dbc.Alert(
-                [html.H5("Sync Error"), html.P(f"An unexpected error occurred: {str(e)}")], color="danger"
+                            html.Hr(),
+                            html.P(sync_result.get("message", "Data synced successfully"), className="text-muted text-center mb-0"),
+                        ]
+                    ),
+                ],
+                color="success",
+                outline=True,
             )
-
-            final_progress = dbc.Progress(value=0, color="danger", className="mb-3")
-            final_status = dbc.Alert(
-                [html.I(className="fas fa-exclamation-triangle me-2"), f"Sync error: {str(e)}"], color="danger"
-            )
-
-        # Reset button
-        reset_button = [html.I(className="fas fa-download me-2"), "Sync Garmin Data"]
-
+        else:
+            result_card = dbc.Alert("Sync completed with unknown result", color="info")
+        
         return (
             result_card,
-            final_progress,
+            progress_content,
             {"display": "block"},
-            final_status,
+            dbc.Alert([html.I(className="fas fa-check-circle me-2"), "Sync completed successfully!"], color="success"),
             False,  # Re-enable button
-            reset_button,
-        )
-
-    except Exception as e:
-        logger.error(f"Sync callback error: {e}")
-        return (
-            dbc.Alert(f"An error occurred: {str(e)}", color="danger"),
-            "",
-            {"display": "none"},
-            "",
-            False,
             [html.I(className="fas fa-download me-2"), "Sync Garmin Data"],
+            True,   # Disable progress interval
         )
+    
+    elif _sync_progress["status"] == "error":
+        error_msg = _sync_progress.get("message", "Unknown error")
+        
+        if "authentication" in error_msg.lower() or "not authenticated" in error_msg.lower():
+            result_card = dbc.Alert(
+                [
+                    html.H5([html.I(className="fas fa-key me-2"), "Authentication Required"]),
+                    html.P("You need to authenticate with Garmin Connect first."),
+                    html.P(f"Error: {error_msg}", className="text-muted small"),
+                    html.Hr(),
+                    dbc.Button([html.I(className="fas fa-sign-in-alt me-2"), "Go to Garmin Login"], href="/garmin", color="primary"),
+                ],
+                color="warning",
+            )
+        else:
+            result_card = dbc.Alert(
+                [
+                    html.H5("Sync Failed"),
+                    html.P(f"Error: {error_msg}"),
+                    html.Hr(),
+                    html.Small("Try refreshing the page and attempting the sync again."),
+                ],
+                color="danger",
+            )
+        
+        return (
+            result_card,
+            progress_content,
+            {"display": "block"},
+            dbc.Alert([html.I(className="fas fa-exclamation-triangle me-2"), f"Sync failed: {error_msg}"], color="danger"),
+            False,  # Re-enable button
+            [html.I(className="fas fa-download me-2"), "Sync Garmin Data"],
+            True,   # Disable progress interval
+        )
+    
+    # Still running
+    return (
+        "",
+        progress_content,
+        {"display": "block"},
+        dbc.Alert([html.I(className="fas fa-spinner fa-spin me-2"), _sync_progress["message"]], color="info"),
+        True,   # Keep button disabled
+        [html.I(className="fas fa-spinner fa-spin me-2"), "Syncing..."],
+        False,  # Keep progress interval enabled
+    )
 
 
 @callback(
