@@ -347,13 +347,13 @@ def main(argv: List[str]) -> int:
         date = dt.date.fromisoformat(args.date)
         daily = fetch_daily(api, date)
         DailySummary.save_to_file(daily, "output.json")
-        plot_data([daily], agg=args.agg)
+        plot_data([daily], agg=args.agg, save="./")
     elif args.cmd == "interval":
         start = dt.date.fromisoformat(args.start)
         end = dt.date.fromisoformat(args.end)
         dailies = fetch_interval(api, start, end)
         DailySummary.save_to_file(dailies, "output.json")
-        plot_data(dailies, agg=args.agg)
+        plot_data(dailies, agg=args.agg, save="./")
     return 0
 
 

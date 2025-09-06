@@ -1,831 +1,384 @@
+#!/usr/bin/env python3
 """
-Comprehensive wellness data synchronization using garminconnect library.
+wellness_sync.py — refactored to mirror bruvio-garmin interval flow.
 
-Implements all wellness data types specified in the PRP:
-- User Profile Data
-- Daily Activity (Steps, Floors)
-- Heart Rate Analytics
-- Body & Wellness (Body Battery, Blood Pressure, Hydration)
-- Sleep Analytics
-- Stress & Recovery (Stress, Training Status, Training Readiness, Respiration)
-- Advanced Metrics (SpO2, Max Metrics, Personal Records)
+- Uses your client.GarminConnectClient
+- Per-day: first uses client.wellness_summary_for_day(date) like your script,
+  then falls back to raw api.* calls.
+- Critically: parses resting HR from Garmin's metricsMap shape:
+  allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE[0].value
+- Adds robust step distance fallback for 'totalDistance' as well as 'distanceInMeters'.
+- Returns tidy DataFrames for sleep, steps, stress, resting_hr, hrv, body_battery, training_readiness.
+- Provides aggregate_df(df, how) helper (none/day/week/month/year).
 """
-
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-import logging
-from typing import Any, Dict
+import os
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, Iterable, List, Optional
 
-from .client import GarminAuthError, GarminConnectClient
-
-logger = logging.getLogger(__name__)
-
-# Import wellness data service for persistence
-try:
-    from app.services.wellness_data_service import WellnessDataService
-
-    PERSISTENCE_AVAILABLE = True
-except ImportError:
-    PERSISTENCE_AVAILABLE = False
-    logger.warning("WellnessDataService not available - data will not be persisted")
+import pandas as pd
+import client as _client
 
 
-class WellnessSyncManager:
-    """Manages comprehensive wellness data synchronization from Garmin Connect."""
+# ---------------------------
+# Bootstrap client (your API)
+# ---------------------------
+def get_client() -> "_client.GarminConnectClient":
+    token_dir = os.getenv("GARMINTOKENS") or "~/.garminconnect"
+    gc = _client.GarminConnectClient(token_dir=token_dir)
+    st = gc.load_session()
+    if not st.get("is_authenticated"):
+        email = os.getenv("EMAIL")
+        password = os.getenv("PASSWORD")
+        if not (email and password):
+            raise RuntimeError("Not authenticated and missing EMAIL/PASSWORD for login.")
+        res = gc.login(email, password)
+        if not (res and res.get("success")):
+            raise RuntimeError("Login did not succeed.")
+    return gc
 
-    def __init__(self, client: GarminConnectClient):
-        self.client = client
-        self.wellness_service = WellnessDataService() if PERSISTENCE_AVAILABLE else None
 
-    def sync_user_profile(self) -> Dict[str, Any]:
-        """Sync user profile information."""
+# ---------------------------
+# Helpers
+# ---------------------------
+def _to_date(d: Any) -> date:
+    if isinstance(d, date):
+        return d
+    if isinstance(d, datetime):
+        return d.date()
+    if isinstance(d, str):
+        return datetime.strptime(d, "%Y-%m-%d").date()
+    raise TypeError("Date must be date, datetime, or YYYY-MM-DD string")
+
+
+def _daterange(s: date, e: date) -> Iterable[date]:
+    cur = s
+    while cur <= e:
+        yield cur
+        cur += timedelta(days=1)
+
+
+def _df(rows: List[Dict[str, Any]], cols: List[str]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(rows)
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date")
+    return df.reset_index(drop=True)
+
+
+def _num(x):
+    try:
+        if x is None:
+            return None
+        return float(x)
+    except Exception:
+        return None
+
+
+def _extract_rhr(payload: Any) -> Optional[float]:
+    """
+    Extract resting HR from a variety of Garmin shapes, including:
+    - top-level keys (restingHeartRate / restingHr / restingHR)
+    - nested summary nodes
+    - metricsMap.WELLNESS_RESTING_HEART_RATE[0].value (the one your JSON shows)
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    # direct keys first
+    for k in ("restingHeartRate", "restingHR", "restingHr", "rhr"):
+        v = payload.get(k)
+        if v is not None:
+            return _num(v)
+
+    # common nested "summary" style nodes
+    for node_key in ("summary", "summaryDTO", "heartRateSummary", "dailySummary", "daySummary"):
+        node = payload.get(node_key)
+        if isinstance(node, dict):
+            for k in ("restingHeartRate", "restingHR", "restingHr", "minHeartRate", "lowestHeartRate", "min", "lowest"):
+                v = node.get(k)
+                if v is not None:
+                    return _num(v)
+
+    # Garmin metricsMap (this is what your bruvio JSON uses)
+    # allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE -> [ { "value": 56.0, "calendarDate": "YYYY-MM-DD" }, ... ]
+    all_metrics = payload.get("allMetrics") or {}
+    metrics_map = all_metrics.get("metricsMap") or {}
+    arr = metrics_map.get("WELLNESS_RESTING_HEART_RATE")
+    if isinstance(arr, list) and arr:
+        first = arr[0]
+        if isinstance(first, dict):
+            v = first.get("value")
+            if v is not None:
+                return _num(v)
+
+    return None
+
+
+def aggregate_df(df: pd.DataFrame, how: str) -> pd.DataFrame:
+    """Aggregate by day/week/month/year (numeric cols)."""
+    if how in (None, "", "none"):
+        return df.copy()
+    if df.empty:
+        return df.copy()
+    df2 = df.copy()
+    if "date" in df2.columns:
+        df2["date"] = pd.to_datetime(df2["date"])
+        df2 = df2.set_index("date")
+    num = df2.select_dtypes(include="number")
+    if num.empty:
+        return df2.reset_index()
+    rule = {"day": "D", "week": "W-MON", "month": "MS", "year": "YS"}.get(how, "D")
+    out = num.resample(rule).mean()
+    out = out.reset_index()
+    return out
+
+
+# ---------------------------
+# Core class
+# ---------------------------
+class WellnessSync:
+    """Wrapper-first (your aggregator), then raw API fallbacks — like bruvio-garmin."""
+
+    def __init__(self, client: Optional[_client.GarminConnectClient] = None) -> None:
+        self.client = client or get_client()
+
+    def _try(self, fn, *args, **kwargs):
         try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            profile_data = {}
-
-            # Get full name
-            try:
-                full_name = self.client.api.get_full_name()
-                profile_data["full_name"] = full_name
-            except Exception as e:
-                logger.warning(f"Could not get full name: {e}")
-
-            # Get user profile details
-            try:
-                user_profile = self.client.api.get_user_profile()
-                if user_profile:
-                    profile_data.update(
-                        {
-                            "display_name": user_profile.get("displayName"),
-                            "email": user_profile.get("email"),
-                            "age": user_profile.get("age"),
-                            "gender": user_profile.get("gender"),
-                            "weight_kg": user_profile.get("weight"),
-                            "height_cm": user_profile.get("height"),
-                            "activity_level": user_profile.get("activityLevel"),
-                        }
-                    )
-            except Exception as e:
-                logger.warning(f"Could not get user profile: {e}")
-
-            # Get unit system
-            try:
-                unit_system = self.client.api.get_unit_system()
-                profile_data["unit_system"] = unit_system
-            except Exception as e:
-                logger.warning(f"Could not get unit system: {e}")
-
-            logger.info(f"Synced user profile data: {len(profile_data)} fields")
-            return {"success": True, "data": profile_data, "fields_synced": len(profile_data)}
-
-        except Exception as e:
-            logger.error(f"User profile sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_daily_steps(self, start_date: date, end_date: date) -> Dict[str, Any]:
-        """Sync daily steps data for date range."""
-        try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            steps_data = []
-            current_date = start_date
-
-            while current_date <= end_date:
-                try:
-                    date_str = current_date.isoformat()
-                    daily_steps = self.client.api.get_steps_data(date_str)
-
-                    if daily_steps:
-                        # Handle both dict and list responses
-                        if isinstance(daily_steps, list):
-                            # Take first item if it's a list
-                            daily_steps = daily_steps[0] if daily_steps else {}
-
-                        steps_record = {
-                            "date": current_date,
-                            "total_steps": daily_steps.get("totalSteps")
-                            or daily_steps.get("steps")
-                            or daily_steps.get("dailyStepCount"),
-                            "step_goal": daily_steps.get("dailyStepGoal")
-                            or daily_steps.get("stepGoal")
-                            or daily_steps.get("goal"),
-                            "total_distance_m": daily_steps.get("totalDistance")
-                            or daily_steps.get("distance")
-                            or daily_steps.get("totalDistanceMeters"),
-                            "calories_burned": daily_steps.get("wellnessActiveKilocalories")
-                            or daily_steps.get("activeKilocalories")
-                            or daily_steps.get("calories"),
-                            "calories_bmr": daily_steps.get("wellnessBmrKilocalories")
-                            or daily_steps.get("bmrKilocalories")
-                            or daily_steps.get("restingMetabolism"),
-                            "calories_active": daily_steps.get("activeKilocalories")
-                            or daily_steps.get("wellnessActiveKilocalories")
-                            or daily_steps.get("activeCalories"),
-                            "floors_climbed": daily_steps.get("floorsAscended")
-                            or daily_steps.get("floorsClimbed")
-                            or daily_steps.get("floorsUp"),
-                            "floors_goal": daily_steps.get("floorsAscendedGoal")
-                            or daily_steps.get("floorsGoal")
-                            or daily_steps.get("floorsUpGoal"),
-                        }
-                        steps_data.append(steps_record)
-
-                except Exception as e:
-                    logger.warning(f"Could not get steps data for {current_date}: {e}")
-
-                current_date += timedelta(days=1)
-
-            logger.info(f"Synced {len(steps_data)} days of steps data")
-            return {
-                "success": True,
-                "data": steps_data,
-                "days_synced": len(steps_data),
-                "date_range": f"{start_date} to {end_date}",
-            }
-
-        except Exception as e:
-            logger.error(f"Steps data sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_daily_heart_rate(self, start_date: date, end_date: date) -> Dict[str, Any]:
-        """Sync daily heart rate data for date range."""
-        try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            hr_data = []
-            current_date = start_date
-
-            while current_date <= end_date:
-                try:
-                    date_str = current_date.isoformat()
-
-                    # Get resting heart rate
-                    rhr_data = self.client.api.get_rhr_day(date_str)
-
-                    # Get heart rate data
-                    hr_zones = self.client.api.get_heart_rates(date_str)
-
-                    # Get HRV data
-                    hrv_data = None
-                    try:
-                        hrv_data = self.client.api.get_hrv_data(date_str)
-                    except Exception:
-                        pass  # HRV data might not be available for all dates
-
-                    if rhr_data or hr_zones:
-                        hr_record = {
-                            "date": current_date,
-                            "resting_hr": (
-                                rhr_data.get("value")
-                                or rhr_data.get("restingHR")
-                                or rhr_data.get("restingHeartRate")
-                                or rhr_data.get("rhr")
-                            )
-                            if rhr_data
-                            else None,
-                            "max_hr": hr_zones.get("maxHeartRate") if hr_zones else None,
-                            "avg_hr": hr_zones.get("averageHeartRate") if hr_zones else None,
-                        }
-
-                        # Add HR zones if available
-                        if hr_zones and "heartRateZones" in hr_zones:
-                            zones = hr_zones["heartRateZones"]
-                            hr_record.update(
-                                {
-                                    "hr_zone_1_time": zones.get("zone1TimeInMinutes", 0),
-                                    "hr_zone_2_time": zones.get("zone2TimeInMinutes", 0),
-                                    "hr_zone_3_time": zones.get("zone3TimeInMinutes", 0),
-                                    "hr_zone_4_time": zones.get("zone4TimeInMinutes", 0),
-                                    "hr_zone_5_time": zones.get("zone5TimeInMinutes", 0),
-                                }
-                            )
-
-                        # Add HRV data if available
-                        if hrv_data and hrv_data.get("hrvSummary"):
-                            hrv_summary = hrv_data["hrvSummary"]
-                            hr_record.update(
-                                {
-                                    # Map to database field names
-                                    "hrv_score": hrv_summary.get(
-                                        "lastNightAvg"
-                                    ),  # Use last night avg as the main score
-                                    "hrv_status": hrv_summary.get("status"),
-                                }
-                            )
-
-                        hr_data.append(hr_record)
-
-                except Exception as e:
-                    logger.warning(f"Could not get heart rate data for {current_date}: {e}")
-
-                current_date += timedelta(days=1)
-
-            logger.info(f"Synced {len(hr_data)} days of heart rate data")
-            return {
-                "success": True,
-                "data": hr_data,
-                "days_synced": len(hr_data),
-                "date_range": f"{start_date} to {end_date}",
-            }
-
-        except Exception as e:
-            logger.error(f"Heart rate data sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_daily_sleep(self, start_date: date, end_date: date) -> Dict[str, Any]:
-        """Sync daily sleep data for date range."""
-        try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            sleep_data = []
-            current_date = start_date
-
-            while current_date <= end_date:
-                try:
-                    date_str = current_date.isoformat()
-                    daily_sleep = self.client.api.get_sleep_data(date_str)
-
-                    if daily_sleep:
-                        sleep_record = {
-                            "date": current_date,
-                            "bedtime_utc": datetime.fromisoformat(
-                                daily_sleep.get("sleepStartTimestampLocal", "").replace("Z", "+00:00")
-                            )
-                            if daily_sleep.get("sleepStartTimestampLocal")
-                            else None,
-                            "wakeup_time_utc": datetime.fromisoformat(
-                                daily_sleep.get("sleepEndTimestampLocal", "").replace("Z", "+00:00")
-                            )
-                            if daily_sleep.get("sleepEndTimestampLocal")
-                            else None,
-                            "total_sleep_time_s": daily_sleep.get("sleepTimeSeconds")
-                            or daily_sleep.get("totalSleepTimeSeconds")
-                            or daily_sleep.get("sleepTime"),
-                            "deep_sleep_s": daily_sleep.get("deepSleepSeconds")
-                            or daily_sleep.get("deepSleepDurationSeconds")
-                            or daily_sleep.get("deepSleepTime"),
-                            "light_sleep_s": daily_sleep.get("lightSleepSeconds")
-                            or daily_sleep.get("lightSleepDurationSeconds")
-                            or daily_sleep.get("lightSleepTime"),
-                            "rem_sleep_s": daily_sleep.get("remSleepSeconds")
-                            or daily_sleep.get("remSleepDurationSeconds")
-                            or daily_sleep.get("remSleepTime"),
-                            "awake_time_s": daily_sleep.get("awakeDurationSeconds")
-                            or daily_sleep.get("awakeTimeSeconds")
-                            or daily_sleep.get("awakeDuration"),
-                            "sleep_score": daily_sleep.get("overallSleepScore")
-                            or daily_sleep.get("sleepScore")
-                            or daily_sleep.get("score"),
-                            "restlessness": daily_sleep.get("restlessMoments"),
-                            "efficiency_percentage": daily_sleep.get("sleepEfficiency"),
-                        }
-                        sleep_data.append(sleep_record)
-
-                except Exception as e:
-                    logger.warning(f"Could not get sleep data for {current_date}: {e}")
-
-                current_date += timedelta(days=1)
-
-            logger.info(f"Synced {len(sleep_data)} days of sleep data")
-            return {
-                "success": True,
-                "data": sleep_data,
-                "days_synced": len(sleep_data),
-                "date_range": f"{start_date} to {end_date}",
-            }
-
-        except Exception as e:
-            logger.error(f"Sleep data sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_daily_stress(self, start_date: date, end_date: date) -> Dict[str, Any]:
-        """Sync daily stress data for date range."""
-        try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            stress_data = []
-            current_date = start_date
-
-            while current_date <= end_date:
-                try:
-                    date_str = current_date.isoformat()
-                    daily_stress = self.client.api.get_stress_data(date_str)
-
-                    if daily_stress:
-                        stress_record = {
-                            "date": current_date,
-                            "avg_stress_level": daily_stress.get("averageStressLevel"),
-                            "max_stress_level": daily_stress.get("maxStressLevel"),
-                            "rest_stress_level": daily_stress.get("restStressLevel"),
-                            "rest_minutes": daily_stress.get("restStressDuration"),
-                            "low_minutes": daily_stress.get("lowStressDuration"),
-                            "medium_minutes": daily_stress.get("mediumStressDuration"),
-                            "high_minutes": daily_stress.get("highStressDuration"),
-                            "stress_qualifier": daily_stress.get("stressQualifier"),
-                        }
-                        stress_data.append(stress_record)
-
-                except Exception as e:
-                    logger.warning(f"Could not get stress data for {current_date}: {e}")
-
-                current_date += timedelta(days=1)
-
-            logger.info(f"Synced {len(stress_data)} days of stress data")
-            return {
-                "success": True,
-                "data": stress_data,
-                "days_synced": len(stress_data),
-                "date_range": f"{start_date} to {end_date}",
-            }
-
-        except Exception as e:
-            logger.error(f"Stress data sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_body_battery(self, start_date: date, end_date: date) -> Dict[str, Any]:
-        """Sync Body Battery data for date range."""
-        try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            bb_data = []
-            current_date = start_date
-
-            while current_date <= end_date:
-                try:
-                    date_str = current_date.isoformat()
-                    # get_body_battery might expect date range, try single date first
-                    try:
-                        body_battery = self.client.api.get_body_battery(date_str)
-                    except Exception:
-                        # Try with date range format
-                        body_battery = self.client.api.get_body_battery(date_str, date_str)
-
-                    if body_battery:
-                        # Handle both dict and list responses - API returns list
-                        if isinstance(body_battery, list):
-                            body_battery = body_battery[0] if body_battery else {}
-
-                        # Extract highest and lowest from bodyBatteryValuesArray
-                        values_array = body_battery.get("bodyBatteryValuesArray", [])
-                        # Filter out None values and ensure we have valid numbers
-                        battery_values = [
-                            value[1]
-                            for value in values_array
-                            if len(value) > 1 and value[1] is not None and isinstance(value[1], (int, float))
-                        ]
-
-                        # Calculate main score as average of all values or use highest
-                        main_score = None
-                        if battery_values:
-                            main_score = sum(battery_values) // len(battery_values)  # Average
-
-                        bb_record = {
-                            "date": current_date,
-                            # Map to database field names with correct API fields
-                            "body_battery_score": main_score,
-                            "charged_value": body_battery.get("charged", 0),
-                            "drained_value": body_battery.get("drained", 0),
-                            "highest_value": max(battery_values) if battery_values else 0,
-                            "lowest_value": min(battery_values) if battery_values else 0,
-                        }
-                        bb_data.append(bb_record)
-
-                except Exception as e:
-                    logger.warning(f"Could not get body battery data for {current_date}: {e}")
-
-                current_date += timedelta(days=1)
-
-            logger.info(f"Synced {len(bb_data)} days of Body Battery data")
-            return {
-                "success": True,
-                "data": bb_data,
-                "days_synced": len(bb_data),
-                "date_range": f"{start_date} to {end_date}",
-            }
-
-        except Exception as e:
-            logger.error(f"Body Battery data sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_training_readiness(self, start_date: date, end_date: date) -> Dict[str, Any]:
-        """Sync Training Readiness data for date range."""
-        try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            tr_data = []
-            current_date = start_date
-
-            while current_date <= end_date:
-                try:
-                    date_str = current_date.isoformat()
-                    training_readiness = self.client.api.get_training_readiness(date_str)
-
-                    if training_readiness and isinstance(training_readiness, list):
-                        # Get the most recent/best record for the day (API returns list)
-                        tr_record_data = training_readiness[0] if training_readiness else {}
-
-                        tr_record = {
-                            "date": current_date,
-                            # Map to database field names with correct API fields
-                            "training_readiness_score": tr_record_data.get("score"),
-                            "hrv_score": tr_record_data.get("hrvWeeklyAverage"),
-                            "sleep_score": tr_record_data.get("sleepScore"),
-                            "recovery_time_hours": tr_record_data.get("recoveryTime") / 60
-                            if tr_record_data.get("recoveryTime")
-                            else None,  # Convert minutes to hours
-                            # Note: level, feedback fields not in database schema, but kept for reference
-                            "level": tr_record_data.get("level"),
-                            "feedback_short": tr_record_data.get("feedbackShort"),
-                            "feedback_long": tr_record_data.get("feedbackLong"),
-                        }
-                        tr_data.append(tr_record)
-
-                except Exception as e:
-                    logger.warning(f"Could not get training readiness data for {current_date}: {e}")
-
-                current_date += timedelta(days=1)
-
-            logger.info(f"Synced {len(tr_data)} days of Training Readiness data")
-            return {
-                "success": True,
-                "data": tr_data,
-                "days_synced": len(tr_data),
-                "date_range": f"{start_date} to {end_date}",
-            }
-
-        except Exception as e:
-            logger.error(f"Training Readiness data sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_personal_records(self) -> Dict[str, Any]:
-        """Sync personal records."""
-        try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            # Get personal records
-            pr_data = self.client.api.get_personal_record()
-
-            # Map typeId to record type names
-            record_type_map = {
-                1: "1k_time",  # 1km time
-                2: "2k_time",  # 2km time
-                3: "5k_time",  # 5km time
-                4: "half_marathon",  # Half marathon time
-                5: "marathon",  # Marathon time
-                6: "longest_distance",  # Longest distance
-                7: "max_elevation_gain",  # Max elevation gain
-                8: "fastest_pace",  # Fastest pace
-                9: "max_power",  # Max power
-                # Add more mappings as needed
-            }
-
-            records = []
-            if pr_data:
-                for record in pr_data:
-                    # Parse the activity start date
-                    achieved_date = None
-                    if record.get("actStartDateTimeInGMTFormatted"):
+            return fn(*args, **kwargs)
+        except Exception:
+            return None
+
+    def fetch_range(self, start: str | date, end: str | date, include_extras: bool = True) -> Dict[str, pd.DataFrame]:
+        s = _to_date(start)
+        e = _to_date(end)
+        if s > e:
+            s, e = e, s
+
+        api = getattr(self.client, "api", self.client)
+
+        rows_sleep: List[Dict[str, Any]] = []
+        rows_steps: List[Dict[str, Any]] = []
+        rows_stress: List[Dict[str, Any]] = []
+        rows_rhr: List[Dict[str, Any]] = []
+        rows_hrv: List[Dict[str, Any]] = []
+        rows_bb: List[Dict[str, Any]] = []
+        rows_tr: List[Dict[str, Any]] = []
+
+        for d in _daterange(s, e):
+            ds = d.isoformat()
+
+            # 1) Wrapper bundle (like your working script)
+            blob = self._try(getattr(self.client, "wellness_summary_for_day"), ds)
+
+            # Sleep (wrapper)
+            total_sec = sleep_min = eff = quality = deep = light = rem = awake = None
+            if isinstance(blob, dict):
+                sl = blob.get("sleep")
+                if isinstance(sl, dict):
+                    dto = sl.get("dailySleepDTO") or {}
+                    dur = dto.get("sleepTimeSeconds") or sl.get("totalSleepSeconds") or sl.get("durationInSeconds")
+                    if dur is not None:
                         try:
-                            achieved_date = datetime.fromisoformat(
-                                record.get("actStartDateTimeInGMTFormatted").replace("T", " ").replace(".0", "")
-                            ).date()
-                        except (ValueError, AttributeError):
-                            logger.warning(f"Could not parse date: {record.get('actStartDateTimeInGMTFormatted')}")
+                            total_sec = int(float(dur))
+                            sleep_min = int(round(total_sec / 60))
+                        except Exception:
+                            pass
+                    eff = sl.get("sleepEfficiency") or dto.get("sleepEfficiency") or sl.get("efficiency")
+                    quality = sl.get("overallSleepScore") or sl.get("quality")
+                    deep = dto.get("deepSleepSeconds") or sl.get("deepSleepSeconds")
+                    light = dto.get("lightSleepSeconds") or sl.get("lightSleepSeconds")
+                    rem = dto.get("remSleepSeconds") or sl.get("remSleepSeconds")
+                    awake = dto.get("awakeSeconds") or sl.get("awakeSeconds")
 
-                    pr_record = {
-                        "activity_type": record.get("activityType"),
-                        "record_type": record_type_map.get(record.get("typeId"), f"type_{record.get('typeId')}"),
-                        "record_value": record.get("value"),
-                        "record_unit": None,  # API doesn't provide units, would need separate mapping
-                        "activity_id": record.get("activityId"),
-                        "achieved_date": achieved_date,
-                        "activity_name": record.get("activityName"),
-                        "location": None,  # Not provided in API response
-                        "type_id": record.get("typeId"),  # Keep original typeId for reference
-                    }
-                    records.append(pr_record)
+            # Steps (wrapper + fallbacks)
+            steps_total = calories = distance_m = None
+            if isinstance(blob, dict):
+                st = blob.get("steps")
+                if isinstance(st, dict):
+                    steps_total = st.get("steps") or st.get("totalSteps") or st.get("value")
+                    calories = st.get("calories") or st.get("activeKilocalories")
+                    # distance can be 'distanceInMeters', 'distance', or 'totalDistance'
+                    distance_m = st.get("distanceInMeters") or st.get("distance") or st.get("totalDistance")
+                elif isinstance(st, list):
+                    tot = cal = dist = 0.0
+                    for it in st:
+                        if not isinstance(it, dict):
+                            continue
+                        tot += _num(it.get("steps") or it.get("value") or 0) or 0
+                        cal += _num(it.get("calories") or it.get("activeKilocalories") or 0) or 0
+                        dist += (
+                            _num(it.get("distanceInMeters") or it.get("distance") or it.get("totalDistance") or 0) or 0
+                        )
+                    steps_total = int(tot) if tot else None
+                    calories = cal if cal else None
+                    distance_m = dist if dist else None
 
-            logger.info(f"Synced {len(records)} personal records")
-            return {"success": True, "data": records, "records_synced": len(records)}
-
-        except Exception as e:
-            logger.error(f"Personal records sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_spo2_data(self, start_date: date, end_date: date) -> Dict[str, Any]:
-        """Sync SpO2 (blood oxygen saturation) data for date range."""
-        try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            spo2_data = []
-            current_date = start_date
-
-            while current_date <= end_date:
-                try:
-                    date_str = current_date.isoformat()
-                    daily_spo2 = self.client.api.get_spo2_data(date_str)
-
-                    # API returns data but values are None if device doesn't support SpO2
-                    if daily_spo2 and any(
-                        daily_spo2.get(field) is not None for field in ["averageSpO2", "lowestSpO2", "avgSleepSpO2"]
-                    ):
-                        spo2_record = {
-                            "date": current_date,
-                            "average_spo2": daily_spo2.get("averageSpO2"),
-                            "lowest_spo2": daily_spo2.get("lowestSpO2"),
-                            "last_7_days_avg_spo2": daily_spo2.get("lastSevenDaysAvgSpO2"),
-                            "latest_spo2": daily_spo2.get("latestSpO2"),
-                            "avg_sleep_spo2": daily_spo2.get("avgSleepSpO2"),
-                        }
-                        spo2_data.append(spo2_record)
-
-                except Exception as e:
-                    logger.warning(f"Could not get SpO2 data for {current_date}: {e}")
-
-                current_date += timedelta(days=1)
-
-            logger.info(f"Synced {len(spo2_data)} days of SpO2 data")
-            return {"success": True, "data": spo2_data, "days_synced": len(spo2_data)}
-
-        except Exception as e:
-            logger.error(f"SpO2 data sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_max_metrics(self, start_date: date, end_date: date) -> Dict[str, Any]:
-        """Sync VO2 Max and fitness metrics for date range."""
-        try:
-            if not self.client.is_authenticated():
-                raise GarminAuthError("Client not authenticated")
-
-            metrics_data = []
-            current_date = start_date
-
-            while current_date <= end_date:
-                try:
-                    date_str = current_date.isoformat()
-
-                    # Get VO2 Max data - API method is get_max_metrics
-                    vo2_max = None
-                    try:
-                        vo2_max_response = self.client.api.get_max_metrics(date_str)
-                        if vo2_max_response and isinstance(vo2_max_response, list):
-                            vo2_max = vo2_max_response[0].get("generic", {}) if vo2_max_response else {}
-                    except Exception:
-                        pass
-
-                    # Get fitness age
-                    fitness_age = None
-                    try:
-                        fitness_age = self.client.api.get_fitness_age(date_str)
-                    except Exception:
-                        pass
-
-                    if vo2_max or fitness_age:
-                        metrics_record = {
-                            "date": current_date,
-                            "vo2_max_value": vo2_max.get("vo2MaxValue") if vo2_max else None,
-                            "vo2_max_precise_value": vo2_max.get("vo2MaxPreciseValue") if vo2_max else None,
-                            "fitness_age": vo2_max.get("fitnessAge") if vo2_max else fitness_age,
-                            "fitness_age_description": vo2_max.get("fitnessAgeDescription") if vo2_max else None,
-                            "max_met_category": vo2_max.get("maxMetCategory") if vo2_max else None,
-                        }
-                        metrics_data.append(metrics_record)
-
-                except Exception as e:
-                    logger.warning(f"Could not get max metrics for {current_date}: {e}")
-
-                current_date += timedelta(days=1)
-
-            logger.info(f"Synced {len(metrics_data)} days of max metrics data")
-            return {
-                "success": True,
-                "data": metrics_data,
-                "days_synced": len(metrics_data),
-                "date_range": f"{start_date} to {end_date}",
-            }
-
-        except Exception as e:
-            logger.error(f"Max metrics sync failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def sync_comprehensive_wellness(self, days: int = 30) -> Dict[str, Any]:
-        """
-        Sync all wellness data types for the specified number of days.
-
-        This implements all requirements from the PRP:
-        - User Profile: Get full name
-        - Steps data for dates available in database
-        - Heart rate data for dates available in database
-        - Training readiness data for dates available in database
-        - Daily step data with goals and trends
-        - Body battery data for dates available in database
-        - Floors data with climbing metrics
-        - Blood pressure data for date ranges
-        - Training status data for dates available in database
-        - Resting heart rate data for dates available in database
-        - Hydration data for dates available in database
-        - Sleep data for dates available in database
-        - Stress data for dates available in database
-        - Respiration data for dates available in database
-        - SpO2 data for dates available in database
-        - Max metric data (like vo2MaxValue and fitnessAge) for dates available in database
-        - Personal records for user
-        """
-        try:
-            end_date = date.today()
-            start_date = end_date - timedelta(days=days)
-
-            logger.info(f"Starting comprehensive wellness sync for {days} days ({start_date} to {end_date})")
-
-            # Initialize results
-            results = {
-                "success": True,
-                "sync_date": datetime.now(timezone.utc).isoformat(),
-                "date_range": f"{start_date} to {end_date}",
-                "days_requested": days,
-                "data_types": {},
-                "errors": [],
-                "total_records": 0,
-            }
-
-            # 1. Sync user profile
-            try:
-                profile_result = self.sync_user_profile()
-                results["data_types"]["user_profile"] = profile_result
-                if profile_result["success"]:
-                    results["total_records"] += profile_result.get("fields_synced", 0)
-                else:
-                    results["errors"].append(f"User profile: {profile_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"User profile sync error: {e}")
-
-            # 2. Sync daily steps data
-            try:
-                steps_result = self.sync_daily_steps(start_date, end_date)
-                results["data_types"]["steps"] = steps_result
-                if steps_result["success"]:
-                    results["total_records"] += steps_result.get("days_synced", 0)
-                else:
-                    results["errors"].append(f"Steps data: {steps_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"Steps sync error: {e}")
-
-            # 3. Sync heart rate data
-            try:
-                hr_result = self.sync_daily_heart_rate(start_date, end_date)
-                results["data_types"]["heart_rate"] = hr_result
-                if hr_result["success"]:
-                    results["total_records"] += hr_result.get("days_synced", 0)
-                else:
-                    results["errors"].append(f"Heart rate data: {hr_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"Heart rate sync error: {e}")
-
-            # 4. Sync sleep data
-            try:
-                sleep_result = self.sync_daily_sleep(start_date, end_date)
-                results["data_types"]["sleep"] = sleep_result
-                if sleep_result["success"]:
-                    results["total_records"] += sleep_result.get("days_synced", 0)
-                else:
-                    results["errors"].append(f"Sleep data: {sleep_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"Sleep sync error: {e}")
-
-            # 5. Sync stress data
-            try:
-                stress_result = self.sync_daily_stress(start_date, end_date)
-                results["data_types"]["stress"] = stress_result
-                if stress_result["success"]:
-                    results["total_records"] += stress_result.get("days_synced", 0)
-                else:
-                    results["errors"].append(f"Stress data: {stress_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"Stress sync error: {e}")
-
-            # 6. Sync Body Battery data
-            try:
-                bb_result = self.sync_body_battery(start_date, end_date)
-                results["data_types"]["body_battery"] = bb_result
-                if bb_result["success"]:
-                    results["total_records"] += bb_result.get("days_synced", 0)
-                else:
-                    results["errors"].append(f"Body Battery: {bb_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"Body Battery sync error: {e}")
-
-            # 7. Sync Training Readiness data
-            try:
-                tr_result = self.sync_training_readiness(start_date, end_date)
-                results["data_types"]["training_readiness"] = tr_result
-                if tr_result["success"]:
-                    results["total_records"] += tr_result.get("days_synced", 0)
-                else:
-                    results["errors"].append(f"Training Readiness: {tr_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"Training Readiness sync error: {e}")
-
-            # 8. Sync personal records
-            try:
-                pr_result = self.sync_personal_records()
-                results["data_types"]["personal_records"] = pr_result
-                if pr_result["success"]:
-                    results["total_records"] += pr_result.get("records_synced", 0)
-                else:
-                    results["errors"].append(f"Personal records: {pr_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"Personal records sync error: {e}")
-
-            # 9. Sync SpO2 data
-            try:
-                spo2_result = self.sync_spo2_data(start_date, end_date)
-                results["data_types"]["spo2"] = spo2_result
-                if spo2_result["success"]:
-                    results["total_records"] += spo2_result.get("days_synced", 0)
-                else:
-                    results["errors"].append(f"SpO2 data: {spo2_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"SpO2 sync error: {e}")
-
-            # 10. Sync max metrics
-            try:
-                metrics_result = self.sync_max_metrics(start_date, end_date)
-                results["data_types"]["max_metrics"] = metrics_result
-                if metrics_result["success"]:
-                    results["total_records"] += metrics_result.get("days_synced", 0)
-                else:
-                    results["errors"].append(f"Max metrics: {metrics_result.get('error', 'Unknown error')}")
-            except Exception as e:
-                results["errors"].append(f"Max metrics sync error: {e}")
-
-            # Persist data if wellness service is available
-            if self.wellness_service:
-                logger.info("Persisting wellness data to database...")
-                try:
-                    # Transform results into format expected by persistence service
-                    wellness_data = {
-                        "user_profile": results.get("data_types", {}).get("user_profile", {}).get("data"),
-                        "sleep": results.get("data_types", {}).get("sleep", {}).get("data", []),
-                        "steps": results.get("data_types", {}).get("steps", {}).get("data", []),
-                        "heart_rate": results.get("data_types", {}).get("heart_rate", {}).get("data", []),
-                        "body_battery": results.get("data_types", {}).get("body_battery", {}).get("data", []),
-                        "training_readiness": results.get("data_types", {})
-                        .get("training_readiness", {})
-                        .get("data", []),
-                        "stress": results.get("data_types", {}).get("stress", {}).get("data", []),
-                        "spo2": results.get("data_types", {}).get("spo2", {}).get("data", []),
-                        "personal_records": results.get("data_types", {}).get("personal_records", {}).get("data", []),
-                    }
-
-                    persistence_results = self.wellness_service.persist_comprehensive_wellness_data(wellness_data)
-                    results["persistence_info"] = persistence_results
-
-                    successful_persistences = sum(1 for success in persistence_results.values() if success)
-                    logger.info(
-                        f"Persisted {successful_persistences}/{len(persistence_results)} data types to database"
+            if steps_total is None:
+                # fall back to raw API
+                steps = self._try(getattr(api, "get_daily_steps"), ds, ds) or self._try(
+                    getattr(api, "get_steps_data"), ds
+                )
+                if isinstance(steps, list):
+                    tot = cal = dist = 0.0
+                    for it in steps:
+                        if not isinstance(it, dict):
+                            continue
+                        tot += _num(it.get("steps") or it.get("totalSteps") or it.get("value") or 0) or 0
+                        cal += _num(it.get("calories") or it.get("activeKilocalories") or 0) or 0
+                        dist += (
+                            _num(it.get("distanceInMeters") or it.get("distance") or it.get("totalDistance") or 0) or 0
+                        )
+                    steps_total = int(tot) if tot else None
+                    calories = calories or (cal if cal else None)
+                    distance_m = distance_m or (dist if dist else None)
+                elif isinstance(steps, dict):
+                    steps_total = steps.get("steps") or steps.get("totalSteps") or steps.get("value")
+                    calories = calories or steps.get("calories") or steps.get("activeKilocalories")
+                    distance_m = (
+                        distance_m
+                        or steps.get("distanceInMeters")
+                        or steps.get("distance")
+                        or steps.get("totalDistance")
                     )
 
-                except Exception as e:
-                    logger.error(f"Failed to persist wellness data: {e}")
-                    results["persistence_error"] = str(e)
-            else:
-                logger.warning("Wellness data service not available - data not persisted to database")
-                results["persistence_info"] = {"error": "Service not available"}
+            # Stress (wrapper)
+            avg_stress = max_stress = rest_sec = None
+            if isinstance(blob, dict):
+                ss = blob.get("stress")
+                if isinstance(ss, dict):
+                    avg_stress = (
+                        ss.get("avgStressLevel") or ss.get("averageStressLevel") or ss.get("overallStressLevel")
+                    )
+                    max_stress = ss.get("maxStressLevel") or ss.get("max")
+                    rest_sec = ss.get("restStressDuration") or ss.get("restStressSec")
 
-            # Determine overall success
-            if len(results["errors"]) > 0:
-                results["success"] = False
-                results[
-                    "message"
-                ] = f"Partial sync completed with {len(results['errors'])} errors. {results['total_records']} total records synced."
-            else:
-                results[
-                    "message"
-                ] = f"Successfully synced {results['total_records']} wellness records from the last {days} days."
+            # Resting HR — raw API and robust parse (metricsMap)
+            rhr_val = None
+            rhr_payload = (
+                self._try(getattr(api, "get_rhr_day"), ds)
+                or self._try(getattr(api, "get_daily_hr"), ds)
+                or self._try(getattr(api, "get_resting_heart_rate"), ds)
+                or self._try(getattr(api, "get_rhr"), ds)
+            )
+            if isinstance(rhr_payload, dict):
+                rhr_val = _extract_rhr(rhr_payload)
+            # very last resort: sometimes sleep blob carries restingHeartRate
+            if rhr_val is None and isinstance(blob, dict) and isinstance(blob.get("sleep"), dict):
+                rhr_val = _extract_rhr(blob.get("sleep"))
 
-            # Add persistence info to message
-            if "persistence_info" in results and not results["persistence_info"].get("error"):
-                persistence_summary = f" Data persisted to database: {successful_persistences} types."
-                results["message"] += persistence_summary
+            # HRV (prefer lastNightAvg)
+            hrv_val = None
+            if isinstance(blob, dict):
+                hv = blob.get("hrv")
+                if isinstance(hv, dict):
+                    sm = hv.get("hrvSummary") or {}
+                    hrv_val = sm.get("lastNightAvg") or sm.get("weeklyAvg") or hv.get("hrvValue") or hv.get("dailyAvg")
+            if hrv_val is None:
+                hv = self._try(getattr(api, "get_hrv_data"), ds)
+                if isinstance(hv, dict):
+                    sm = hv.get("hrvSummary") or {}
+                    hrv_val = sm.get("lastNightAvg") or sm.get("weeklyAvg") or hv.get("hrvValue") or hv.get("dailyAvg")
 
-            logger.info(f"Comprehensive wellness sync completed: {results['message']}")
-            return results
+            # Body Battery & Training Readiness (raw API)
+            bb_avg = bb_charge = bb_drain = None
+            bb = self._try(getattr(api, "get_body_battery"), ds, ds) or self._try(
+                getattr(api, "get_body_battery_data"), ds, ds
+            )
+            if isinstance(bb, list) and bb:
+                b0 = bb[0]
+                bb_charge = b0.get("charged")
+                bb_drain = b0.get("drained")
+                levels = []
+                arr = b0.get("bodyBatteryValuesArray") or []
+                for item in arr:
+                    if isinstance(item, (list, tuple)):
+                        # [timestamp, level] or [timestamp, state, level, ...]
+                        if len(item) >= 3 and isinstance(item[2], (int, float)):
+                            levels.append(item[2])
+                        elif len(item) >= 2 and isinstance(item[1], (int, float)):
+                            levels.append(item[1])
+                if levels:
+                    try:
+                        import pandas as _pd
 
-        except Exception as e:
-            logger.error(f"Comprehensive wellness sync failed: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "sync_date": datetime.now(timezone.utc).isoformat(),
-            }
+                        bb_avg = float(_pd.Series(levels).mean())
+                    except Exception:
+                        bb_avg = sum(levels) / len(levels)
+            elif isinstance(bb, dict):
+                bb_avg = bb.get("bodyBatteryAverage")
+                bb_charge = bb.get("bodyBatteryCharge")
+                bb_drain = bb.get("bodyBatteryDrain")
+
+            tr_score = None
+            trd = self._try(getattr(api, "get_training_readiness"), ds)
+            if isinstance(trd, dict):
+                tr_score = trd.get("trainingReadinessScore") or trd.get("score")
+
+            # Collect rows
+            rows_sleep.append(
+                {
+                    "date": ds,
+                    "total_sleep_seconds": total_sec,
+                    "sleep_min": sleep_min,
+                    "efficiency": eff,
+                    "quality": quality,
+                    "deep_sec": deep,
+                    "light_sec": light,
+                    "rem_sec": rem,
+                    "awake_sec": awake,
+                }
+            )
+            rows_steps.append(
+                {
+                    "date": ds,
+                    "steps": steps_total,
+                    "calories": calories,
+                    "distance_m": distance_m,
+                }
+            )
+            rows_stress.append(
+                {
+                    "date": ds,
+                    "stress_avg": avg_stress,
+                    "stress_max": max_stress,
+                    "rest_sec": rest_sec,
+                }
+            )
+            rows_rhr.append({"date": ds, "resting_hr": rhr_val})
+            rows_hrv.append({"date": ds, "hrv": hrv_val})
+            if include_extras:
+                rows_bb.append({"date": ds, "avg": bb_avg, "charge": bb_charge, "drain": bb_drain})
+                rows_tr.append({"date": ds, "score": tr_score})
+
+        result: Dict[str, pd.DataFrame] = {
+            "sleep": _df(
+                rows_sleep,
+                [
+                    "date",
+                    "total_sleep_seconds",
+                    "sleep_min",
+                    "efficiency",
+                    "quality",
+                    "deep_sec",
+                    "light_sec",
+                    "rem_sec",
+                    "awake_sec",
+                ],
+            ),
+            "steps": _df(rows_steps, ["date", "steps", "calories", "distance_m"]),
+            "stress": _df(rows_stress, ["date", "stress_avg", "stress_max", "rest_sec"]),
+            "resting_hr": _df(rows_rhr, ["date", "resting_hr"]),
+            "hrv": _df(rows_hrv, ["date", "hrv"]),
+        }
+        if include_extras:
+            bbdf = _df(rows_bb, ["date", "avg", "charge", "drain"])
+            if not bbdf.empty:
+                result["body_battery"] = bbdf
+            trdf = _df(rows_tr, ["date", "score"])
+            if not trdf.empty:
+                result["training_readiness"] = trdf
+        return result
