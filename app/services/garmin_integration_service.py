@@ -5,7 +5,7 @@ This service provides wellness data synchronization using the existing garmin_cl
 with data transformation, smoothing/aggregation, and persistence to the dashboard database.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from app.services.wellness_data_service import WellnessDataService
@@ -144,14 +144,13 @@ class GarminIntegrationService:
                     daily_data = self.client.wellness_summary_for_day(current_date)
 
                     if daily_data:
-                        # Transform and collect data by type
-                        for data_type, data_value in daily_data.items():
+                        # Transform and collect data by type with proper field mapping
+                        transformed_data = self._transform_garmin_data(daily_data, current_date)
+
+                        for data_type, data_value in transformed_data.items():
                             if data_type in wellness_data and data_value:
-                                # Add date to the data
-                                if isinstance(data_value, dict):
-                                    data_value["date"] = current_date.isoformat()
-                                    wellness_data[data_type].append(data_value)
-                                    total_records += 1
+                                wellness_data[data_type].append(data_value)
+                                total_records += 1
 
                         days_synced += 1
 
@@ -218,11 +217,93 @@ class GarminIntegrationService:
                 "records_synced": total_records if "total_records" in locals() else 0,
             }
 
+    def _transform_garmin_data(self, garmin_data: Dict[str, Any], date_obj: date) -> Dict[str, Any]:
+        """
+        Transform raw Garmin API data to database format.
+
+        Args:
+            garmin_data: Raw Garmin API response
+            date_obj: Date for the data
+
+        Returns:
+            Dict with transformed data ready for database persistence
+        """
+        transformed = {}
+        date_str = date_obj.isoformat()
+
+        # Transform sleep data
+        if "sleep" in garmin_data and garmin_data["sleep"]:
+            sleep_data = garmin_data["sleep"]
+            if isinstance(sleep_data, dict) and "dailySleepDTO" in sleep_data:
+                daily_sleep = sleep_data["dailySleepDTO"]
+                if daily_sleep and isinstance(daily_sleep, dict):
+                    transformed_sleep = {
+                        "date": date_str,
+                        "total_sleep_time_s": daily_sleep.get("sleepTimeSeconds") or 0,
+                        "deep_sleep_s": daily_sleep.get("deepSleepSeconds") or 0,
+                        "light_sleep_s": daily_sleep.get("lightSleepSeconds") or 0,
+                        "rem_sleep_s": daily_sleep.get("remSleepSeconds") or 0,
+                        "awake_time_s": daily_sleep.get("awakeSleepSeconds") or 0,
+                        "sleep_score": daily_sleep.get("sleepQualityTypePK"),
+                        "bedtime_utc": self._convert_garmin_timestamp(daily_sleep.get("sleepStartTimestampGMT")),
+                        "wakeup_time_utc": self._convert_garmin_timestamp(daily_sleep.get("sleepEndTimestampGMT")),
+                        "efficiency_percentage": None,  # Calculate if needed
+                        "restlessness": None,  # Not in current API
+                    }
+                    # Only include if we have meaningful sleep data
+                    if transformed_sleep["total_sleep_time_s"] > 0:
+                        transformed["sleep"] = transformed_sleep
+
+        # Transform stress data
+        if "stress" in garmin_data and garmin_data["stress"]:
+            stress_data = garmin_data["stress"]
+            if isinstance(stress_data, dict):
+                transformed_stress = {
+                    "date": date_str,
+                    "avg_stress_level": stress_data.get("avgStressLevel"),
+                    "max_stress_level": stress_data.get("maxStressLevel"),
+                    "rest_stress_duration_s": None,  # Calculate from stress values if available
+                    "low_stress_duration_s": None,
+                    "medium_stress_duration_s": None,
+                    "high_stress_duration_s": None,
+                    "stress_qualifier": None,
+                }
+                # Only include if we have meaningful stress data
+                if transformed_stress["avg_stress_level"] is not None:
+                    transformed["stress"] = transformed_stress
+
+        # Transform steps data
+        if "steps" in garmin_data and garmin_data["steps"]:
+            steps_data = garmin_data["steps"]
+            if isinstance(steps_data, list) and len(steps_data) > 0:
+                # Garmin returns steps as array, aggregate if needed
+                total_steps = sum(item.get("steps", 0) for item in steps_data if isinstance(item, dict))
+                if total_steps > 0:
+                    transformed["steps"] = {
+                        "date": date_str,
+                        "total_steps": total_steps,
+                        "calories_burned": None,  # Not in current response
+                        "distance_meters": None,  # Not in current response
+                        "floors_climbed": None,  # Not in current response
+                    }
+
+        return transformed
+
+    def _convert_garmin_timestamp(self, timestamp_ms) -> Optional[datetime]:
+        """Convert Garmin timestamp (milliseconds) to UTC datetime."""
+        if timestamp_ms is None or timestamp_ms == 0:
+            return None
+        try:
+            # Garmin timestamps are in milliseconds, convert to seconds
+            return datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+        except (ValueError, TypeError, OverflowError):
+            return None
+
     def _transform_dailies_to_db_format(
         self, dailies_data: List[Dict[str, Any]], smoothing: str = "none"
     ) -> Dict[str, Any]:
         """
-        Transform wellness data format for database persistence.
+        Transform wellness data format for database persistence (legacy method).
 
         Args:
             dailies_data: Raw wellness data from Garmin
@@ -231,8 +312,7 @@ class GarminIntegrationService:
         Returns:
             Dict with transformed wellness data by type
         """
-        # This method would implement data transformation and smoothing
-        # For now, return data as-is since the client already provides clean data
+        # This method is kept for compatibility but should use _transform_garmin_data
         return {
             "sleep": dailies_data,
             "steps": dailies_data,

@@ -157,36 +157,6 @@ def layout():
                                                 ]
                                             ),
                                             html.Hr(),
-                                            # Sync Options
-                                            dbc.Row(
-                                                [
-                                                    dbc.Col(
-                                                        [
-                                                            html.Label("Sync Options", className="form-label fw-bold"),
-                                                            dbc.Checklist(
-                                                                id="sync-options",
-                                                                options=[
-                                                                    {
-                                                                        "label": "Include Wellness Data",
-                                                                        "value": "wellness",
-                                                                    },
-                                                                    {
-                                                                        "label": "Download FIT Files",
-                                                                        "value": "fit_files",
-                                                                    },
-                                                                    {
-                                                                        "label": "Overwrite Existing Data",
-                                                                        "value": "overwrite",
-                                                                    },
-                                                                ],
-                                                                value=["wellness"],  # Default to wellness data
-                                                                className="mb-3",
-                                                            ),
-                                                        ],
-                                                        md=12,
-                                                    )
-                                                ]
-                                            ),
                                             # Sync Button
                                             dbc.Row(
                                                 [
@@ -296,11 +266,10 @@ def update_date_summary(start_date, end_date):
         State("sync-start-date", "date"),
         State("sync-end-date", "date"),
         State("sync-smoothing", "value"),
-        State("sync-options", "value"),
     ],
     prevent_initial_call=True,
 )
-def start_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
+def start_sync_data(n_clicks, start_date, end_date, smoothing):
     """Start sync in background thread and enable progress tracking."""
     if not n_clicks:
         raise PreventUpdate
@@ -322,9 +291,6 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
     def run_sync():
         """Background sync function with progress updates."""
         try:
-            sync_opts = sync_options or []
-            wellness_enabled = "wellness" in sync_opts
-
             update_sync_progress("running", "Initializing Garmin connection...", 10)
 
             # Initialize WellnessSync (uses the corrected class)
@@ -332,61 +298,38 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing, sync_options):
             wellness_sync = WellnessSync(client)
 
             # Perform sync
-            if wellness_enabled:
-                update_sync_progress("running", f"Fetching {days} days of wellness data...", 30)
 
-                # Fetch wellness data using WellnessSync
-                wellness_data = wellness_sync.fetch_range(start=start, end=end, include_extras=True)
+            update_sync_progress("running", f"Fetching {days} days of wellness data...", 30)
 
-            # Handle FIT files download if requested
-            fit_files_enabled = "fit_files" in sync_opts
-            if fit_files_enabled:
-                update_sync_progress("running", f"Downloading FIT files for {days} days...", 50)
+            # Fetch wellness data using WellnessSync
+            wellness_data = wellness_sync.fetch_range(start=start, end=end, include_extras=True)
 
-                try:
-                    # Use WellnessSync to also download activity FIT files
-                    fit_download_result = wellness_sync.download_fit_files_range(start, end)
-                    logger.info(f"FIT files download result: {fit_download_result}")
-                except Exception as e:
-                    logger.warning(f"FIT files download failed: {e}")
-                    # Continue with sync even if FIT download fails
-
-            if wellness_enabled:
-                update_sync_progress("running", "Processing and aggregating data...", 70)
-
-                # Apply smoothing/aggregation if requested
-                if smoothing and smoothing != "none":
-                    for key, df in wellness_data.items():
-                        if hasattr(df, "empty") and not df.empty:
-                            wellness_data[key] = aggregate_df(df, smoothing)
-
-                # Count total records
-                total_records = 0
-                data_types = 0
+            # Apply smoothing/aggregation if requested
+            if smoothing and smoothing != "none":
                 for key, df in wellness_data.items():
                     if hasattr(df, "empty") and not df.empty:
-                        data_types += 1
-                        # Count non-null values excluding date column
-                        for col in df.columns:
-                            if col != "date":
-                                total_records += df[col].notna().sum()
+                        wellness_data[key] = aggregate_df(df, smoothing)
 
-                sync_result = {
-                    "success": True,
-                    "message": f"Successfully fetched {days} days of wellness data",
-                    "days_synced": days,
-                    "records_synced": total_records,
-                    "data_types_synced": data_types,
-                    "wellness_data": wellness_data,  # Store the actual data
-                    "smoothing": smoothing or "none",
-                }
-            else:
-                sync_result = {
-                    "success": True,
-                    "message": "Sync completed (wellness data disabled)",
-                    "records_synced": 0,
-                    "wellness_data": {},
-                }
+            # Count total records
+            total_records = 0
+            data_types = 0
+            for key, df in wellness_data.items():
+                if hasattr(df, "empty") and not df.empty:
+                    data_types += 1
+                    # Count non-null values excluding date column
+                    for col in df.columns:
+                        if col != "date":
+                            total_records += df[col].notna().sum()
+
+            sync_result = {
+                "success": True,
+                "message": f"Successfully fetched {days} days of wellness data",
+                "days_synced": days,
+                "records_synced": total_records,
+                "data_types_synced": data_types,
+                "wellness_data": wellness_data,  # Store the actual data
+                "smoothing": smoothing or "none",
+            }
 
             # Store result in global progress
             global _sync_progress
