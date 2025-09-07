@@ -774,7 +774,7 @@ def update_wellness_charts(sync_results):
                         line=dict(color="purple", width=2),
                         marker=dict(size=8),
                         hovertemplate="<b>%{x}</b><br>HRV Score: %{y}<extra></extra>",
-                        yaxis="y2"
+                        yaxis="y2",
                     )
                 )
                 hrv_chart_created = True

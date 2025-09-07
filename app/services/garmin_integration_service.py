@@ -197,7 +197,6 @@ class GarminIntegrationService:
                     wellness_data["training_readiness"]
                 )
 
-
             # Note: VO2 max data is combined with heart_rate data and persisted above
             # Training readiness has its own persistence handled above
 

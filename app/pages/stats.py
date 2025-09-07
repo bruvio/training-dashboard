@@ -644,7 +644,6 @@ def register_callbacks(app):
                         md=3,
                         className="mb-3",
                     ),
-                    
                 ]
             )
 
@@ -925,18 +924,15 @@ def register_callbacks(app):
                             hovertemplate="<b>%{x}</b><br>HRV Score: %{y}<extra></extra>",
                         )
                     )
-                    
+
                     # Set appropriate y-axis range for HRV data visibility
                     hrv_min, hrv_max = hrv_data.min(), hrv_data.max()
                     y_margin = max(2, (hrv_max - hrv_min) * 0.1) if hrv_max > hrv_min else 5
-                    
+
                     fig.update_layout(
                         title="Heart Rate Variability (HRV) Score",
                         yaxis_title="HRV Score",
-                        yaxis=dict(
-                            range=[hrv_min - y_margin, hrv_max + y_margin],
-                            autorange=False
-                        ),
+                        yaxis=dict(range=[hrv_min - y_margin, hrv_max + y_margin], autorange=False),
                         height=400,
                         hovermode="x unified",
                     )
