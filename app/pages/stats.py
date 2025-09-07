@@ -33,6 +33,8 @@ def layout():
     """Statistics page layout with date filtering."""
     return dbc.Container(
         [
+            # Hidden trigger for initial data load
+            dcc.Interval(id="stats-initial-load", interval=1000, n_intervals=0, max_intervals=1),
             dbc.Row(
                 [
                     dbc.Col(
@@ -678,8 +680,11 @@ def register_callbacks(app):
             logger.error(f"Error updating wellness stats: {e}")
             return dbc.Alert("Error loading wellness statistics.", color="danger")
 
-    @app.callback(Output("sleep-chart", "children"), Input("sleep-tabs", "value"))
-    def update_sleep_chart(active_tab):
+    @app.callback(
+        Output("sleep-chart", "children"), 
+        [Input("sleep-tabs", "value"), Input("stats-initial-load", "n_intervals")]
+    )
+    def update_sleep_chart(active_tab, n_intervals):
         """Update sleep visualization based on selected tab."""
         try:
             sleep_df = get_sleep_data(days=90)
@@ -766,8 +771,8 @@ def register_callbacks(app):
             logger.error(f"Error updating sleep chart: {e}")
             return dbc.Alert("Error loading sleep data.", color="danger")
 
-    @app.callback(Output("stress-chart", "children"), Input("stress-chart", "id"))
-    def update_stress_chart(_):
+    @app.callback(Output("stress-chart", "children"), Input("stats-initial-load", "n_intervals"))
+    def update_stress_chart(n_intervals):
         """Update stress visualization."""
         try:
             stress_df = get_stress_data(days=90)
@@ -822,8 +827,11 @@ def register_callbacks(app):
             logger.error(f"Error updating stress chart: {e}")
             return dbc.Alert("Error loading stress data.", color="danger")
 
-    @app.callback(Output("activity-chart", "children"), Input("activity-tabs", "value"))
-    def update_activity_chart(active_tab):
+    @app.callback(
+        Output("activity-chart", "children"), 
+        [Input("activity-tabs", "value"), Input("stats-initial-load", "n_intervals")]
+    )
+    def update_activity_chart(active_tab, n_intervals):
         """Update activity visualization based on selected tab."""
         try:
             if active_tab == "steps":

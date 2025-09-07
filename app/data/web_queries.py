@@ -873,10 +873,12 @@ def get_sleep_data(days: int = 90) -> pd.DataFrame:
             start_date = end_date - timedelta(days=days)
 
             # IMPORTANT: no SQL ORDER BY here (avoid SQLite "not an error")
+            # Filter out rows with no meaningful sleep data (total_sleep_time_s > 0)
             records = (
                 session.query(DailySleep)
                 .filter(DailySleep.date >= start_date)
                 .filter(DailySleep.date <= end_date)
+                .filter(DailySleep.total_sleep_time_s > 0)
                 .all()
             )
 
@@ -951,6 +953,7 @@ def get_stress_data(days: int = 90) -> pd.DataFrame:
                 session.query(DailyStress)
                 .filter(DailyStress.date >= start_date)
                 .filter(DailyStress.date <= end_date)
+                .filter(DailyStress.avg_stress_level.isnot(None))
                 .order_by(DailyStress.date)
                 .all()
             )
@@ -1008,6 +1011,8 @@ def get_steps_data(days: int = 90) -> pd.DataFrame:
                 session.query(DailySteps)
                 .filter(DailySteps.date >= start_date)
                 .filter(DailySteps.date <= end_date)
+                .filter(DailySteps.total_steps.isnot(None))
+                .filter(DailySteps.total_steps > 0)
                 .order_by(DailySteps.date)
                 .all()
             )
