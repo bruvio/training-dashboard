@@ -185,6 +185,7 @@ def layout():
                                                 children=[
                                                     dcc.Tab(label="Resting Heart Rate", value="resting-hr"),
                                                     dcc.Tab(label="HRV", value="hrv"),
+                                                    dcc.Tab(label="VO2 Max", value="vo2max"),
                                                 ],
                                             ),
                                             html.Div(id="hr-chart"),
@@ -238,7 +239,7 @@ def layout():
                         width=12,
                     )
                 ]
-            )
+            ),
         ],
         fluid=True,
     )
@@ -681,8 +682,7 @@ def register_callbacks(app):
             return dbc.Alert("Error loading wellness statistics.", color="danger")
 
     @app.callback(
-        Output("sleep-chart", "children"), 
-        [Input("sleep-tabs", "value"), Input("stats-initial-load", "n_intervals")]
+        Output("sleep-chart", "children"), [Input("sleep-tabs", "value"), Input("stats-initial-load", "n_intervals")]
     )
     def update_sleep_chart(active_tab, n_intervals):
         """Update sleep visualization based on selected tab."""
@@ -828,8 +828,8 @@ def register_callbacks(app):
             return dbc.Alert("Error loading stress data.", color="danger")
 
     @app.callback(
-        Output("activity-chart", "children"), 
-        [Input("activity-tabs", "value"), Input("stats-initial-load", "n_intervals")]
+        Output("activity-chart", "children"),
+        [Input("activity-tabs", "value"), Input("stats-initial-load", "n_intervals")],
     )
     def update_activity_chart(active_tab, n_intervals):
         """Update activity visualization based on selected tab."""
@@ -918,6 +918,7 @@ def register_callbacks(app):
                 fig.update_layout(
                     title="Daily Resting Heart Rate Trend",
                     yaxis_title="Heart Rate (bpm)",
+                    yaxis=dict(range=[45, 65]),  # Set reasonable range for resting HR
                     height=400,
                     hovermode="x unified",
                 )
@@ -937,6 +938,25 @@ def register_callbacks(app):
                 fig.update_layout(
                     title="Heart Rate Variability (HRV) Score",
                     yaxis_title="HRV Score",
+                    height=400,
+                    hovermode="x unified",
+                )
+
+            elif active_tab == "vo2max":
+                # VO2 Max fitness trend
+                fig.add_trace(
+                    go.Scatter(
+                        x=hr_df.index,
+                        y=hr_df["vo2max"],
+                        mode="lines+markers",
+                        name="VO2 Max",
+                        line=dict(color="green", width=2),
+                        hovertemplate="<b>%{x}</b><br>VO2 Max: %{y} ml/kg/min<extra></extra>",
+                    )
+                )
+                fig.update_layout(
+                    title="VO2 Max Fitness Level",
+                    yaxis_title="VO2 Max (ml/kg/min)",
                     height=400,
                     hovermode="x unified",
                 )

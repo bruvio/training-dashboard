@@ -202,6 +202,7 @@ class WellnessDataService:
                             existing.avg_hr = hr_data.get("avg_hr")
                             existing.hrv_score = hr_data.get("hrv_score")
                             existing.hrv_status = hr_data.get("hrv_status")
+                            existing.vo2max = hr_data.get("vo2max")
                             existing.data_source = "garminconnect"
                             existing.retrieved_at = datetime.now(timezone.utc)
                         else:
@@ -213,6 +214,7 @@ class WellnessDataService:
                                 avg_hr=hr_data.get("avg_hr"),
                                 hrv_score=hr_data.get("hrv_score"),
                                 hrv_status=hr_data.get("hrv_status"),
+                                vo2max=hr_data.get("vo2max"),
                                 data_source="garminconnect",
                                 retrieved_at=datetime.now(timezone.utc),
                             )
@@ -399,7 +401,9 @@ class WellnessDataService:
         try:
             logger.info(f"Received {len(hrv_records)} HRV records")
             for hrv_data in hrv_records:
-                logger.info(f"HRV data for {hrv_data.get('date')}: last_night_avg={hrv_data.get('last_night_avg')}, status={hrv_data.get('status')}")
+                logger.info(
+                    f"HRV data for {hrv_data.get('date')}: last_night_avg={hrv_data.get('last_night_avg')}, status={hrv_data.get('status')}"
+                )
             # TODO: Create DailyHRV model and implement proper persistence
             logger.warning("HRV persistence not yet implemented - logging data for now")
             return True  # Return True to not break the sync process

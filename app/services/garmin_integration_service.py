@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from app.services.wellness_data_service import WellnessDataService
 from app.utils import get_logger
 from garmin_client.client import GarminConnectClient, GarminAuthError
+from garmin_client.wellness_sync import WellnessSync
 
 logger = get_logger(__name__)
 
@@ -21,6 +22,7 @@ class GarminIntegrationService:
     def __init__(self):
         """Initialize the Garmin integration service."""
         self.client = GarminConnectClient()
+        self.wellness_sync = WellnessSync(self.client)
         self.wellness_service = WellnessDataService()
         self.logger = logger
 
@@ -120,48 +122,56 @@ class GarminIntegrationService:
 
             self.logger.info(f"🔄 Starting wellness data sync from {start_date} to {end_date}")
 
-            # Initialize counters
-            total_records = 0
-            days_synced = 0
-            persistence_results = {}
+            # Use WellnessSync to fetch comprehensive data
+            try:
+                self.logger.info("📊 Fetching comprehensive wellness data using WellnessSync...")
+                wellness_data_dict = self.wellness_sync.fetch_range(start=start_date, end=end_date, include_extras=True)
 
-            # Collect all wellness data for the date range
-            wellness_data = {
-                "sleep": [],
-                "steps": [],
-                "heart_rate": [],
-                "body_battery": [],
-                "stress": [],
-                "training_readiness": [],
-                "hrv": [],
-            }
+                if not wellness_data_dict:
+                    return {"success": False, "error": "No data returned from WellnessSync"}
 
-            current_date = start_date
-            while current_date <= end_date:
-                self.logger.info(f"📅 Syncing data for {current_date}")
+                self.logger.info(f"✅ Received data types: {list(wellness_data_dict.keys())}")
 
-                try:
-                    # Get wellness summary for this day using existing client method
-                    daily_data = self.client.wellness_summary_for_day(current_date)
+                # Transform the DataFrame-based data to our database format
+                wellness_data = {
+                    "sleep": [],
+                    "steps": [],
+                    "heart_rate": [],
+                    "body_battery": [],
+                    "stress": [],
+                    "training_readiness": [],
+                    "hrv": [],
+                }
 
-                    if daily_data:
-                        # Transform and collect data by type with proper field mapping
-                        transformed_data = self._transform_garmin_data(daily_data, current_date)
+                total_records = 0
+                days_synced = 0
 
-                        for data_type, data_value in transformed_data.items():
-                            if data_type in wellness_data and data_value:
-                                wellness_data[data_type].append(data_value)
-                                total_records += 1
+                # Transform each data type
+                for data_type, df in wellness_data_dict.items():
+                    if df is not None and hasattr(df, "iterrows") and not df.empty:
+                        transformed_records = self._transform_wellness_dataframe(data_type, df)
+                        if transformed_records:
+                            # Map WellnessSync data types to our persistence format
+                            mapped_type = self._map_wellness_data_type(data_type)
+                            if mapped_type in wellness_data:
+                                wellness_data[mapped_type].extend(transformed_records)
+                                total_records += len(transformed_records)
 
-                        days_synced += 1
+                # Calculate days synced from the data
+                all_dates = set()
+                for data_list in wellness_data.values():
+                    for record in data_list:
+                        if "date" in record:
+                            all_dates.add(record["date"])
+                days_synced = len(all_dates)
 
-                except Exception as day_error:
-                    self.logger.warning(f"⚠️ Failed to sync data for {current_date}: {day_error}")
-
-                current_date += timedelta(days=1)
+            except Exception as sync_error:
+                self.logger.error(f"❌ WellnessSync fetch failed: {sync_error}")
+                return {"success": False, "error": str(sync_error)}
 
             # Persist the collected data to database
             self.logger.info("💾 Persisting wellness data to database...")
+            persistence_results = {}
 
             if wellness_data["sleep"]:
                 persistence_results["sleep"] = self.wellness_service.persist_sleep_data(wellness_data["sleep"])
@@ -189,6 +199,9 @@ class GarminIntegrationService:
 
             if wellness_data["hrv"]:
                 persistence_results["hrv"] = self.wellness_service.persist_hrv_data(wellness_data["hrv"])
+
+            # Note: VO2 max data is combined with heart_rate data and persisted above
+            # Training readiness has its own persistence handled above
 
             # Calculate success metrics
             successful_types = sum(1 for success in persistence_results.values() if success)
@@ -310,17 +323,19 @@ class GarminIntegrationService:
                         "feedback_phrase": hrv_summary.get("feedbackPhrase"),
                         "create_timestamp": self._convert_garmin_timestamp_string(hrv_summary.get("createTimeStamp")),
                     }
-                    
+
                     # Extract baseline data if available
                     baseline = hrv_summary.get("baseline")
                     if baseline and isinstance(baseline, dict):
-                        transformed_hrv.update({
-                            "baseline_low_upper": baseline.get("lowUpper"),
-                            "baseline_balanced_low": baseline.get("balancedLow"),
-                            "baseline_balanced_upper": baseline.get("balancedUpper"),
-                            "baseline_marker_value": baseline.get("markerValue"),
-                        })
-                    
+                        transformed_hrv.update(
+                            {
+                                "baseline_low_upper": baseline.get("lowUpper"),
+                                "baseline_balanced_low": baseline.get("balancedLow"),
+                                "baseline_balanced_upper": baseline.get("balancedUpper"),
+                                "baseline_marker_value": baseline.get("markerValue"),
+                            }
+                        )
+
                     # Only include if we have meaningful HRV data
                     if transformed_hrv["last_night_avg"] is not None:
                         transformed["hrv"] = transformed_hrv
@@ -343,9 +358,205 @@ class GarminIntegrationService:
             return None
         try:
             # Parse ISO format timestamp string
-            return datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
         except (ValueError, TypeError):
             return None
+
+    def _handle_nat_value(self, value):
+        """Convert pandas NaT (Not-a-Time) and similar values to None."""
+        if value is None:
+            return None
+        # Handle pandas NaT values
+        if hasattr(value, "__class__") and "NaTType" in str(value.__class__):
+            return None
+        # Handle numpy nan values
+        try:
+            import numpy as np
+
+            if np.isnan(value):
+                return None
+        except (TypeError, ImportError):
+            pass
+        return value
+
+    def _calculate_sleep_efficiency(self, row) -> Optional[float]:
+        """Calculate sleep efficiency from sleep stage data."""
+        try:
+            total_sleep_seconds = self._handle_nat_value(row.get("total_sleep_seconds", 0)) or 0
+            deep_sec = self._handle_nat_value(row.get("deep_sec", 0)) or 0
+            light_sec = self._handle_nat_value(row.get("light_sec", 0)) or 0
+            rem_sec = self._handle_nat_value(row.get("rem_sec", 0)) or 0
+            awake_sec = self._handle_nat_value(row.get("awake_sec", 0)) or 0
+
+            # Calculate actual sleep time (all stages except awake)
+            actual_sleep_time = deep_sec + light_sec + rem_sec
+
+            # Total time in bed = actual sleep + awake time
+            time_in_bed = actual_sleep_time + awake_sec
+
+            # If we don't have awake time, use total_sleep_seconds as fallback
+            if time_in_bed == 0 and total_sleep_seconds > 0:
+                # Assume 85% efficiency as baseline if no detailed data
+                return 85.0
+
+            # Calculate efficiency: (actual sleep time / time in bed) * 100
+            if time_in_bed > 0:
+                efficiency = (actual_sleep_time / time_in_bed) * 100
+                # Cap efficiency at 100% and minimum at 50% to be realistic
+                return max(50.0, min(100.0, round(efficiency, 1)))
+
+            return None
+
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
+
+    def _map_wellness_data_type(self, wellness_type: str) -> str:
+        """Map WellnessSync data type to our persistence format."""
+        mapping = {
+            "sleep": "sleep",
+            "steps": "steps",
+            "stress": "stress",
+            "resting_hr": "heart_rate",
+            "hrv": "hrv",
+            "body_battery": "body_battery",
+            "training_readiness": "training_readiness",
+            "vo2max": "heart_rate",  # VO2 max goes into heart_rate table
+        }
+        return mapping.get(wellness_type, wellness_type)
+
+    def _transform_wellness_dataframe(self, data_type: str, df) -> List[Dict[str, Any]]:
+        """Transform WellnessSync DataFrame to database format."""
+        records = []
+
+        try:
+            for _, row in df.iterrows():
+                if data_type == "sleep":
+                    # Handle pandas Timestamp date
+                    date_str = (
+                        row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"])
+                    )
+                    record = {
+                        "date": date_str,
+                        "total_sleep_time_s": self._handle_nat_value(row.get("total_sleep_seconds", 0)) or 0,
+                        "deep_sleep_s": self._handle_nat_value(row.get("deep_sec", 0)) or 0,
+                        "light_sleep_s": self._handle_nat_value(row.get("light_sec", 0)) or 0,
+                        "rem_sleep_s": self._handle_nat_value(row.get("rem_sec", 0)) or 0,
+                        "awake_time_s": self._handle_nat_value(row.get("awake_sec", 0)) or 0,
+                        "sleep_score": self._handle_nat_value(row.get("quality")),
+                        "efficiency_percentage": self._calculate_sleep_efficiency(row),
+                        "bedtime_utc": None,  # Not in WellnessSync format
+                        "wakeup_time_utc": None,  # Not in WellnessSync format
+                        "restlessness": None,
+                    }
+                elif data_type == "steps":
+                    date_str = (
+                        row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"])
+                    )
+                    record = {
+                        "date": date_str,
+                        "total_steps": int(self._handle_nat_value(row.get("steps", 0)) or 0),
+                        "calories_burned": self._handle_nat_value(row.get("calories")),
+                        "distance_meters": self._handle_nat_value(row.get("distance_m")),
+                        "floors_climbed": None,
+                    }
+                elif data_type == "stress":
+                    date_str = (
+                        row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"])
+                    )
+                    record = {
+                        "date": date_str,
+                        "avg_stress_level": self._handle_nat_value(row.get("stress_avg")),
+                        "max_stress_level": self._handle_nat_value(row.get("stress_max")),
+                        "rest_stress_duration_s": self._handle_nat_value(row.get("rest_sec")),
+                        "low_stress_duration_s": None,
+                        "medium_stress_duration_s": None,
+                        "high_stress_duration_s": None,
+                        "stress_qualifier": None,
+                    }
+                elif data_type == "resting_hr":
+                    date_str = (
+                        row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"])
+                    )
+                    record = {
+                        "date": date_str,
+                        "resting_hr": self._handle_nat_value(row.get("resting_hr")),
+                        "avg_hr": None,
+                        "max_hr": None,
+                        "hrv_score": None,
+                        "hrv_status": None,
+                    }
+                elif data_type == "hrv":
+                    date_str = (
+                        row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"])
+                    )
+                    record = {
+                        "date": date_str,
+                        "weekly_avg": None,
+                        "last_night_avg": self._handle_nat_value(row.get("hrv")),
+                        "last_night_5min_high": None,
+                        "status": None,
+                        "feedback_phrase": None,
+                        "create_timestamp": None,
+                        "baseline_low_upper": None,
+                        "baseline_balanced_low": None,
+                        "baseline_balanced_upper": None,
+                        "baseline_marker_value": None,
+                    }
+                elif data_type == "body_battery":
+                    date_str = (
+                        row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"])
+                    )
+                    record = {
+                        "date": date_str,
+                        "body_battery_score": self._handle_nat_value(row.get("avg")),
+                        "charged_value": self._handle_nat_value(row.get("charge", 0)) or 0,
+                        "drained_value": self._handle_nat_value(row.get("drain", 0)) or 0,
+                        "highest_value": None,
+                        "lowest_value": None,
+                    }
+                elif data_type == "training_readiness":
+                    date_str = (
+                        row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"])
+                    )
+                    # Handle pandas NaT (Not a Time) values
+                    score_val = row.get("score")
+                    if hasattr(score_val, "__class__") and "NaTType" in str(score_val.__class__):
+                        score_val = None
+                    record = {
+                        "date": date_str,
+                        "training_readiness_score": score_val,
+                        "hrv_score": None,
+                        "sleep_score": None,
+                        "recovery_time_hours": None,
+                        "hrv_status": None,
+                        "sleep_status": None,
+                        "stress_status": None,
+                    }
+                elif data_type == "vo2max":
+                    # VO2 max data should go into heart rate records
+                    date_str = (
+                        row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"])
+                    )
+                    record = {
+                        "date": date_str,
+                        "resting_hr": None,
+                        "avg_hr": None,
+                        "max_hr": None,
+                        "hrv_score": None,
+                        "hrv_status": None,
+                        "vo2max": self._handle_nat_value(row.get("vo2max")),
+                    }
+                else:
+                    continue  # Skip unknown data types
+
+                # Only include records with meaningful data
+                if any(v is not None and v != 0 for k, v in record.items() if k != "date"):
+                    records.append(record)
+
+        except Exception as e:
+            self.logger.warning(f"Error transforming {data_type} data: {e}")
+
+        return records
 
     def _transform_dailies_to_db_format(
         self, dailies_data: List[Dict[str, Any]], smoothing: str = "none"

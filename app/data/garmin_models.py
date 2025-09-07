@@ -460,6 +460,9 @@ class DailyHeartRate(Base):
     hrv_score = mapped_column(Float)  # Heart Rate Variability score
     hrv_status = mapped_column(String(50))  # HRV status description
 
+    # VO2 Max data
+    vo2max = mapped_column(Float)  # VO2 Max fitness level
+
     # Data source tracking
     data_source = mapped_column(String(50), default="garminconnect")
     retrieved_at = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))

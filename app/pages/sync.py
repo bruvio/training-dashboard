@@ -301,28 +301,26 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing):
 
             # Use GarminIntegrationService to sync and persist data
             sync_result = garmin_service.sync_wellness_data_range(
-                start_date=start,
-                end_date=end,
-                smoothing=smoothing or "none"
+                start_date=start, end_date=end, smoothing=smoothing or "none"
             )
 
             # If sync was successful but we want to show charts, fetch the data for display
             wellness_data = {}
             if sync_result.get("success"):
                 update_sync_progress("running", "Processing and aggregating data...", 70)
-                
+
                 # Optionally fetch data for chart display (but data is already persisted)
                 try:
                     client = get_client()
                     wellness_sync = WellnessSync(client)
                     wellness_data = wellness_sync.fetch_range(start=start, end=end, include_extras=True)
-                    
+
                     # Apply smoothing/aggregation if requested for display
                     if smoothing and smoothing != "none":
                         for key, df in wellness_data.items():
                             if hasattr(df, "empty") and not df.empty:
                                 wellness_data[key] = aggregate_df(df, smoothing)
-                                
+
                     sync_result["wellness_data"] = wellness_data  # Add for chart display
                 except Exception as chart_error:
                     logger.warning(f"Failed to fetch data for charts: {chart_error}")

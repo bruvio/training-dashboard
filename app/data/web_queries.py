@@ -1145,6 +1145,7 @@ def get_heart_rate_data(days: int = 90) -> pd.DataFrame:
                         "hr_zone_5_time": record.hr_zone_5_time,
                         "hrv_score": record.hrv_score,
                         "hrv_status": record.hrv_status,
+                        "vo2max": record.vo2max,
                     }
                 )
 
