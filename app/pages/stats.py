@@ -214,18 +214,18 @@ def layout():
                                 ],
                                 className="mb-4",
                             ),
-                            # Advanced Health Metrics
+                            # Personal Records
                             dbc.Card(
                                 [
-                                    dbc.CardHeader([html.H5("Advanced Health Metrics", className="mb-0")]),
+                                    dbc.CardHeader([html.H5("Personal Records", className="mb-0")]),
                                     dbc.CardBody(
                                         [
                                             dcc.Tabs(
                                                 id="health-tabs",
-                                                value="spo2",
+                                                value="personal-records",
                                                 children=[
-                                                    dcc.Tab(label="SpO2 (Blood Oxygen)", value="spo2"),
-                                                    dcc.Tab(label="Personal Records", value="personal-records"),
+                                                    # dcc.Tab(label="SpO2 (Blood Oxygen)", value="spo2"),
+                                                    dcc.Tab(label="Personal Records", value="personal-records")
                                                 ],
                                             ),
                                             html.Div(id="health-chart"),
@@ -913,19 +913,30 @@ def register_callbacks(app):
             elif active_tab == "hrv":
                 # HRV score trend
                 if "hrv_score" in hr_df.columns and hr_df["hrv_score"].notna().any():
+                    hrv_data = hr_df["hrv_score"].dropna()
                     fig.add_trace(
                         go.Scatter(
-                            x=hr_df.index,
-                            y=hr_df["hrv_score"],
+                            x=hrv_data.index,
+                            y=hrv_data.values,
                             mode="lines+markers",
                             name="HRV Score",
                             line=dict(color="purple", width=2),
+                            marker=dict(size=8),
                             hovertemplate="<b>%{x}</b><br>HRV Score: %{y}<extra></extra>",
                         )
                     )
+                    
+                    # Set appropriate y-axis range for HRV data visibility
+                    hrv_min, hrv_max = hrv_data.min(), hrv_data.max()
+                    y_margin = max(2, (hrv_max - hrv_min) * 0.1) if hrv_max > hrv_min else 5
+                    
                     fig.update_layout(
                         title="Heart Rate Variability (HRV) Score",
                         yaxis_title="HRV Score",
+                        yaxis=dict(
+                            range=[hrv_min - y_margin, hrv_max + y_margin],
+                            autorange=False
+                        ),
                         height=400,
                         hovermode="x unified",
                     )
@@ -1086,37 +1097,37 @@ def register_callbacks(app):
     def update_health_chart(active_tab):
         """Update advanced health metrics visualization based on selected tab."""
         try:
-            if active_tab == "spo2":
-                spo2_df = get_spo2_data(days=90)
-                if spo2_df.empty:
-                    return dbc.Alert(
-                        [
-                            html.I(className="fas fa-info-circle me-2"),
-                            "No SpO2 data available. Please sync your Garmin data.",
-                        ],
-                        color="info",
-                    )
+            # if active_tab == "spo2":
+            #     spo2_df = get_spo2_data(days=90)
+            #     if spo2_df.empty:
+            #         return dbc.Alert(
+            #             [
+            #                 html.I(className="fas fa-info-circle me-2"),
+            #                 "No SpO2 data available. Please sync your Garmin data.",
+            #             ],
+            #             color="info",
+            #         )
 
-                fig = go.Figure()
-                fig.add_trace(
-                    go.Scatter(
-                        x=spo2_df.index,
-                        y=spo2_df["avg_spo2_percentage"],
-                        mode="lines+markers",
-                        name="Average SpO2",
-                        line=dict(color="blue", width=2),
-                        hovertemplate="<b>%{x}</b><br>SpO2: %{y}%<extra></extra>",
-                    )
-                )
-                fig.update_layout(
-                    title="Blood Oxygen Saturation (SpO2)",
-                    yaxis_title="SpO2 (%)",
-                    height=400,
-                    hovermode="x unified",
-                )
-                return dcc.Graph(figure=fig)
+            #     fig = go.Figure()
+            #     fig.add_trace(
+            #         go.Scatter(
+            #             x=spo2_df.index,
+            #             y=spo2_df["avg_spo2_percentage"],
+            #             mode="lines+markers",
+            #             name="Average SpO2",
+            #             line=dict(color="blue", width=2),
+            #             hovertemplate="<b>%{x}</b><br>SpO2: %{y}%<extra></extra>",
+            #         )
+            #     )
+            #     fig.update_layout(
+            #         title="Blood Oxygen Saturation (SpO2)",
+            #         yaxis_title="SpO2 (%)",
+            #         height=400,
+            #         hovermode="x unified",
+            #     )
+            #     return dcc.Graph(figure=fig)
 
-            elif active_tab == "personal-records":
+            if active_tab == "personal-records":
                 pr_data = get_personal_records_data()
                 if not pr_data:
                     return dbc.Alert(

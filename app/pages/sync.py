@@ -761,7 +761,8 @@ def update_wellness_charts(sync_results):
                     )
                 )
 
-            # HRV
+            # HRV - create separate chart for better scaling
+            hrv_chart_created = False
             if "hrv_score" in hr_df.columns and hr_df["hrv_score"].notna().any():
                 hrv_data = hr_df["hrv_score"].dropna()
                 hr_fig.add_trace(
@@ -773,16 +774,29 @@ def update_wellness_charts(sync_results):
                         line=dict(color="purple", width=2),
                         marker=dict(size=8),
                         hovertemplate="<b>%{x}</b><br>HRV Score: %{y}<extra></extra>",
+                        yaxis="y2"
                     )
                 )
+                hrv_chart_created = True
 
-            hr_fig.update_layout(
-                title="Heart Rate, VO2 Max & HRV",
-                xaxis_title="Date",
-                yaxis_title="Value",
-                height=400,
-                hovermode="x unified",
-            )
+            # Update layout with dual y-axes if HRV data exists
+            if hrv_chart_created:
+                hr_fig.update_layout(
+                    title="Heart Rate, VO2 Max & HRV",
+                    xaxis_title="Date",
+                    yaxis=dict(title="HR (bpm) / VO2 Max (ml/kg/min)", side="left"),
+                    yaxis2=dict(title="HRV Score", side="right", overlaying="y"),
+                    height=400,
+                    hovermode="x unified",
+                )
+            else:
+                hr_fig.update_layout(
+                    title="Heart Rate & VO2 Max",
+                    xaxis_title="Date",
+                    yaxis_title="HR (bpm) / VO2 Max (ml/kg/min)",
+                    height=400,
+                    hovermode="x unified",
+                )
 
             charts.append(dbc.Card([dbc.CardBody([dcc.Graph(figure=hr_fig)])], className="mb-4"))
             logger.info("Created heart rate chart from database data")
