@@ -304,27 +304,9 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing):
                 start_date=start, end_date=end, smoothing=smoothing or "none"
             )
 
-            # If sync was successful but we want to show charts, fetch the data for display
-            wellness_data = {}
+            # Data is already persisted - charts will use database queries
             if sync_result.get("success"):
-                update_sync_progress("running", "Processing and aggregating data...", 70)
-
-                # Optionally fetch data for chart display (but data is already persisted)
-                try:
-                    client = get_client()
-                    wellness_sync = WellnessSync(client)
-                    wellness_data = wellness_sync.fetch_range(start=start, end=end, include_extras=True)
-
-                    # Apply smoothing/aggregation if requested for display
-                    if smoothing and smoothing != "none":
-                        for key, df in wellness_data.items():
-                            if hasattr(df, "empty") and not df.empty:
-                                wellness_data[key] = aggregate_df(df, smoothing)
-
-                    sync_result["wellness_data"] = wellness_data  # Add for chart display
-                except Exception as chart_error:
-                    logger.warning(f"Failed to fetch data for charts: {chart_error}")
-                    # Data is still persisted successfully, just no charts
+                update_sync_progress("running", "Data successfully persisted to database...", 70)
 
             # Store result in global progress
             global _sync_progress
@@ -680,7 +662,7 @@ def create_wellness_chart(df, title, y_columns):
     prevent_initial_call=True,
 )
 def update_wellness_charts(sync_results):
-    """Display wellness data charts after successful sync."""
+    """Display wellness data charts after successful sync using same queries as stats page."""
     if not sync_results:
         raise PreventUpdate
 
@@ -689,57 +671,151 @@ def update_wellness_charts(sync_results):
 
     logger.info(f"Chart callback triggered. Sync result keys: {list(sync_result.keys()) if sync_result else 'None'}")
 
-    wellness_data = sync_result.get("wellness_data", {}) if sync_result else {}
-
-    if not wellness_data:
-        logger.warning("No wellness_data in sync_result")
-        # Try to fetch fresh data if no stored data
-        try:
-            from datetime import date, timedelta
-
-            client = get_client()
-            wellness_sync = WellnessSync(client)
-            end_date = date.today()
-            start_date = end_date - timedelta(days=7)
-            wellness_data = wellness_sync.fetch_range(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
-            logger.info(f"Fetched fresh wellness data with keys: {list(wellness_data.keys())}")
-        except Exception as e:
-            logger.error(f"Failed to fetch fresh wellness data: {e}")
-            return dbc.Alert("No wellness data available", color="info"), {"display": "block"}
-
-    if sync_result and not sync_result.get("success", True):  # Default to True for fresh data
+    if sync_result and not sync_result.get("success", False):
         logger.warning("Sync not successful, not showing charts")
         return "", {"display": "none"}
 
-    charts = []
+    # Use the same database queries that the stats page uses
+    try:
+        from ..data.web_queries import get_sleep_data, get_heart_rate_data, get_body_battery_data
 
-    # Create charts for all available data types
-    for data_type, df in wellness_data.items():
-        if hasattr(df, "empty") and not df.empty:
-            logger.info(f"Processing {data_type} with {len(df)} rows")
-            # Get columns that have actual data (not just nulls)
-            data_columns = []
-            for col in df.columns:
-                if col != "date" and df[col].notna().any():
-                    data_columns.append(col)
-                    logger.info(f"  {col}: {df[col].notna().sum()} non-null values")
+        charts = []
 
-            if data_columns:
-                chart_title = f"{data_type.replace('_', ' ').title()} Data"
-                chart = create_wellness_chart(df, chart_title, data_columns)
+        # Sleep data chart (same as stats page)
+        sleep_df = get_sleep_data(days=7)
+        if not sleep_df.empty:
+            sleep_fig = go.Figure()
 
-                chart_card = dbc.Card([dbc.CardBody([chart])], className="mb-4")
+            has_sleep_data = False
 
-                charts.append(chart_card)
-                logger.info(f"Created chart for {data_type}")
-            else:
-                logger.info(f"No data columns with values for {data_type}")
-        else:
-            logger.info(f"Skipping {data_type}: empty or not a DataFrame")
+            # Sleep score (if available)
+            if "sleep_score" in sleep_df.columns and sleep_df["sleep_score"].notna().any():
+                sleep_fig.add_trace(
+                    go.Scatter(
+                        x=sleep_df.index,
+                        y=sleep_df["sleep_score"],
+                        mode="lines+markers",
+                        name="Sleep Score",
+                        line=dict(color="blue", width=2),
+                        hovertemplate="<b>%{x}</b><br>Sleep Score: %{y}<extra></extra>",
+                    )
+                )
+                has_sleep_data = True
 
-    if not charts:
-        logger.warning("No charts created")
-        return dbc.Alert("No wellness data to display", color="info"), {"display": "block"}
+            # Sleep efficiency (calculated from sleep stages)
+            if "efficiency_percentage" in sleep_df.columns and sleep_df["efficiency_percentage"].notna().any():
+                sleep_fig.add_trace(
+                    go.Scatter(
+                        x=sleep_df.index,
+                        y=sleep_df["efficiency_percentage"],
+                        mode="lines+markers",
+                        name="Sleep Efficiency (%)",
+                        line=dict(color="green", width=2),
+                        hovertemplate="<b>%{x}</b><br>Efficiency: %{y}%<extra></extra>",
+                    )
+                )
+                has_sleep_data = True
 
-    logger.info(f"Returning {len(charts)} charts")
-    return charts, {"display": "block"}
+            if has_sleep_data:
+                sleep_fig.update_layout(
+                    title="Sleep Quality & Efficiency",
+                    xaxis_title="Date",
+                    yaxis_title="Score/Percentage",
+                    height=400,
+                    hovermode="x unified",
+                )
+
+                charts.append(dbc.Card([dbc.CardBody([dcc.Graph(figure=sleep_fig)])], className="mb-4"))
+                logger.info("Created sleep chart from database data")
+
+        # Heart Rate data chart (same as stats page)
+        hr_df = get_heart_rate_data(days=7)
+        if not hr_df.empty:
+            hr_fig = go.Figure()
+
+            # Resting HR
+            if "resting_hr" in hr_df.columns and hr_df["resting_hr"].notna().any():
+                hr_fig.add_trace(
+                    go.Scatter(
+                        x=hr_df.index,
+                        y=hr_df["resting_hr"],
+                        mode="lines+markers",
+                        name="Resting HR",
+                        line=dict(color="red", width=2),
+                        hovertemplate="<b>%{x}</b><br>Resting HR: %{y} bpm<extra></extra>",
+                    )
+                )
+
+            # VO2 Max
+            if "vo2max" in hr_df.columns and hr_df["vo2max"].notna().any():
+                hr_fig.add_trace(
+                    go.Scatter(
+                        x=hr_df.index,
+                        y=hr_df["vo2max"],
+                        mode="lines+markers",
+                        name="VO2 Max",
+                        line=dict(color="green", width=2),
+                        hovertemplate="<b>%{x}</b><br>VO2 Max: %{y} ml/kg/min<extra></extra>",
+                    )
+                )
+
+            hr_fig.update_layout(
+                title="Heart Rate & VO2 Max",
+                xaxis_title="Date",
+                yaxis_title="Value",
+                height=400,
+                hovermode="x unified",
+            )
+
+            charts.append(dbc.Card([dbc.CardBody([dcc.Graph(figure=hr_fig)])], className="mb-4"))
+            logger.info("Created heart rate chart from database data")
+
+        # Body Battery chart (same as stats page)
+        bb_df = get_body_battery_data(days=7)
+        if not bb_df.empty:
+            bb_fig = go.Figure()
+
+            bb_fig.add_trace(
+                go.Scatter(
+                    x=bb_df.index,
+                    y=bb_df["body_battery_score"],
+                    mode="markers",
+                    name="Daily Score",
+                    marker=dict(color="lightgreen", size=6),
+                    hovertemplate="<b>%{x}</b><br>Body Battery: %{y}<extra></extra>",
+                )
+            )
+
+            if "bb_7d_avg" in bb_df.columns:
+                bb_fig.add_trace(
+                    go.Scatter(
+                        x=bb_df.index,
+                        y=bb_df["bb_7d_avg"],
+                        mode="lines",
+                        name="7-day Average",
+                        line=dict(color="green", width=2),
+                        hovertemplate="<b>%{x}</b><br>7-day Average: %{y:.1f}<extra></extra>",
+                    )
+                )
+
+            bb_fig.update_layout(
+                title="Body Battery Energy Levels",
+                xaxis_title="Date",
+                yaxis_title="Body Battery Score (0-100)",
+                height=400,
+                hovermode="x unified",
+            )
+
+            charts.append(dbc.Card([dbc.CardBody([dcc.Graph(figure=bb_fig)])], className="mb-4"))
+            logger.info("Created body battery chart from database data")
+
+        if not charts:
+            logger.warning("No charts created from database data")
+            return dbc.Alert("No wellness data available in database", color="info"), {"display": "block"}
+
+        logger.info(f"Returning {len(charts)} charts from database data")
+        return charts, {"display": "block"}
+
+    except Exception as e:
+        logger.error(f"Error creating charts from database data: {e}")
+        return dbc.Alert(f"Error loading charts: {str(e)}", color="danger"), {"display": "block"}

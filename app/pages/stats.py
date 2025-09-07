@@ -702,21 +702,35 @@ def register_callbacks(app):
 
             if active_tab == "sleep-quality":
                 # Sleep quality line chart
-                fig.add_trace(
-                    go.Scatter(
-                        x=sleep_df.index,
-                        y=sleep_df["sleep_score"],
-                        mode="lines+markers",
-                        name="Sleep Score",
-                        line=dict(color="blue", width=2),
-                        hovertemplate="<b>%{x}</b><br>Sleep Score: %{y}<extra></extra>",
+                if "sleep_score" in sleep_df.columns and sleep_df["sleep_score"].notna().any():
+                    fig.add_trace(
+                        go.Scatter(
+                            x=sleep_df.index,
+                            y=sleep_df["sleep_score"],
+                            mode="lines+markers",
+                            name="Sleep Score",
+                            line=dict(color="blue", width=2),
+                            hovertemplate="<b>%{x}</b><br>Sleep Score: %{y}<extra></extra>",
+                        )
                     )
-                )
+
+                # Sleep efficiency (calculated from sleep stages)
+                if "efficiency_percentage" in sleep_df.columns and sleep_df["efficiency_percentage"].notna().any():
+                    fig.add_trace(
+                        go.Scatter(
+                            x=sleep_df.index,
+                            y=sleep_df["efficiency_percentage"],
+                            mode="lines+markers",
+                            name="Sleep Efficiency (%)",
+                            line=dict(color="green", width=2),
+                            hovertemplate="<b>%{x}</b><br>Efficiency: %{y}%<extra></extra>",
+                        )
+                    )
 
                 fig.update_layout(
-                    title="Daily Sleep Quality Score (0-100)",
+                    title="Sleep Quality & Efficiency",
                     xaxis_title="Date",
-                    yaxis_title="Sleep Score",
+                    yaxis_title="Score/Percentage",
                     height=400,
                     hovermode="x unified",
                 )
