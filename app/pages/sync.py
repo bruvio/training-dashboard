@@ -728,8 +728,8 @@ def update_wellness_charts(sync_results):
                 charts.append(dbc.Card([dbc.CardBody([dcc.Graph(figure=sleep_fig)])], className="mb-4"))
                 logger.info("Created sleep chart from database data")
 
-        # Heart Rate data chart (same as stats page)
-        hr_df = get_heart_rate_data(days=7)
+        # Heart Rate data chart (same as stats page) - use 30 days to capture more VO2 Max data
+        hr_df = get_heart_rate_data(days=30)
         if not hr_df.empty:
             hr_fig = go.Figure()
 
@@ -748,13 +748,15 @@ def update_wellness_charts(sync_results):
 
             # VO2 Max
             if "vo2max" in hr_df.columns and hr_df["vo2max"].notna().any():
+                vo2_data = hr_df["vo2max"].dropna()
                 hr_fig.add_trace(
                     go.Scatter(
-                        x=hr_df.index,
-                        y=hr_df["vo2max"],
+                        x=vo2_data.index,
+                        y=vo2_data.values,
                         mode="lines+markers",
                         name="VO2 Max",
                         line=dict(color="green", width=2),
+                        marker=dict(size=8),
                         hovertemplate="<b>%{x}</b><br>VO2 Max: %{y} ml/kg/min<extra></extra>",
                     )
                 )
