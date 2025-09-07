@@ -133,6 +133,7 @@ class GarminIntegrationService:
                 "body_battery": [],
                 "stress": [],
                 "training_readiness": [],
+                "hrv": [],
             }
 
             current_date = start_date
@@ -185,6 +186,9 @@ class GarminIntegrationService:
                 persistence_results["training_readiness"] = self.wellness_service.persist_training_readiness_data(
                     wellness_data["training_readiness"]
                 )
+
+            if wellness_data["hrv"]:
+                persistence_results["hrv"] = self.wellness_service.persist_hrv_data(wellness_data["hrv"])
 
             # Calculate success metrics
             successful_types = sum(1 for success in persistence_results.values() if success)
@@ -287,6 +291,40 @@ class GarminIntegrationService:
                         "floors_climbed": None,  # Not in current response
                     }
 
+        # Transform HRV data
+        if "hrv" in garmin_data and garmin_data["hrv"]:
+            hrv_data = garmin_data["hrv"]
+            if isinstance(hrv_data, dict) and "hrvSummary" in hrv_data:
+                hrv_summary = hrv_data["hrvSummary"]
+                if hrv_summary and isinstance(hrv_summary, dict):
+                    transformed_hrv = {
+                        "date": date_str,
+                        "weekly_avg": hrv_summary.get("weeklyAvg"),
+                        "last_night_avg": hrv_summary.get("lastNightAvg"),
+                        "last_night_5min_high": hrv_summary.get("lastNight5MinHigh"),
+                        "baseline_low_upper": None,
+                        "baseline_balanced_low": None,
+                        "baseline_balanced_upper": None,
+                        "baseline_marker_value": None,
+                        "status": hrv_summary.get("status"),
+                        "feedback_phrase": hrv_summary.get("feedbackPhrase"),
+                        "create_timestamp": self._convert_garmin_timestamp_string(hrv_summary.get("createTimeStamp")),
+                    }
+                    
+                    # Extract baseline data if available
+                    baseline = hrv_summary.get("baseline")
+                    if baseline and isinstance(baseline, dict):
+                        transformed_hrv.update({
+                            "baseline_low_upper": baseline.get("lowUpper"),
+                            "baseline_balanced_low": baseline.get("balancedLow"),
+                            "baseline_balanced_upper": baseline.get("balancedUpper"),
+                            "baseline_marker_value": baseline.get("markerValue"),
+                        })
+                    
+                    # Only include if we have meaningful HRV data
+                    if transformed_hrv["last_night_avg"] is not None:
+                        transformed["hrv"] = transformed_hrv
+
         return transformed
 
     def _convert_garmin_timestamp(self, timestamp_ms) -> Optional[datetime]:
@@ -297,6 +335,16 @@ class GarminIntegrationService:
             # Garmin timestamps are in milliseconds, convert to seconds
             return datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
         except (ValueError, TypeError, OverflowError):
+            return None
+
+    def _convert_garmin_timestamp_string(self, timestamp_str) -> Optional[datetime]:
+        """Convert Garmin timestamp string to UTC datetime."""
+        if not timestamp_str:
+            return None
+        try:
+            # Parse ISO format timestamp string
+            return datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
             return None
 
     def _transform_dailies_to_db_format(
@@ -320,4 +368,5 @@ class GarminIntegrationService:
             "body_battery": dailies_data,
             "stress": dailies_data,
             "training_readiness": dailies_data,
+            "hrv": dailies_data,
         }

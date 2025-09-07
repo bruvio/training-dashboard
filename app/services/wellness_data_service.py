@@ -394,6 +394,19 @@ class WellnessDataService:
             logger.error(f"Failed to persist stress data: {e}")
             return False
 
+    def persist_hrv_data(self, hrv_records: List[Dict[str, Any]]) -> bool:
+        """Persist HRV data to database (placeholder - no HRV model exists yet)."""
+        try:
+            logger.info(f"Received {len(hrv_records)} HRV records")
+            for hrv_data in hrv_records:
+                logger.info(f"HRV data for {hrv_data.get('date')}: last_night_avg={hrv_data.get('last_night_avg')}, status={hrv_data.get('status')}")
+            # TODO: Create DailyHRV model and implement proper persistence
+            logger.warning("HRV persistence not yet implemented - logging data for now")
+            return True  # Return True to not break the sync process
+        except Exception as e:
+            logger.error(f"Failed to process HRV data: {e}")
+            return False
+
     def persist_personal_records_data(self, pr_records: List[Dict[str, Any]]) -> bool:
         """
         Persist personal records data to the database.
