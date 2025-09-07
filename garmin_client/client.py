@@ -1,388 +1,468 @@
 """
-Garmin Connect Client Implementation.
+garmin_client/client.py
 
-Enhanced Garmin Connect client with encryption, error handling, and secure credential management.
-Research-validated implementation following PRP specifications.
+Thin wrapper around `python-garminconnect` with token restore, MFA and helpers.
+
+Hardened for Docker & first-run:
+- Uses ONLY python-garminconnect (no direct garth.* calls).
+- Never creates placeholder token files.
+- Restores session ONLY when both token files exist AND look valid.
+- On first credential login/MFA, temporarily unsets env that can trigger token reads
+  (GARMINTOKENS/GARTH_HOME), then saves tokens afterward.
+- Quarantines invalid token files to avoid Pydantic validation errors.
+- Falls back to writable locations (/data/garmin_tokens, /tmp/garmin_tokens) if the
+  primary token dir cannot be written.
 """
 
-from datetime import datetime
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import date, datetime
 import json
 import logging
+import os
 from pathlib import Path
-from typing import Dict, Optional, Union
-import pickle
-import base64
-import threading
+import time
+from typing import Any, Dict, List, Optional, Union
 
 try:
-    from garminconnect import Garmin
-    import garth
-    import garth.sso as garth_sso
-    from garth.exc import GarthException
-
-    GARMIN_CONNECT_AVAILABLE = True
-except ImportError:
-    GARMIN_CONNECT_AVAILABLE = False
-
-from cryptography.fernet import Fernet
+    # Import the enum for proper type hints
+    from garminconnect import (  # type: ignore
+        Garmin,
+        Garmin as GarminAPI,
+        GarminConnectAuthenticationError,
+        GarminConnectConnectionError,
+        GarminConnectTooManyRequestsError,
+    )
+except Exception:  # pragma: no cover
+    Garmin = None  # type: ignore
+    GarminConnectAuthenticationError = Exception  # type: ignore
+    GarminConnectConnectionError = Exception  # type: ignore
+    GarminConnectTooManyRequestsError = Exception  # type: ignore
 
 logger = logging.getLogger(__name__)
 
 
+def _to_iso(d: Union[str, date, datetime]) -> str:
+    if isinstance(d, datetime):
+        return d.date().isoformat()
+    if isinstance(d, date):
+        return d.isoformat()
+    return str(d)
+
+
+class GarminAuthError(RuntimeError):
+    """Exception raised when Garmin authentication fails."""
+
+    pass
+
+
+# ---------------- Token store utilities ----------------
+
+
+def _fallback_token_dirs() -> List[Path]:
+    """Writable fallbacks commonly mounted in Docker images (order matters)."""
+    return [Path("/data/garmin_tokens"), Path("/tmp/garmin_tokens")]
+
+
+def _read_json(fp: Path) -> Dict[str, Any]:
+    try:
+        return json.loads(fp.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _looks_like_oauth1(fp: Path) -> bool:
+    d = _read_json(fp)
+    return all(isinstance(d.get(k), str) and d[k] for k in ("oauth_token", "oauth_token_secret"))
+
+
+def _looks_like_oauth2(fp: Path) -> bool:
+    d = _read_json(fp)
+    return all(isinstance(d.get(k), str) and d[k] for k in ("access_token", "refresh_token"))
+
+
+def _has_valid_token_store(dirpath: Path) -> bool:
+    """True iff both token files exist and appear valid (avoid Pydantic errors)."""
+    o1 = dirpath / "oauth1_token.json"
+    o2 = dirpath / "oauth2_token.json"
+    if not (o1.exists() and o2.exists()):
+        return False
+    return _looks_like_oauth1(o1) and _looks_like_oauth2(o2)
+
+
+def _sanitize_token_store(dirpath: Path) -> None:
+    """
+    If token files exist but fail validation, rename them with a .corrupt.<ts> suffix
+    so the library won't try to parse them and bail.
+    """
+    o1 = dirpath / "oauth1_token.json"
+    o2 = dirpath / "oauth2_token.json"
+    ts = time.strftime("%Y%m%d-%H%M%S")
+
+    if o1.exists() and not _looks_like_oauth1(o1):
+        new = o1.with_suffix(o1.suffix + f".corrupt.{ts}")
+        try:
+            o1.rename(new)
+            logger.warning("Quarantined invalid token file: %s -> %s", o1, new)
+        except Exception as e:
+            logger.warning("Failed to quarantine %s: %s", o1, e)
+
+    if o2.exists() and not _looks_like_oauth2(o2):
+        new = o2.with_suffix(o2.suffix + f".corrupt.{ts}")
+        try:
+            o2.rename(new)
+            logger.warning("Quarantined invalid token file: %s -> %s", o2, new)
+        except Exception as e:
+            logger.warning("Failed to quarantine %s: %s", o2, e)
+
+
+def _ensure_writable_dir_or_fallback(primary: Path) -> Path:
+    """
+    Ensure we can write tokens somewhere.
+    Try primary, then fallbacks; return the chosen dir.
+    """
+    try:
+        primary.mkdir(parents=True, exist_ok=True)
+        (primary / ".writable.check").write_text("ok", encoding="utf-8")
+        (primary / ".writable.check").unlink(missing_ok=True)
+        return primary
+    except Exception as e:
+        logger.warning("Primary token dir %s not writable (%s). Trying fallbacks...", primary, e)
+
+    for fb in _fallback_token_dirs():
+        try:
+            fb.mkdir(parents=True, exist_ok=True)
+            (fb / ".writable.check").write_text("ok", encoding="utf-8")
+            (fb / ".writable.check").unlink(missing_ok=True)
+            logger.info("Using fallback token directory %s. Set GARMINTOKENS=%s to persist here.", fb, fb)
+            return fb
+        except Exception as e2:
+            logger.warning("Fallback token dir %s not usable: %s", fb, e2)
+
+    raise GarminAuthError(
+        f"No writable token directory available. "
+        f"Check permissions for {primary} or bind-mount a writable dir "
+        f"(e.g. ./data/garmin_tokens:/home/garmin/.garminconnect) and/or set GARMINTOKENS."
+    )
+
+
+@contextmanager
+def _temporarily_unset_env(keys: List[str]):
+    """
+    Temporarily remove environment variables (e.g., GARMINTOKENS/GARTH_HOME)
+    so first-run credential login doesn't try to read empty token stores.
+    """
+    old: Dict[str, Optional[str]] = {k: os.environ.pop(k, None) for k in keys}
+    try:
+        yield
+    finally:
+        for k, v in old.items():
+            if v is not None:
+                os.environ[k] = v
+
+
+# ---------------- Client ----------------
+
+
 class GarminConnectClient:
-    """Enhanced Garmin Connect client with encryption and error handling."""
+    """
+    Wrapper around cyberjunky/python-garminconnect with a resilient token store.
+    """
 
-    def __init__(self, config_dir: Path = None):
-        """
-        Initialize Garmin Connect client.
+    def __init__(self, token_dir: Optional[Union[str, Path]] = None) -> None:
+        token_env = os.getenv("GARMINTOKENS")
+        if token_dir is None:
+            token_dir = token_env or "~/.garminconnect"
+        self.token_dir = Path(os.path.expanduser(str(token_dir)))
+        self.api: Optional[Garmin] = None
+        self._pending_mfa_ctx: Optional[Any] = None
+        self._pending_remember: bool = False
+        self._username: Optional[str] = None
 
-        Args:
-            config_dir: Directory for storing configuration and credentials.
-                       Defaults to ~/.garmin-dashboard
-        """
-        self.config_dir = config_dir or Path.home() / ".garmin-dashboard"
-        self.config_dir.mkdir(exist_ok=True)
+    # -------- Session helpers
 
-        # Configuration files
-        self.credentials_file = self.config_dir / "credentials.enc"
-        self.config_file = self.config_dir / "config.json"
-        self.session_file = self.config_dir / "session.json"
-        self.log_file = self.config_dir / "client.log"
+    def is_authenticated(self) -> bool:
+        """Check if the client is authenticated with Garmin Connect."""
+        return self.api is not None
 
-        # Initialize encryption
-        self._encryption_key = self._get_or_create_key()
+    def username(self) -> Optional[str]:
+        """Get the authenticated username."""
+        return self._username
 
-        # API instance
-        self._api: Optional[Garmin] = None
-        self._authenticated = False
+    # -------- Internals
 
-        # Setup logging
-        self._setup_logging()
-
-        # Check if Garmin Connect library is available
-        if not GARMIN_CONNECT_AVAILABLE:
-            logger.warning("garminconnect library not available. Please install with: pip install garminconnect")
-
-        logger.info("GarminConnectClient initialized")
-
-    def _setup_logging(self):
-        """Set up logging to file."""
-        # Create file handler
-        file_handler = logging.FileHandler(self.log_file)
-        file_handler.setLevel(logging.DEBUG)
-
-        # Create formatter
-        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        file_handler.setFormatter(formatter)
-
-        # Add handler to logger
-        logger.addHandler(file_handler)
-
-    def _get_or_create_key(self) -> bytes:
-        """Get or create encryption key for credentials."""
-        key_file = self.config_dir / "key.bin"
-
-        if key_file.exists():
-            return key_file.read_bytes()
-        key = Fernet.generate_key()
-        key_file.write_bytes(key)
-        key_file.chmod(0o600)  # Secure permissions
-        logger.info("Created new encryption key")
-        return key
-
-    def store_credentials(self, email: str, password: str):
-        """
-        Securely store Garmin Connect credentials.
-
-        Args:
-            email: Garmin Connect email
-            password: Garmin Connect password
-        """
-        fernet = Fernet(self._encryption_key)
-
-        credentials = {"email": email, "password": password, "stored_at": datetime.now().isoformat()}
-
-        encrypted_data = fernet.encrypt(json.dumps(credentials).encode())
-        self.credentials_file.write_bytes(encrypted_data)
-        self.credentials_file.chmod(0o600)
-
-        logger.info("Credentials stored securely")
-
-    def load_credentials(self) -> Optional[Dict[str, str]]:
-        """
-        Load and decrypt stored credentials.
-
-        Returns:
-            Dictionary with email and password, or None if not found
-        """
-        if not self.credentials_file.exists():
-            return None
-
+    def _boot_api_from_tokens(self, dirpath: Path) -> bool:
+        """Attempt to boot a Garmin() client from a token directory."""
+        if Garmin is None:
+            raise GarminAuthError("garminconnect library not installed")
         try:
-            fernet = Fernet(self._encryption_key)
-            encrypted_data = self.credentials_file.read_bytes()
-            decrypted_data = fernet.decrypt(encrypted_data)
-            return json.loads(decrypted_data.decode())
+            g = Garmin()
+            g.login(str(dirpath))  # loads OAuth token store
+            self.api = g
+            try:
+                self._username = (self.api.get_full_name() or "").split(" ")[0] or "garmin"
+            except Exception:
+                self._username = "garmin"
+            logger.info("Loaded Garmin tokens from %s", dirpath)
+            self.token_dir = dirpath  # adopt the working token dir
+            return True
         except Exception as e:
-            logger.error(f"Failed to load credentials: {e}")
-            return None
+            logger.info("No valid Garmin session in %s: %s", dirpath, e)
+            return False
 
-    def clear_credentials(self):
-        """Clear stored credentials."""
-        if self.credentials_file.exists():
-            self.credentials_file.unlink()
-            logger.info("Credentials cleared")
-
-    def _login_with_timeout(self, email: str, password: str, timeout: int = 30):
+    def _save_tokens_with_fallback(self) -> None:
         """
-        Perform garth.login with timeout protection.
-
-        Args:
-            email: Garmin Connect email
-            password: Garmin Connect password
-            timeout: Timeout in seconds (default: 30)
-
-        Returns:
-            Tuple of (result1, result2) or (None, None) if timeout/error
+        Persist tokens using the API's internal garth client to the primary dir,
+        else fall back to a writable location.
         """
-        result = {"result1": None, "result2": None, "exception": None}
+        if self.api is None:
+            raise GarminAuthError("Not authenticated; cannot persist tokens")
 
-        def target():
-            try:
-                logger.info(f"Starting garth.login for {email}")
-                result1, result2 = garth.login(email, password, return_on_mfa=True)
-                result["result1"] = result1
-                result["result2"] = result2
-                logger.info(f"garth.login completed with result: {result1}")
-            except Exception as e:
-                logger.error(f"garth.login failed with exception: {e}")
-                result["exception"] = e
-
-        thread = threading.Thread(target=target)
-        thread.daemon = True
-        thread.start()
-
-        # Wait for completion or timeout
-        thread.join(timeout)
-
-        if thread.is_alive():
-            logger.error(f"garth.login timed out after {timeout} seconds")
-            # Note: We can't forcefully kill the thread, but we can return timeout status
-            return None, "TIMEOUT"
-
-        if result["exception"]:
-            raise result["exception"]
-
-        return result["result1"], result["result2"]
-
-    def authenticate(
-        self, email: str = None, password: str = None, mfa_callback=None, mfa_context=None, remember_me: bool = False
-    ) -> Union[bool, str, dict]:
-        """
-        Authenticate with Garmin Connect using garth, with MFA support.
-
-        Args:
-            email: Garmin Connect email (optional if stored)
-            password: Garmin Connect password (optional if stored)
-            mfa_callback: Callable that returns MFA code when called
-            mfa_context: The result2 object returned by garth.login when MFA is required (used for resuming)
-            remember_me: Whether to store credentials for future logins
-
-        Returns:
-            dict with status and optional mfa_context:
-                {"status": "SUCCESS"} -> Authentication successful
-                {"status": "MFA_REQUIRED", "mfa_context": result2} -> MFA needed
-                {"status": "MFA_FAILED"} -> MFA provided but invalid
-                {"status": "FAILED"} -> Authentication failed
-        """
-        if not GARMIN_CONNECT_AVAILABLE:
-            logger.error("garminconnect library not available")
-            return {"status": "FAILED"}
-
-        # Store credentials immediately if remember_me is enabled and credentials provided
-        if remember_me and email and password:
-            self.store_credentials(email, password)
-            logger.info("Credentials stored (remember me enabled)")
-
-        # Load stored credentials if not provided
-        if not (email and password):
-            credentials = self.load_credentials()
-            if not credentials:
-                logger.error("No credentials provided or stored")
-                return {"status": "FAILED"}
-            email = credentials["email"]
-            password = credentials["password"]
-
-        garth_session_path = self.config_dir / "garth_session"
-
-        # Validate and try to resume previous session
-        session_valid = False
-        if garth_session_path.exists():
-            try:
-                # Pre-validate the session directory structure and files
-                oauth1_file = garth_session_path / "oauth1"
-                oauth2_file = garth_session_path / "oauth2"
-
-                # Check if the session directory has the expected structure
-                if garth_session_path.is_dir():
-                    # Try to validate oauth1 file if it exists
-                    if oauth1_file.exists():
-                        with open(oauth1_file, "r") as f:
-                            oauth1_data = json.load(f)
-                            # Validate that it's a proper dict, not a string
-                            if isinstance(oauth1_data, dict):
-                                session_valid = True
-                            else:
-                                logger.warning(f"OAuth1 file contains invalid data type: {type(oauth1_data)}")
-                    else:
-                        logger.info("No OAuth1 file found in session")
-                else:
-                    logger.warning("Session path exists but is not a directory")
-
-            except (json.JSONDecodeError, FileNotFoundError, TypeError, ValueError) as validation_error:
-                logger.warning(f"Session validation failed: {validation_error}")
-                session_valid = False
-
-        if session_valid:
-            try:
-                garth.resume(str(garth_session_path))
-                logger.info("Resumed existing garth session")
-                self._api = Garmin()
-                self._authenticated = True
-                return {"status": "SUCCESS"}
-            except (
-                GarthException,
-                FileNotFoundError,
-                json.JSONDecodeError,
-                NotADirectoryError,
-                TypeError,
-                ValueError,
-            ) as e:
-                logger.info(f"Session resume failed despite validation: {e}")
-                session_valid = False
-
-        # Clean up corrupted or invalid session files
-        if not session_valid and garth_session_path.exists():
-            try:
-                import shutil
-
-                shutil.rmtree(garth_session_path, ignore_errors=True)
-                logger.info("Cleaned up corrupted session files")
-            except Exception as cleanup_error:
-                logger.warning(f"Could not clean up session files: {cleanup_error}")
-
-        logger.info("No valid session found, performing fresh login")
-
+        # Try primary
         try:
-            if mfa_context and mfa_callback:
-                # Resume MFA login flow
-                logger.info("Resuming login with MFA code...")
-                mfa_code = mfa_callback()
-                if not mfa_code:
-                    logger.warning("MFA code required but not provided by callback")
-                    return {"status": "MFA_REQUIRED", "mfa_context": mfa_context}
+            chosen = _ensure_writable_dir_or_fallback(self.token_dir)
+            # .garth.dump writes oauth1/2 json files
+            self.api.garth.dump(str(chosen))
+            self.token_dir = chosen
+            return
+        except PermissionError as e:
+            logger.warning("Cannot write tokens to %s: %s. Trying fallbacks...", self.token_dir, e)
+        except Exception as e:
+            logger.warning("Failed to write tokens to %s: %s. Trying fallbacks...", self.token_dir, e)
 
-                try:
-                    garth_sso.resume_login(mfa_context, mfa_code)
-                    logger.info("MFA authentication successful")
-                except Exception as e:
-                    logger.error(f"MFA authentication failed: {e}")
-                    return {"status": "MFA_FAILED"}
+        # Try fallbacks
+        for fb in _fallback_token_dirs():
+            try:
+                fb.mkdir(parents=True, exist_ok=True)
+                self.api.garth.dump(str(fb))
+                logger.info("Saved tokens to fallback dir %s. Consider setting GARMINTOKENS=%s", fb, fb)
+                self.token_dir = fb
+                return
+            except Exception as e2:
+                logger.warning("Fallback %s also failed: %s", fb, e2)
 
+        raise GarminAuthError(
+            f"Failed to save Garmin tokens; check permissions for {self.token_dir} "
+            f"or mount a writable dir via GARMINTOKENS or /data/garmin_tokens."
+        )
+
+    # -------- Bootstrap session
+
+    def load_session(self) -> Dict[str, Any]:
+        """
+        Try loading a previous session from token directory or fallbacks.
+        Only attempt restore if token files exist and look valid.
+        """
+        try:
+            if Garmin is None:
+                raise GarminAuthError("garminconnect library not installed")
+
+            # Primary location first
+            if self.token_dir.exists():
+                if _has_valid_token_store(self.token_dir) and self._boot_api_from_tokens(self.token_dir):
+                    return {"is_authenticated": True, "username": self._username, "mfa_required": False}
+                else:
+                    logger.info("Token directory %s exists but has no valid tokens yet.", self.token_dir)
             else:
-                # First-time login attempt with timeout protection
-                logger.info(f"Authenticating as {email}")
-                result1, result2 = self._login_with_timeout(email, password, timeout=30)
+                logger.info(
+                    "Token directory %s does not exist yet; it will be created on first successful login.",
+                    self.token_dir,
+                )
 
-                # Handle timeout case
-                if result2 == "TIMEOUT":
-                    logger.error("Authentication timed out - likely server/network issue")
-                    return {"status": "FAILED"}
+            # Fallbacks (only if they have valid tokens)
+            for fb in _fallback_token_dirs():
+                if fb.exists() and _has_valid_token_store(fb) and self._boot_api_from_tokens(fb):
+                    return {"is_authenticated": True, "username": self._username, "mfa_required": False}
 
+            # None worked
+            self.api = None
+            self._username = None
+            return {"is_authenticated": False, "username": None, "mfa_required": False}
+
+        except (GarminConnectAuthenticationError, GarminConnectConnectionError) as e:
+            logger.info("Error while loading session: %s", e)
+            self.api = None
+            self._username = None
+            return {"is_authenticated": False, "username": None, "mfa_required": False}
+
+    # -------- Interactive login (python-garminconnect only)
+
+    def login(self, email: str, password: str, remember: bool = True) -> Dict[str, Any]:
+        """
+        Start a credential login with python-garminconnect.
+        - Ensure token dir is writable (choose fallback if needed).
+        - Temporarily unset env (GARMINTOKENS/GARTH_HOME) to prevent first-run token reads.
+        - Proceed with credential login; persist tokens if requested.
+        """
+        if Garmin is None:
+            raise GarminAuthError("garminconnect library not installed")
+        try:
+            # Choose a writable target dir up front (but do not create any token files)
+            self.token_dir = _ensure_writable_dir_or_fallback(self.token_dir)
+
+            # Ensure bad files (if any) don't poison the flow
+            _sanitize_token_store(self.token_dir)
+
+            g = Garmin(email=email, password=password, return_on_mfa=True)
+
+            # On some stacks, env vars can make the underlying auth try to read tokens
+            with _temporarily_unset_env(["GARMINTOKENS", "GARTH_HOME"]):
+                result1, ctx = g.login()  # credential login flow
+
+            if result1 == "needs_mfa":
+                self.api = g
+                self._pending_mfa_ctx = ctx
+                self._pending_remember = bool(remember)
+                return {"success": True, "mfa_required": True, "username": None}
+
+            # Logged in without MFA
+            self.api = g
+            try:
+                self._username = (self.api.get_full_name() or "").split(" ")[0]
+            except Exception:
+                self._username = "garmin"
+            if remember:
+                self._save_tokens_with_fallback()
+
+            return {"success": True, "mfa_required": False, "username": self._username}
+
+        except (GarminConnectAuthenticationError, GarminConnectConnectionError, GarminConnectTooManyRequestsError) as e:
+            raise GarminAuthError(str(e)) from e
+        except FileNotFoundError as e:
+            # If any lib attempts to read token files mid-flow, treat as first-run and retry once
+            logger.warning("First-run token read attempt failed (%s). Retrying login fresh.", e)
+            try:
+                with _temporarily_unset_env(["GARMINTOKENS", "GARTH_HOME"]):
+                    result1, ctx = g.login()
                 if result1 == "needs_mfa":
-                    logger.info("MFA required for authentication")
-                    if not mfa_callback:
-                        try:
-                            # serialize result2 to base64 string for safe storage
-                            logger.debug(f"Serializing MFA context: {type(result2)}")
-                            mfa_context_serialized = base64.b64encode(pickle.dumps(result2)).decode("utf-8")
-                            logger.info("MFA context serialized successfully")
-                            return {"status": "MFA_REQUIRED", "mfa_context": mfa_context_serialized}
-                        except Exception as pickle_error:
-                            logger.error(f"Failed to serialize MFA context: {pickle_error}")
-                            # Fallback: return MFA_REQUIRED without context (user will need to restart auth)
-                            return {"status": "MFA_REQUIRED", "mfa_context": None}
+                    self.api = g
+                    self._pending_mfa_ctx = ctx
+                    self._pending_remember = bool(remember)
+                    return {"success": True, "mfa_required": True, "username": None}
+                self.api = g
+                if remember:
+                    self._save_tokens_with_fallback()
+                self._username = (self.api.get_full_name() or "garmin").split(" ")[0]
+                return {"success": True, "mfa_required": False, "username": self._username}
+            except Exception as e2:
+                raise GarminAuthError(str(e2)) from e2
 
-                    # MFA callback available - collect and try to resume immediately
-                    mfa_code = mfa_callback()
-                    if not mfa_code:
-                        logger.warning("MFA code required but not provided by callback")
-                        mfa_context_serialized = base64.b64encode(pickle.dumps(result2)).decode("utf-8")
-                        return {"status": "MFA_REQUIRED", "mfa_context": mfa_context_serialized}
+    def submit_mfa(self, code: str, remember: Optional[bool] = None) -> Dict[str, Any]:
+        """
+        Complete the MFA challenge that was initiated during login().
+        """
+        if self.api is None or self._pending_mfa_ctx is None:
+            raise GarminAuthError("No MFA challenge in progress")
+        try:
+            # Ensure token dir is sane & env doesn't force token reads mid-resume
+            self.token_dir = _ensure_writable_dir_or_fallback(self.token_dir)
+            _sanitize_token_store(self.token_dir)
 
-                    try:
-                        garth_sso.resume_login(result2, mfa_code)
-                        logger.info("MFA authentication successful")
-                    except Exception as e:
-                        logger.error(f"MFA authentication failed: {e}")
-                        return {"status": "MFA_FAILED"}
-                else:
-                    logger.info("Direct authentication successful (no MFA required)")
+            with _temporarily_unset_env(["GARMINTOKENS", "GARTH_HOME"]):
+                self.api.resume_login(self._pending_mfa_ctx, str(code).strip())
 
-            # Save session on success
-            try:
-                garth.save(str(garth_session_path))
-                logger.info("Garth session saved successfully")
-            except Exception as e:
-                logger.error(f"Failed to save garth session: {e}")
-                # Continue anyway, as we can still authenticate
-
-            self._api = Garmin()
-            self._authenticated = True
+            self._pending_mfa_ctx = None
 
             try:
-                session_data = {
-                    "authenticated_at": datetime.now().isoformat(),
-                    "email": email,
-                    "garth_session_path": str(garth_session_path),
-                }
-                with open(self.session_file, "w") as f:
-                    json.dump(session_data, f)
-                logger.info("Session data saved successfully")
-            except Exception as e:
-                logger.error(f"Failed to save session data: {e}")
-                # Continue anyway, authentication was successful
+                self._username = (self.api.get_full_name() or "").split(" ")[0]
+            except Exception:
+                self._username = "garmin"
+            if remember if remember is not None else self._pending_remember:
+                self._save_tokens_with_fallback()
 
-            logger.info("Authentication successful")
-            return {"status": "SUCCESS"}
+            return {"success": True, "username": self._username}
 
-        except Exception as e:
-            error_str = str(e).lower()
-            if any(k in error_str for k in ["mfa", "verification", "2fa", "two-factor", "needs_mfa"]):
-                logger.warning("MFA required but no callback provided or authentication failed")
-                return {"status": "MFA_REQUIRED"}
-            logger.error(f"Authentication failed: {e}")
-            self._authenticated = False
-            return {"status": "FAILED"}
+        except (GarminConnectAuthenticationError, GarminConnectConnectionError, GarminConnectTooManyRequestsError) as e:
+            raise GarminAuthError(str(e)) from e
+        except FileNotFoundError as e:
+            # Retry once without env pointing at a token dir
+            logger.warning("First-run token read attempt during MFA failed (%s). Retrying once.", e)
+            try:
+                with _temporarily_unset_env(["GARMINTOKENS", "GARTH_HOME"]):
+                    self.api.resume_login(self._pending_mfa_ctx, str(code).strip())
+                self._pending_mfa_ctx = None
+                if remember if remember is not None else self._pending_remember:
+                    self._save_tokens_with_fallback()
+                self._username = (self.api.get_full_name() or "garmin").split(" ")[0]
+                return {"success": True, "username": self._username}
+            except Exception as e2:
+                raise GarminAuthError(str(e2)) from e2
 
+    # -------- Data helpers used by sync page
 
-# Convenience functions for common operations
-def create_client(config_dir: Path = None) -> GarminConnectClient:
-    """Create a new Garmin Connect client instance."""
-    return GarminConnectClient(config_dir)
+    def get_activities_by_date(
+        self,
+        start: Union[str, date, datetime],
+        end: Union[str, date, datetime],
+        activity_type: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Get activities within a date range."""
+        if self.api is None:
+            raise GarminAuthError("Not authenticated")
+        return self.api.get_activities_by_date(_to_iso(start), _to_iso(end), activity_type)
 
+    def get_activities(self, start: int = 0, limit: int = 100, activity_type: str = "") -> List[Dict[str, Any]]:
+        """Get activities with pagination."""
+        if self.api is None:
+            raise GarminAuthError("Not authenticated")
+        return self.api.get_activities(start, limit, activity_type)
 
-def quick_authenticate(email: str, password: str, config_dir: Path = None) -> Optional[GarminConnectClient]:
-    """
-    Quickly authenticate and return client instance.
+    def download_activity_fit(self, activity_id: Union[int, str], dest_dir: Union[str, Path]) -> Path:
+        """Download a single activity as .FIT file and return the path."""
+        if self.api is None:
+            raise GarminAuthError("Not authenticated")
+        dest = Path(dest_dir)
+        dest.mkdir(parents=True, exist_ok=True)
 
-    Args:
-        email: Garmin Connect email
-        password: Garmin Connect password
-        config_dir: Configuration directory
+        # Download the original format (usually a ZIP containing the FIT file)
+        content = self.api.download_activity(activity_id, dl_fmt=GarminAPI.ActivityDownloadFormat.ORIGINAL)
 
-    Returns:
-        Authenticated client instance or None if failed
-    """
-    client = GarminConnectClient(config_dir)
-    return client if client.authenticate(email, password) else None
+        # Check if it's a ZIP file
+        if content.startswith(b"PK"):
+            # It's a ZIP file, extract the FIT file
+            import io
+            import zipfile
+
+            with zipfile.ZipFile(io.BytesIO(content)) as zip_file:
+                # Look for .FIT files in the ZIP
+                fit_files = [name for name in zip_file.namelist() if name.lower().endswith(".fit")]
+                if not fit_files:
+                    raise ValueError(f"No .FIT file found in downloaded ZIP for activity {activity_id}")
+
+                # Extract the first FIT file
+                fit_filename = fit_files[0]
+                fit_content = zip_file.read(fit_filename)
+
+                out = dest / f"{activity_id}.fit"
+                out.write_bytes(fit_content)
+                return out
+        else:
+            # It's already a FIT file
+            out = dest / f"{activity_id}.fit"
+            out.write_bytes(content)
+            return out
+
+    def wellness_summary_for_day(self, d: Union[str, date, datetime]) -> Dict[str, Any]:
+        """Get wellness data summary for a specific day."""
+        if self.api is None:
+            raise GarminAuthError("Not authenticated")
+        d_iso = _to_iso(d)
+        out: Dict[str, Any] = {}
+        try:
+            out["steps"] = self.api.get_steps_data(d_iso)
+        except Exception:
+            pass
+        try:
+            out["stress"] = self.api.get_stress_data(d_iso)
+        except Exception:
+            pass
+        try:
+            out["sleep"] = self.api.get_sleep_data(d_iso)
+        except Exception:
+            pass
+        try:
+            out["hrv"] = self.api.get_hrv_data(d_iso)
+        except Exception:
+            pass
+        return out

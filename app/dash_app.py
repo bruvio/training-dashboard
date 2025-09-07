@@ -7,6 +7,14 @@ Bootstrap theme integration and proper page container setup.
 
 import logging
 import os
+import sys
+from pathlib import Path
+
+# Fix imports for both direct execution and package import
+# Get the project root (parent of app directory) and add to sys.path
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 import dash
 from dash import Input, Output, State, dcc, html
@@ -39,75 +47,84 @@ server.config.update(
 
 # Import page modules immediately after app creation to register callbacks
 try:
-    import sys
+    # Import database models to ensure they're registered
+    from app.data import garmin_models  # Import all wellness models # noqa: F401
+    from app.data import models  # noqa: F401
 
-    # Add both possible paths to ensure imports work
-    if "/app" not in sys.path:
-        sys.path.insert(0, "/app")
-    if "/app/app" not in sys.path:
-        sys.path.insert(0, "/app/app")
+    # Note: garth_models has conflicting table names with garmin_models, so we skip it
+    logger.info("✅ All database models imported - tables will be available for creation")
 
     # Import pages to register their callbacks with the app
-    sys.path.insert(0, "/app")  # Ensure /app is first for pages import
-    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats
+    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats, sync
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)
     settings.register_callbacks(app)
     fit_upload.register_callbacks(app)
     stats.register_callbacks(app)
+    # Note: sync page uses @callback decorator, so callbacks are auto-registered on import
     logger.info("✅ All page modules imported successfully - callbacks registered")
 
 except ImportError as e:
     logger.error(f"❌ Failed to import page modules: {e}")
-    # Fallback: try absolute imports
+    logger.error("   Please ensure you're running from the project root directory")
+    raise
+
+
+# Initialize Garmin session on startup
+def initialize_garmin_session():
+    """Check for and restore existing Garmin Connect sessions on app startup."""
     try:
-        import sys
+        from garmin_client.client import GarminConnectClient
 
-        sys.path.insert(0, "/app")
+        logger.info("🔍 Checking for existing Garmin Connect sessions...")
 
-        # Try importing directly from /app/pages
-        import importlib.util
+        client = GarminConnectClient()
 
-        # Load calendar module
-        calendar_spec = importlib.util.spec_from_file_location("calendar", "/app/pages/calendar.py")
-        calendar = importlib.util.module_from_spec(calendar_spec)
-        calendar_spec.loader.exec_module(calendar)
+        # Check if we have valid stored credentials
+        credentials = client.load_session()
+        if credentials.get("is_authenticated"):
+            logger.info("📝 Found stored Garmin credentials")
 
-        # Load activity_detail module
-        activity_spec = importlib.util.spec_from_file_location("activity_detail", "/app/pages/activity_detail.py")
-        activity_detail = importlib.util.module_from_spec(activity_spec)
-        activity_spec.loader.exec_module(activity_detail)
+        # Session status already determined from load_session above
+        if credentials.get("is_authenticated"):
+            logger.info(f"✅ Garmin session active for user: {credentials.get('username', 'Unknown')}")
+            logger.info("   Users can navigate to /garmin to sync data")
+        else:
+            logger.info("📱 No valid Garmin session found - users will need to login")
 
-        # Load garmin_login module
-        garmin_spec = importlib.util.spec_from_file_location("garmin_login", "/app/pages/garmin_login.py")
-        garmin_login = importlib.util.module_from_spec(garmin_spec)
-        garmin_spec.loader.exec_module(garmin_login)
+    except Exception as e:
+        logger.warning(f"⚠️ Error during Garmin session initialization: {e}")
+        logger.info("   App will continue normally - users can login manually")
 
-        # Load settings module
-        settings_spec = importlib.util.spec_from_file_location("settings", "/app/pages/settings.py")
-        settings = importlib.util.module_from_spec(settings_spec)
-        settings_spec.loader.exec_module(settings)
 
-        # Load fit_upload module
-        fit_upload_spec = importlib.util.spec_from_file_location("fit_upload", "/app/pages/fit_upload.py")
-        fit_upload = importlib.util.module_from_spec(fit_upload_spec)
-        fit_upload_spec.loader.exec_module(fit_upload)
+# Initialize database tables
+def initialize_database():
+    """Initialize database tables on app startup."""
+    try:
+        from app.data.db import init_database
 
-        # Load stats module
-        stats_spec = importlib.util.spec_from_file_location("stats", "/app/pages/stats.py")
-        stats = importlib.util.module_from_spec(stats_spec)
-        stats_spec.loader.exec_module(stats)
+        logger.info("🗄️ Initializing database tables...")
+        db_config = init_database()
+        logger.info("✅ Database tables initialized successfully")
 
-        # Register callbacks for pages that need them
-        garmin_login.register_callbacks(app)
-        settings.register_callbacks(app)
-        fit_upload.register_callbacks(app)
-        stats.register_callbacks(app)
-        logger.info("✅ Page modules imported via importlib - callbacks registered")
+        # Log database stats
+        db_info = db_config.get_database_info()
+        logger.info(
+            f"   Database: {db_info['activities']} activities, {db_info['samples']} samples, {db_info['laps']} laps"
+        )
 
-    except Exception as e2:
-        logger.error(f"❌ Complete failure to import page modules: {e2}")
+    except Exception as e:
+        logger.error(f"❌ Error during database initialization: {e}")
+        logger.info("   App will continue but may not function properly")
+
+
+# Initialize database and Garmin session after all imports are complete
+try:
+    initialize_database()
+    initialize_garmin_session()
+except Exception as e:
+    logger.warning(f"Initialization failed: {e}")
 
 
 # Main application layout with navigation and page container
@@ -147,8 +164,8 @@ app.layout = dbc.Container(
                                             className="text-white",
                                         ),
                                         dbc.NavLink(
-                                            [html.I(className="fas fa-download me-1"), "Garmin Sync"],
-                                            href="/garmin",
+                                            [html.I(className="fas fa-sync-alt me-1"), "Enhanced Sync"],
+                                            href="/sync",
                                             active="exact",
                                             className="text-white",
                                         ),
@@ -322,6 +339,17 @@ def display_page(pathname):
         except Exception as e:
             logger.error(f"Error loading statistics page: {e}")
             return html.Div([html.H2(f"Error loading statistics: {str(e)}")])
+
+    elif pathname == "/sync":
+        # Enhanced Garmin sync page
+        try:
+            from app.pages.sync import layout as sync_layout
+
+            logger.info("Loading enhanced sync page")
+            return sync_layout()
+        except Exception as e:
+            logger.error(f"Error loading enhanced sync page: {e}")
+            return html.Div([html.H2(f"Error loading enhanced sync: {str(e)}")])
 
     else:
         logger.info(f"Unknown pathname: {pathname}")

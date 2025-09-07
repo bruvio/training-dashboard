@@ -5,7 +5,7 @@ Research-validated patterns for integrating SQLAlchemy with Dash callbacks,
 including session management and query optimization.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import re
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +16,18 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..utils import get_logger, log_error
 from .db import session_scope
+from .garmin_models import (
+    DailyBodyBattery,
+    DailyHeartRate,
+    DailyIntensityMinutes,
+    DailySleep,
+    DailySpo2,
+    DailySteps,
+    DailyStress,
+    DailyTrainingReadiness,
+    MaxMetrics,
+    PersonalRecords,
+)
 from .models import Activity, Lap, Sample
 
 logger = get_logger(__name__)
@@ -584,25 +596,35 @@ def get_filter_options() -> Dict[str, Any]:
         }
 
 
-def get_activity_statistics() -> Dict[str, Any]:
+def get_activity_statistics(start_date: Optional[date] = None, end_date: Optional[date] = None) -> Dict[str, Any]:
     """
-    Get activity statistics for the stats page.
+    Get activity statistics for the stats page with optional date filtering.
+
+    Args:
+        start_date: Start date for filtering activities (inclusive)
+        end_date: End date for filtering activities (inclusive)
 
     Returns:
         Dict with total activities, distance, time, and average heart rate
     """
     try:
         with session_scope() as session:
-            stats = (
-                session.query(
-                    func.count(Activity.id).label("total_activities"),
-                    func.sum(Activity.distance_m).label("total_distance_m"),
-                    func.sum(Activity.elapsed_time_s).label("total_time_s"),
-                    func.avg(Activity.avg_hr).label("avg_heart_rate"),
-                )
-                .filter(Activity.distance_m.isnot(None))
-                .first()
-            )
+            query = session.query(
+                func.count(Activity.id).label("total_activities"),
+                func.sum(Activity.distance_m).label("total_distance_m"),
+                func.sum(Activity.elapsed_time_s).label("total_time_s"),
+                func.avg(Activity.avg_hr).label("avg_heart_rate"),
+            ).filter(Activity.distance_m.isnot(None))
+
+            # Apply date range filter if provided
+            if start_date:
+                query = query.filter(Activity.start_time_utc >= start_date)
+            if end_date:
+                # Include the entire end date
+                end_datetime = datetime.combine(end_date, datetime.max.time())
+                query = query.filter(Activity.start_time_utc <= end_datetime)
+
+            stats = query.first()
 
             # Convert to user-friendly format
             total_distance_km = (stats.total_distance_m or 0) / 1000
@@ -678,3 +700,931 @@ def check_database_connection() -> bool:
     except Exception as e:
         logger.error(f"Unexpected error checking database connection: {e}")
         return False
+
+
+def get_wellness_statistics() -> Dict[str, Any]:
+    """
+    Get comprehensive wellness data statistics for the stats page.
+
+    Implements all PRP requirements for wellness metrics display:
+    - Sleep metrics with quality scores
+    - Stress levels and breakdowns
+    - Daily activity (steps, floors, intensity)
+    - Heart rate analytics (resting, zones)
+    - Body Battery energy metrics
+    - Advanced wellness (hydration, respiration, SpO2)
+    - Training metrics (readiness, status, VO2 Max)
+    - Personal records and achievements
+
+    Returns:
+        Dict with comprehensive wellness statistics
+    """
+    try:
+        with session_scope() as session:
+            # Sleep statistics
+            sleep_stats = session.query(
+                func.count(DailySleep.id).label("total_sleep_records"),
+                func.avg(DailySleep.sleep_score).label("avg_sleep_score"),
+                func.avg(DailySleep.total_sleep_time_s).label("avg_sleep_time_s"),
+            ).first()
+
+            # Stress statistics
+            stress_stats = session.query(
+                func.count(DailyStress.id).label("total_stress_records"),
+                func.avg(DailyStress.avg_stress_level).label("avg_stress_level"),
+                func.avg(DailyStress.rest_minutes).label("avg_rest_minutes"),
+            ).first()
+
+            # Steps statistics
+            steps_stats = session.query(
+                func.count(DailySteps.id).label("total_steps_records"),
+                func.avg(DailySteps.total_steps).label("avg_daily_steps"),
+                func.sum(DailySteps.total_distance_m).label("total_walking_distance_m"),
+                func.avg(DailySteps.floors_climbed).label("avg_floors_climbed"),
+            ).first()
+
+            # Intensity statistics
+            intensity_stats = session.query(
+                func.count(DailyIntensityMinutes.id).label("total_intensity_records"),
+                func.avg(DailyIntensityMinutes.vigorous_minutes).label("avg_vigorous_minutes"),
+                func.avg(DailyIntensityMinutes.moderate_minutes).label("avg_moderate_minutes"),
+            ).first()
+
+            # Heart Rate statistics
+            hr_stats = session.query(
+                func.count(DailyHeartRate.id).label("total_hr_records"),
+                func.avg(DailyHeartRate.resting_hr).label("avg_resting_hr"),
+                func.avg(DailyHeartRate.max_hr).label("avg_max_hr"),
+            ).first()
+
+            # Body Battery statistics
+            bb_stats = session.query(
+                func.count(DailyBodyBattery.id).label("total_bb_records"),
+                func.avg(DailyBodyBattery.body_battery_score).label("avg_body_battery"),
+                func.avg(DailyBodyBattery.charged_value).label("avg_charged"),
+            ).first()
+
+            # Training Readiness statistics
+            tr_stats = session.query(
+                func.count(DailyTrainingReadiness.id).label("total_tr_records"),
+                func.avg(DailyTrainingReadiness.training_readiness_score).label("avg_training_readiness"),
+            ).first()
+
+            # SpO2 statistics
+            spo2_stats = session.query(
+                func.count(DailySpo2.id).label("total_spo2_records"),
+                func.avg(DailySpo2.avg_spo2_percentage).label("avg_spo2"),
+            ).first()
+
+            # Personal Records count
+            pr_count = session.query(func.count(PersonalRecords.id)).scalar() or 0
+
+            # Max Metrics (VO2 Max)
+            max_metrics = session.query(
+                func.count(MaxMetrics.id).label("total_max_records"),
+                func.avg(MaxMetrics.vo2_max_value).label("avg_vo2_max"),
+            ).first()
+
+            return {
+                "sleep": {
+                    "total_records": sleep_stats.total_sleep_records or 0,
+                    "avg_sleep_score": round(sleep_stats.avg_sleep_score or 0, 1),
+                    "avg_sleep_hours": round((sleep_stats.avg_sleep_time_s or 0) / 3600, 1),
+                },
+                "stress": {
+                    "total_records": stress_stats.total_stress_records or 0,
+                    "avg_stress_level": round(stress_stats.avg_stress_level or 0, 1),
+                    "avg_rest_minutes": round(stress_stats.avg_rest_minutes or 0, 1),
+                },
+                "steps": {
+                    "total_records": steps_stats.total_steps_records or 0,
+                    "avg_daily_steps": int(steps_stats.avg_daily_steps or 0),
+                    "total_walking_distance_km": round((steps_stats.total_walking_distance_m or 0) / 1000, 1),
+                    "avg_floors_climbed": round(steps_stats.avg_floors_climbed or 0, 1),
+                },
+                "intensity": {
+                    "total_records": intensity_stats.total_intensity_records or 0,
+                    "avg_vigorous_minutes": round(intensity_stats.avg_vigorous_minutes or 0, 1),
+                    "avg_moderate_minutes": round(intensity_stats.avg_moderate_minutes or 0, 1),
+                },
+                "heart_rate": {
+                    "total_records": hr_stats.total_hr_records or 0,
+                    "avg_resting_hr": round(hr_stats.avg_resting_hr or 0, 1),
+                    "avg_max_hr": round(hr_stats.avg_max_hr or 0, 1),
+                },
+                "body_battery": {
+                    "total_records": bb_stats.total_bb_records or 0,
+                    "avg_body_battery": round(bb_stats.avg_body_battery or 0, 1),
+                    "avg_charged": round(bb_stats.avg_charged or 0, 1),
+                },
+                "training_readiness": {
+                    "total_records": tr_stats.total_tr_records or 0,
+                    "avg_score": round(tr_stats.avg_training_readiness or 0, 1),
+                },
+                "spo2": {
+                    "total_records": spo2_stats.total_spo2_records or 0,
+                    "avg_spo2": round(spo2_stats.avg_spo2 or 0, 1),
+                },
+                "personal_records": {
+                    "total_records": pr_count,
+                },
+                "max_metrics": {
+                    "total_records": max_metrics.total_max_records or 0,
+                    "avg_vo2_max": round(max_metrics.avg_vo2_max or 0, 1),
+                },
+                "stats_failed": False,
+            }
+    except Exception as e:
+        log_error(e, "Failed to get comprehensive wellness statistics")
+        return {
+            "sleep": {"total_records": 0, "avg_sleep_score": 0, "avg_sleep_hours": 0},
+            "stress": {"total_records": 0, "avg_stress_level": 0, "avg_rest_minutes": 0},
+            "steps": {
+                "total_records": 0,
+                "avg_daily_steps": 0,
+                "total_walking_distance_km": 0,
+                "avg_floors_climbed": 0,
+            },
+            "intensity": {"total_records": 0, "avg_vigorous_minutes": 0, "avg_moderate_minutes": 0},
+            "heart_rate": {"total_records": 0, "avg_resting_hr": 0, "avg_max_hr": 0},
+            "body_battery": {"total_records": 0, "avg_body_battery": 0, "avg_charged": 0},
+            "training_readiness": {"total_records": 0, "avg_score": 0},
+            "spo2": {"total_records": 0, "avg_spo2": 0},
+            "personal_records": {"total_records": 0},
+            "max_metrics": {"total_records": 0, "avg_vo2_max": 0},
+            "stats_failed": True,
+        }
+
+
+def get_sleep_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+    """
+    Get sleep data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
+
+    Returns:
+        DataFrame with sleep data including quality and stages
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range 
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
+
+            # IMPORTANT: no SQL ORDER BY here (avoid SQLite "not an error")
+            # Filter out rows with no meaningful sleep data (total_sleep_time_s > 0)
+            records = (
+                session.query(DailySleep)
+                .filter(DailySleep.date >= start_date_obj)
+                .filter(DailySleep.date <= end_date_obj)
+                .filter(DailySleep.total_sleep_time_s > 0)
+                .all()
+            )
+
+            if not records:
+                return pd.DataFrame()
+
+            rows = []
+            for r in records:
+                rows.append(
+                    {
+                        "date": getattr(r, "date", None),
+                        "bedtime_utc": getattr(r, "bedtime_utc", None),
+                        "wakeup_time_utc": getattr(r, "wakeup_time_utc", None),
+                        "total_sleep_time_s": getattr(r, "total_sleep_time_s", None),
+                        "deep_sleep_s": getattr(r, "deep_sleep_s", None),
+                        "light_sleep_s": getattr(r, "light_sleep_s", None),
+                        "rem_sleep_s": getattr(r, "rem_sleep_s", None),
+                        "awake_time_s": getattr(r, "awake_time_s", None),
+                        "sleep_score": getattr(r, "sleep_score", None),
+                        "restlessness": getattr(r, "restlessness", None),
+                        "efficiency_percentage": getattr(r, "efficiency_percentage", None),
+                        "data_source": getattr(r, "data_source", None),
+                        "retrieved_at": getattr(r, "retrieved_at", None),
+                    }
+                )
+
+            df = pd.DataFrame(rows)
+            if df.empty:
+                return df
+
+            # Normalize/sort on the client side to avoid SQLite quirks
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date").set_index("date")
+
+            # Helpful derived columns for plotting (hours from seconds)
+            sleep_time_columns = {
+                "total_sleep_time_s": "total_sleep_time_hours",
+                "deep_sleep_s": "deep_sleep_hours",
+                "light_sleep_s": "light_sleep_hours",
+                "rem_sleep_s": "rem_sleep_hours",
+                "awake_time_s": "awake_hours",
+            }
+
+            for col, hour_col in sleep_time_columns.items():
+                if col in df.columns:
+                    df[hour_col] = df[col] / 3600.0
+
+            return df
+
+    except Exception as e:
+        log_error(e, f"Failed to get sleep data for {days} days")
+        return pd.DataFrame()
+
+
+def get_stress_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+    """
+    Get stress data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
+
+    Returns:
+        DataFrame with daily stress levels and breakdowns
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
+
+            stress_records = (
+                session.query(DailyStress)
+                .filter(DailyStress.date >= start_date_obj)
+                .filter(DailyStress.date <= end_date_obj)
+                .filter(DailyStress.avg_stress_level.isnot(None))
+                .order_by(DailyStress.date)
+                .all()
+            )
+
+            if not stress_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in stress_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "avg_stress_level": record.avg_stress_level,
+                        "max_stress_level": record.max_stress_level,
+                        "rest_stress_level": record.rest_stress_level,
+                        "rest_minutes": record.rest_minutes,
+                        "low_minutes": record.low_minutes,
+                        "medium_minutes": record.medium_minutes,
+                        "high_minutes": record.high_minutes,
+                        "stress_qualifier": record.stress_qualifier,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+
+            # Add rolling average for trend analysis
+            df["rolling_avg_28d"] = df["avg_stress_level"].rolling(window=28, min_periods=1).mean()
+
+            return df
+
+    except Exception as e:
+        log_error(e, f"Failed to get stress data for {days} days")
+        return pd.DataFrame()
+
+
+def get_steps_data(days: int = 90) -> pd.DataFrame:
+    """
+    Get daily steps and activity data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90)
+
+    Returns:
+        DataFrame with steps, distance, and activity metrics
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            end_date = date.today()
+            start_date = end_date - timedelta(days=days)
+
+            steps_records = (
+                session.query(DailySteps)
+                .filter(DailySteps.date >= start_date)
+                .filter(DailySteps.date <= end_date)
+                .filter(DailySteps.total_steps.isnot(None))
+                .filter(DailySteps.total_steps > 0)
+                .order_by(DailySteps.date)
+                .all()
+            )
+
+            if not steps_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in steps_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "total_steps": record.total_steps,
+                        "step_goal": record.step_goal,
+                        "step_goal_pct": (
+                            ((record.total_steps or 0) / record.step_goal * 100)
+                            if record.step_goal and record.step_goal > 0
+                            else 0
+                        ),
+                        "total_distance_km": (record.total_distance_m or 0) / 1000,
+                        "calories_burned": record.calories_burned,
+                        "calories_bmr": record.calories_bmr,
+                        "calories_active": record.calories_active,
+                        "floors_climbed": record.floors_climbed,
+                        "floors_goal": record.floors_goal,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            return df.set_index("date")
+
+    except Exception as e:
+        log_error(e, f"Failed to get steps data for {days} days")
+        return pd.DataFrame()
+
+
+def get_intensity_data(days: int = 90) -> pd.DataFrame:
+    """
+    Get daily intensity minutes data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90)
+
+    Returns:
+        DataFrame with moderate and vigorous activity minutes
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            end_date = date.today()
+            start_date = end_date - timedelta(days=days)
+
+            intensity_records = (
+                session.query(DailyIntensityMinutes)
+                .filter(DailyIntensityMinutes.date >= start_date)
+                .filter(DailyIntensityMinutes.date <= end_date)
+                .order_by(DailyIntensityMinutes.date)
+                .all()
+            )
+
+            if not intensity_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in intensity_records:
+                # Calculate WHO intensity minutes (vigorous counts double)
+                intensity_minutes = (record.moderate_minutes or 0) + 2 * (record.vigorous_minutes or 0)
+
+                data.append(
+                    {
+                        "date": record.date,
+                        "vigorous_minutes": record.vigorous_minutes,
+                        "moderate_minutes": record.moderate_minutes,
+                        "intensity_minutes": intensity_minutes,
+                        "vigorous_goal": record.vigorous_goal,
+                        "moderate_goal": record.moderate_goal,
+                        "intensity_score": record.intensity_score,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            return df.set_index("date")
+
+    except Exception as e:
+        log_error(e, f"Failed to get intensity data for {days} days")
+        return pd.DataFrame()
+
+
+def get_heart_rate_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+    """
+    Get heart rate data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
+
+    Returns:
+        DataFrame with resting HR, zones, and HRV data
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
+
+            hr_records = (
+                session.query(DailyHeartRate)
+                .filter(DailyHeartRate.date >= start_date_obj)
+                .filter(DailyHeartRate.date <= end_date_obj)
+                .order_by(DailyHeartRate.date)
+                .all()
+            )
+
+            if not hr_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in hr_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "resting_hr": record.resting_hr,
+                        "max_hr": record.max_hr,
+                        "avg_hr": record.avg_hr,
+                        "hr_zone_1_time": record.hr_zone_1_time,
+                        "hr_zone_2_time": record.hr_zone_2_time,
+                        "hr_zone_3_time": record.hr_zone_3_time,
+                        "hr_zone_4_time": record.hr_zone_4_time,
+                        "hr_zone_5_time": record.hr_zone_5_time,
+                        "hrv_score": record.hrv_score,
+                        "hrv_status": record.hrv_status,
+                        "vo2max": record.vo2max,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            return df.set_index("date")
+
+    except Exception as e:
+        log_error(e, f"Failed to get heart rate data for {days} days")
+        return pd.DataFrame()
+
+
+def get_body_battery_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+    """
+    Get Body Battery data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
+
+    Returns:
+        DataFrame with daily Body Battery scores and trends
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
+
+            bb_records = (
+                session.query(DailyBodyBattery)
+                .filter(DailyBodyBattery.date >= start_date_obj)
+                .filter(DailyBodyBattery.date <= end_date_obj)
+                .order_by(DailyBodyBattery.date)
+                .all()
+            )
+
+            if not bb_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in bb_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "body_battery_score": record.body_battery_score,
+                        "charged_value": record.charged_value,
+                        "drained_value": record.drained_value,
+                        "highest_value": record.highest_value,
+                        "lowest_value": record.lowest_value,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+
+            # Add rolling averages for trend analysis
+            df["bb_7d_avg"] = df["body_battery_score"].rolling(window=7, min_periods=1).mean()
+            df["bb_30d_avg"] = df["body_battery_score"].rolling(window=30, min_periods=1).mean()
+
+            return df
+
+    except Exception as e:
+        log_error(e, f"Failed to get Body Battery data for {days} days")
+        return pd.DataFrame()
+
+
+def get_training_readiness_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+    """
+    Get Training Readiness data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
+
+    Returns:
+        DataFrame with training readiness scores and feedback
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
+
+            tr_records = (
+                session.query(DailyTrainingReadiness)
+                .filter(DailyTrainingReadiness.date >= start_date_obj)
+                .filter(DailyTrainingReadiness.date <= end_date_obj)
+                .order_by(DailyTrainingReadiness.date)
+                .all()
+            )
+
+            if not tr_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in tr_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "training_readiness_score": record.training_readiness_score,
+                        "hrv_score": record.hrv_score,
+                        "sleep_score": record.sleep_score,
+                        "recovery_time_hours": record.recovery_time_hours,
+                        "hrv_status": record.hrv_status,
+                        "sleep_status": record.sleep_status,
+                        "stress_status": record.stress_status,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            return df.set_index("date")
+
+    except Exception as e:
+        log_error(e, f"Failed to get training readiness data for {days} days")
+        return pd.DataFrame()
+
+
+def get_spo2_data(days: int = 90) -> pd.DataFrame:
+    """
+    Get SpO2 (blood oxygen saturation) data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 90)
+
+    Returns:
+        DataFrame with SpO2 measurements
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            end_date = date.today()
+            start_date = end_date - timedelta(days=days)
+
+            spo2_records = (
+                session.query(DailySpo2)
+                .filter(DailySpo2.date >= start_date)
+                .filter(DailySpo2.date <= end_date)
+                .order_by(DailySpo2.date)
+                .all()
+            )
+
+            if not spo2_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in spo2_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "avg_spo2_percentage": record.avg_spo2_percentage,
+                        "lowest_spo2_percentage": record.lowest_spo2_percentage,
+                        "latest_spo2_percentage": record.latest_spo2_percentage,
+                        "latest_spo2_reading_time_gmt": record.latest_spo2_reading_time_gmt,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            return df.set_index("date")
+
+    except Exception as e:
+        log_error(e, f"Failed to get SpO2 data for {days} days")
+        return pd.DataFrame()
+
+
+# Personal Record Type ID mappings for human-readable display
+PERSONAL_RECORD_TYPE_MAPPING = {
+    # Distance Records
+    1: "5K Time",
+    2: "10K Time",
+    3: "15K Time",
+    4: "20K Time",
+    5: "Half Marathon Time",
+    6: "Marathon Time",
+    7: "50K Time",
+    8: "100K Time",
+    9: "Fastest Mile",
+    10: "Fastest 1500m",
+    11: "Fastest 3K",
+    12: "Longest Run",
+    13: "Longest Bike Ride",
+    # Swimming Records
+    18: "100m Swim Time",
+    19: "200m Swim Time",
+    20: "400m Swim Time",
+    21: "800m Swim Time",
+    22: "1500m Swim Time",
+    23: "Longest Swim",
+    24: "100m Backstroke",
+    25: "200m Backstroke",
+    26: "100m Breaststroke",
+    27: "200m Breaststroke",
+    28: "100m Butterfly",
+    29: "200m Butterfly",
+    30: "200m Individual Medley",
+    31: "400m Individual Medley",
+    # Cycling Records
+    40: "Fastest 40K Bike",
+    41: "Fastest 100K Bike",
+    42: "Fastest Century Ride",
+    # General Fitness
+    50: "Max Push-ups",
+    51: "Max Pull-ups",
+    52: "Max Sit-ups",
+    53: "Plank Hold",
+    54: "Fastest 100m Sprint",
+    55: "Highest Jump",
+    56: "Longest Jump",
+    # Type patterns from PRP examples
+    "type_31": "Swimming Personal Record",
+    "type_23": "Distance Swimming Record",
+    "type_22": "Swimming Time Record",
+    "type_20": "Swimming Distance Record",
+    "type_18": "Sprint Swimming Record",
+    "type_25": "Long Distance Swimming Record",
+    "type_11": "Cycling Distance Record",
+    "1k_time": "1K Run Time",
+    "fastest_pace": "Fastest Pace",
+    "marathon": "Marathon Time",
+}
+
+
+def format_personal_record_value(value: float, record_type: str, unit: str = None) -> str:
+    """
+    Fix personal record formatting based on Garmin API data analysis.
+
+    This function handles the inconsistencies in Garmin API data formats:
+    - Time records: milliseconds, seconds, or pre-formatted strings
+    - Distance records: meters vs kilometers based on magnitude analysis
+
+    Args:
+        value: Raw record value
+        record_type: Type of record
+        unit: Unit of measurement
+
+    Returns:
+        Formatted string for display
+    """
+    if value is None:
+        return "N/A"
+
+    # Time-based records - handle milliseconds from Garmin API correctly
+    time_based_types = [
+        "time",
+        "pace",
+        "1k_time",
+        "5K Time",
+        "10K Time",
+        "Marathon Time",
+        "fastest_pace",
+        "Swimming Time Record",
+        "Sprint Swimming Record",
+        "Half Marathon Time",
+        "best_pace",
+        "average_pace",
+    ]
+
+    if any(time_type.lower() in record_type.lower() for time_type in time_based_types):
+        # Check if already formatted as string with colons
+        if isinstance(value, str) and ":" in value:
+            return value  # Already formatted
+
+        # Convert based on magnitude analysis from Garmin API
+        if value > 86400000:  # > 24 hours in milliseconds
+            seconds = value / 1000
+        elif value > 86400:  # > 24 hours in seconds (unlikely but handle it)
+            seconds = value
+        elif value > 3600:  # > 1 hour, likely in seconds
+            seconds = value
+        elif value > 200:  # Likely in milliseconds for short times
+            seconds = value / 1000 if value > 10000 else value  # Smart detection
+        else:
+            seconds = value  # Likely already in seconds
+
+        return format_time_duration(seconds)
+
+    # Distance records - handle meters vs kilometers correctly based on Garmin API analysis
+    elif any(
+        dist_type.lower() in record_type.lower() for dist_type in ["distance", "longest", "farthest", "km", "mile"]
+    ):
+        # Garmin API distance values analysis:
+        if value < 100:  # Likely already in km
+            return f"{value:.2f} km"
+        else:  # Likely in meters
+            return f"{value/1000:.2f} km"
+
+    # Speed/pace records
+    elif any(speed_type.lower() in record_type.lower() for speed_type in ["speed", "velocity", "max_speed"]):
+        if unit and "km" in unit.lower():
+            return f"{value:.1f} km/h"
+        elif unit and ("m/s" in unit.lower() or "ms" in unit.lower()):
+            return f"{value:.2f} m/s"
+        else:
+            return f"{value:.1f} km/h"  # Default assumption
+
+    # Elevation records
+    elif any(elev_type.lower() in record_type.lower() for elev_type in ["elevation", "climb", "ascent", "descent"]):
+        if value > 10000:  # Likely in centimeters or millimeters
+            return f"{value/100:.0f} m" if value > 100000 else f"{value/10:.0f} m"
+        else:
+            return f"{value:.0f} m"
+
+    # Count-based records
+    elif any(count_type in record_type for count_type in ["Push-ups", "Pull-ups", "Sit-ups", "Reps", "Steps"]):
+        return f"{int(value)}"
+
+    # Heart rate records
+    elif "heart" in record_type.lower() or "hr" in record_type.lower():
+        return f"{int(value)} bpm"
+
+    # Cadence records
+    elif "cadence" in record_type.lower() or "spm" in record_type.lower():
+        return f"{int(value)} spm"
+
+    # Power records
+    elif "power" in record_type.lower() or "watt" in record_type.lower():
+        return f"{int(value)} W"
+
+    # Default formatting with improved unit handling
+    else:
+        if unit:
+            # Clean up common unit inconsistencies
+            clean_unit = unit.replace("_", " ").replace("-", " ")
+            return f"{value:.1f} {clean_unit}"
+        elif isinstance(value, (int, float)) and float(value).is_integer():
+            return f"{int(value)}"
+        else:
+            return f"{value:.2f}"
+
+
+def format_time_duration(seconds: float) -> str:
+    """
+    Format time duration in seconds to human-readable format.
+
+    Args:
+        seconds: Duration in seconds
+
+    Returns:
+        Formatted time string (MM:SS or HH:MM:SS)
+    """
+    if seconds < 0:
+        return "0:00"
+
+    if seconds < 3600:  # Less than 1 hour
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes}:{secs:02d}"
+    else:  # More than 1 hour
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+
+
+def get_personal_records_data() -> List[Dict[str, Any]]:
+    """
+    Get personal records data for display with human-readable formatting.
+
+    Returns:
+        List of personal record dictionaries with readable record types and formatted values
+    """
+    try:
+        with session_scope() as session:
+            pr_records = session.query(PersonalRecords).order_by(PersonalRecords.achieved_date.desc()).all()
+
+            if not pr_records:
+                return []
+
+            data = []
+            for record in pr_records:
+                # Get human-readable record type
+                raw_record_type = record.record_type or "Unknown"
+                readable_record_type = PERSONAL_RECORD_TYPE_MAPPING.get(raw_record_type, raw_record_type)
+
+                # Format the record value
+                formatted_value = format_personal_record_value(
+                    record.record_value, readable_record_type, record.record_unit
+                )
+
+                data.append(
+                    {
+                        "activity_type": record.activity_type or "Unknown",
+                        "record_type": readable_record_type,
+                        "record_value": formatted_value,
+                        "raw_value": record.record_value,
+                        "record_unit": record.record_unit,
+                        "activity_id": record.activity_id,
+                        "achieved_date": record.achieved_date.strftime("%Y-%m-%d")
+                        if record.achieved_date and hasattr(record.achieved_date, "strftime")
+                        else str(record.achieved_date)
+                        if record.achieved_date
+                        else "Unknown",
+                        "activity_name": record.activity_name,
+                        "location": record.location,
+                    }
+                )
+
+            return data
+
+    except Exception as e:
+        log_error(e, "Failed to get personal records data")
+        return []
+
+
+def get_max_metrics_data(days: int = 365) -> pd.DataFrame:
+    """
+    Get VO2 Max and fitness metrics data for visualizations.
+
+    Args:
+        days: Number of days to retrieve (default 365 for yearly trends)
+
+    Returns:
+        DataFrame with VO2 Max and fitness age data
+    """
+    try:
+        with session_scope() as session:
+            # Calculate date range
+            end_date = date.today()
+            start_date = end_date - timedelta(days=days)
+
+            metrics_records = (
+                session.query(MaxMetrics)
+                .filter(MaxMetrics.date >= start_date)
+                .filter(MaxMetrics.date <= end_date)
+                .order_by(MaxMetrics.date)
+                .all()
+            )
+
+            if not metrics_records:
+                return pd.DataFrame()
+
+            data = []
+            for record in metrics_records:
+                data.append(
+                    {
+                        "date": record.date,
+                        "vo2_max_value": record.vo2_max_value,
+                        "vo2_max_running": record.vo2_max_running,
+                        "vo2_max_cycling": record.vo2_max_cycling,
+                        "fitness_age": record.fitness_age,
+                        "performance_condition": record.performance_condition,
+                    }
+                )
+
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])
+            return df.set_index("date")
+
+    except Exception as e:
+        log_error(e, f"Failed to get max metrics data for {days} days")
+        return pd.DataFrame()

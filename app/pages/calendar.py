@@ -93,6 +93,34 @@ def layout():
                         ],
                         width=4,
                     ),
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H5(
+                                                [html.I(className="fas fa-sync-alt me-2"), "Sync Wellness Data"],
+                                                className="mb-3",
+                                            ),
+                                            html.P(
+                                                "Sync your latest wellness data including sleep, stress, and body battery metrics.",
+                                                className="mb-3",
+                                            ),
+                                            dbc.Button(
+                                                [html.I(className="fas fa-download me-2"), "Sync Now"],
+                                                href="/sync",
+                                                color="success",
+                                                size="lg",
+                                                className="w-100",
+                                            ),
+                                        ]
+                                    )
+                                ]
+                            )
+                        ],
+                        width=4,
+                    ),
                 ],
                 className="mb-5",
             ),

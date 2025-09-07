@@ -24,8 +24,11 @@ services:
       # Fixed volume mounting with proper directory creation
       - ./data:/data
       - ./activities:/app/activities:ro
+      # Volume for Garmin Connect tokens persistence
+      - ./data/garmin_tokens:/home/garmin/.garminconnect
     environment:
       - DATABASE_URL=sqlite:////data/garmin_dashboard.db
+      - GARMINTOKENS=/home/garmin/.garminconnect
       - DASH_DEBUG=${DASH_DEBUG:-False}
       - HOST=0.0.0.0
       - PORT=8050
@@ -112,10 +115,23 @@ services:
     networks:
       - garmin-network
 
+  tokens-init:
+    image: busybox
+    command: ['sh','-c','mkdir -p /tokens && chown -R 1000:1000 /tokens']
+    volumes:
+      - garmin-tokens:/tokens
+    networks:
+      - garmin-network
+
 # Network for service communication
 networks:
   garmin-network:
     driver: bridge
+
+# Volumes for persistent data
+volumes:
+  garmin-tokens:
+    driver: local
 
 # Usage examples:
 #
