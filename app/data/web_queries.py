@@ -856,28 +856,34 @@ def get_wellness_statistics() -> Dict[str, Any]:
         }
 
 
-def get_sleep_data(days: int = 90) -> pd.DataFrame:
+def get_sleep_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
     """
     Get sleep data for visualizations.
 
     Args:
-        days: Number of days to retrieve (default 90)
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
 
     Returns:
         DataFrame with sleep data including quality and stages
     """
     try:
         with session_scope() as session:
-            # Calculate date range [start_date, end_date]
-            end_date = date.today()
-            start_date = end_date - timedelta(days=days)
+            # Calculate date range 
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
 
             # IMPORTANT: no SQL ORDER BY here (avoid SQLite "not an error")
             # Filter out rows with no meaningful sleep data (total_sleep_time_s > 0)
             records = (
                 session.query(DailySleep)
-                .filter(DailySleep.date >= start_date)
-                .filter(DailySleep.date <= end_date)
+                .filter(DailySleep.date >= start_date_obj)
+                .filter(DailySleep.date <= end_date_obj)
                 .filter(DailySleep.total_sleep_time_s > 0)
                 .all()
             )
@@ -933,12 +939,14 @@ def get_sleep_data(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def get_stress_data(days: int = 90) -> pd.DataFrame:
+def get_stress_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
     """
     Get stress data for visualizations.
 
     Args:
-        days: Number of days to retrieve (default 90)
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
 
     Returns:
         DataFrame with daily stress levels and breakdowns
@@ -946,13 +954,17 @@ def get_stress_data(days: int = 90) -> pd.DataFrame:
     try:
         with session_scope() as session:
             # Calculate date range
-            end_date = date.today()
-            start_date = end_date - timedelta(days=days)
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
 
             stress_records = (
                 session.query(DailyStress)
-                .filter(DailyStress.date >= start_date)
-                .filter(DailyStress.date <= end_date)
+                .filter(DailyStress.date >= start_date_obj)
+                .filter(DailyStress.date <= end_date_obj)
                 .filter(DailyStress.avg_stress_level.isnot(None))
                 .order_by(DailyStress.date)
                 .all()
@@ -1103,12 +1115,14 @@ def get_intensity_data(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def get_heart_rate_data(days: int = 90) -> pd.DataFrame:
+def get_heart_rate_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
     """
     Get heart rate data for visualizations.
 
     Args:
-        days: Number of days to retrieve (default 90)
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
 
     Returns:
         DataFrame with resting HR, zones, and HRV data
@@ -1116,13 +1130,17 @@ def get_heart_rate_data(days: int = 90) -> pd.DataFrame:
     try:
         with session_scope() as session:
             # Calculate date range
-            end_date = date.today()
-            start_date = end_date - timedelta(days=days)
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
 
             hr_records = (
                 session.query(DailyHeartRate)
-                .filter(DailyHeartRate.date >= start_date)
-                .filter(DailyHeartRate.date <= end_date)
+                .filter(DailyHeartRate.date >= start_date_obj)
+                .filter(DailyHeartRate.date <= end_date_obj)
                 .order_by(DailyHeartRate.date)
                 .all()
             )
@@ -1158,12 +1176,14 @@ def get_heart_rate_data(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def get_body_battery_data(days: int = 90) -> pd.DataFrame:
+def get_body_battery_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
     """
     Get Body Battery data for visualizations.
 
     Args:
-        days: Number of days to retrieve (default 90)
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
 
     Returns:
         DataFrame with daily Body Battery scores and trends
@@ -1171,13 +1191,17 @@ def get_body_battery_data(days: int = 90) -> pd.DataFrame:
     try:
         with session_scope() as session:
             # Calculate date range
-            end_date = date.today()
-            start_date = end_date - timedelta(days=days)
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
 
             bb_records = (
                 session.query(DailyBodyBattery)
-                .filter(DailyBodyBattery.date >= start_date)
-                .filter(DailyBodyBattery.date <= end_date)
+                .filter(DailyBodyBattery.date >= start_date_obj)
+                .filter(DailyBodyBattery.date <= end_date_obj)
                 .order_by(DailyBodyBattery.date)
                 .all()
             )
@@ -1213,12 +1237,14 @@ def get_body_battery_data(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def get_training_readiness_data(days: int = 90) -> pd.DataFrame:
+def get_training_readiness_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
     """
     Get Training Readiness data for visualizations.
 
     Args:
-        days: Number of days to retrieve (default 90)
+        days: Number of days to retrieve (default 90), used when start_date/end_date not provided
+        start_date: Start date in 'YYYY-MM-DD' format (optional)
+        end_date: End date in 'YYYY-MM-DD' format (optional)
 
     Returns:
         DataFrame with training readiness scores and feedback
@@ -1226,13 +1252,17 @@ def get_training_readiness_data(days: int = 90) -> pd.DataFrame:
     try:
         with session_scope() as session:
             # Calculate date range
-            end_date = date.today()
-            start_date = end_date - timedelta(days=days)
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_date_obj = date.today()
+                start_date_obj = end_date_obj - timedelta(days=days)
 
             tr_records = (
                 session.query(DailyTrainingReadiness)
-                .filter(DailyTrainingReadiness.date >= start_date)
-                .filter(DailyTrainingReadiness.date <= end_date)
+                .filter(DailyTrainingReadiness.date >= start_date_obj)
+                .filter(DailyTrainingReadiness.date <= end_date_obj)
                 .order_by(DailyTrainingReadiness.date)
                 .all()
             )

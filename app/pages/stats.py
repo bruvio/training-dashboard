@@ -654,12 +654,20 @@ def register_callbacks(app):
             return dbc.Alert("Error loading wellness statistics.", color="danger")
 
     @app.callback(
-        Output("sleep-chart", "children"), [Input("sleep-tabs", "value"), Input("stats-initial-load", "n_intervals")]
+        Output("sleep-chart", "children"), 
+        [Input("sleep-tabs", "value"), Input("stats-initial-load", "n_intervals"), 
+         Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")]
     )
-    def update_sleep_chart(active_tab, n_intervals):
-        """Update sleep visualization based on selected tab."""
+    def update_sleep_chart(active_tab, n_intervals, start_date, end_date):
+        """Update sleep visualization based on selected tab and date range."""
         try:
-            sleep_df = get_sleep_data(days=90)
+            # Use date range filter or default to 90 days
+            if start_date and end_date:
+                start_date_obj = date.fromisoformat(start_date)
+                end_date_obj = date.fromisoformat(end_date)
+                sleep_df = get_sleep_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+            else:
+                sleep_df = get_sleep_data(days=90)
 
             if sleep_df.empty:
                 return dbc.Alert(
@@ -757,11 +765,20 @@ def register_callbacks(app):
             logger.error(f"Error updating sleep chart: {e}")
             return dbc.Alert("Error loading sleep data.", color="danger")
 
-    @app.callback(Output("stress-chart", "children"), Input("stats-initial-load", "n_intervals"))
-    def update_stress_chart(n_intervals):
-        """Update stress visualization."""
+    @app.callback(
+        Output("stress-chart", "children"), 
+        [Input("stats-initial-load", "n_intervals"), Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")]
+    )
+    def update_stress_chart(n_intervals, start_date, end_date):
+        """Update stress visualization based on date range."""
         try:
-            stress_df = get_stress_data(days=90)
+            # Use date range filter or default to 90 days
+            if start_date and end_date:
+                start_date_obj = date.fromisoformat(start_date)
+                end_date_obj = date.fromisoformat(end_date)
+                stress_df = get_stress_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+            else:
+                stress_df = get_stress_data(days=90)
 
             if stress_df.empty:
                 return dbc.Alert(
@@ -872,11 +889,20 @@ def register_callbacks(app):
             logger.error(f"Error updating activity chart: {e}")
             return dbc.Alert("Error loading activity data.", color="danger")
 
-    @app.callback(Output("hr-chart", "children"), Input("hr-tabs", "value"))
-    def update_hr_chart(active_tab):
-        """Update heart rate visualization based on selected tab."""
+    @app.callback(
+        Output("hr-chart", "children"),
+        [Input("hr-tabs", "value"), Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")]
+    )
+    def update_hr_chart(active_tab, start_date, end_date):
+        """Update heart rate visualization based on selected tab and date range."""
         try:
-            hr_df = get_heart_rate_data(days=30)
+            # Use date range filter or default to 30 days
+            if start_date and end_date:
+                start_date_obj = date.fromisoformat(start_date)
+                end_date_obj = date.fromisoformat(end_date)
+                hr_df = get_heart_rate_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+            else:
+                hr_df = get_heart_rate_data(days=30)
 
             if hr_df.empty:
                 return dbc.Alert(
@@ -982,12 +1008,21 @@ def register_callbacks(app):
             logger.error(f"Error updating heart rate chart: {e}")
             return dbc.Alert("Error loading heart rate data.", color="danger")
 
-    @app.callback(Output("energy-chart", "children"), Input("energy-tabs", "value"))
-    def update_energy_chart(active_tab):
-        """Update energy and training visualization based on selected tab."""
+    @app.callback(
+        Output("energy-chart", "children"), 
+        [Input("energy-tabs", "value"), Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")]
+    )
+    def update_energy_chart(active_tab, start_date, end_date):
+        """Update energy and training visualization based on selected tab and date range."""
         try:
             if active_tab == "body-battery":
-                bb_df = get_body_battery_data(days=90)
+                # Use date range filter or default to 90 days
+                if start_date and end_date:
+                    start_date_obj = date.fromisoformat(start_date)
+                    end_date_obj = date.fromisoformat(end_date)
+                    bb_df = get_body_battery_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+                else:
+                    bb_df = get_body_battery_data(days=90)
                 if bb_df.empty:
                     return dbc.Alert(
                         [
@@ -1026,7 +1061,13 @@ def register_callbacks(app):
                 )
 
             elif active_tab == "training-readiness":
-                tr_df = get_training_readiness_data(days=90)
+                # Use date range filter or default to 90 days
+                if start_date and end_date:
+                    start_date_obj = date.fromisoformat(start_date)
+                    end_date_obj = date.fromisoformat(end_date)
+                    tr_df = get_training_readiness_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+                else:
+                    tr_df = get_training_readiness_data(days=90)
                 if tr_df.empty:
                     return dbc.Alert(
                         [
