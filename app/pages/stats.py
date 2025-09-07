@@ -206,7 +206,6 @@ def layout():
                                                 children=[
                                                     dcc.Tab(label="Body Battery", value="body-battery"),
                                                     dcc.Tab(label="Training Readiness", value="training-readiness"),
-                                                    dcc.Tab(label="VO2 Max", value="vo2-max"),
                                                 ],
                                             ),
                                             html.Div(id="energy-chart"),
@@ -645,33 +644,7 @@ def register_callbacks(app):
                         md=3,
                         className="mb-3",
                     ),
-                    # VO2 Max stats
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardBody(
-                                        [
-                                            html.H4(
-                                                f"{stats['max_metrics']['avg_vo2_max']}"
-                                                if stats["max_metrics"]["avg_vo2_max"] > 0
-                                                else "N/A",
-                                                className="text-danger mb-1",
-                                            ),
-                                            html.P("Avg VO2 Max", className="mb-0 text-muted"),
-                                            html.Small(
-                                                f"{stats['personal_records']['total_records']} PRs",
-                                                className="text-muted",
-                                            ),
-                                        ],
-                                        className="text-center",
-                                    )
-                                ]
-                            )
-                        ],
-                        md=3,
-                        className="mb-3",
-                    ),
+                    
                 ]
             )
 
