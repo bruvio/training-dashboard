@@ -197,8 +197,6 @@ class GarminIntegrationService:
                     wellness_data["training_readiness"]
                 )
 
-            if wellness_data["hrv"]:
-                persistence_results["hrv"] = self.wellness_service.persist_hrv_data(wellness_data["hrv"])
 
             # Note: VO2 max data is combined with heart_rate data and persisted above
             # Training readiness has its own persistence handled above
@@ -417,7 +415,7 @@ class GarminIntegrationService:
             "steps": "steps",
             "stress": "stress",
             "resting_hr": "heart_rate",
-            "hrv": "hrv",
+            "hrv": "heart_rate",  # HRV goes into heart_rate table as hrv_score
             "body_battery": "body_battery",
             "training_readiness": "training_readiness",
             "vo2max": "heart_rate",  # VO2 max goes into heart_rate table
@@ -491,16 +489,12 @@ class GarminIntegrationService:
                     )
                     record = {
                         "date": date_str,
-                        "weekly_avg": None,
-                        "last_night_avg": self._handle_nat_value(row.get("hrv")),
-                        "last_night_5min_high": None,
-                        "status": None,
-                        "feedback_phrase": None,
-                        "create_timestamp": None,
-                        "baseline_low_upper": None,
-                        "baseline_balanced_low": None,
-                        "baseline_balanced_upper": None,
-                        "baseline_marker_value": None,
+                        "resting_hr": None,
+                        "avg_hr": None,
+                        "max_hr": None,
+                        "hrv_score": self._handle_nat_value(row.get("hrv")),
+                        "hrv_status": None,
+                        "vo2max": None,
                     }
                 elif data_type == "body_battery":
                     date_str = (

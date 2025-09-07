@@ -671,7 +671,7 @@ def update_wellness_charts(sync_results):
 
     logger.info(f"Chart callback triggered. Sync result keys: {list(sync_result.keys()) if sync_result else 'None'}")
 
-    if sync_result and not sync_result.get("success", False):
+    if not sync_result or not sync_result.get("success", False):
         logger.warning("Sync not successful, not showing charts")
         return "", {"display": "none"}
 
@@ -761,8 +761,23 @@ def update_wellness_charts(sync_results):
                     )
                 )
 
+            # HRV
+            if "hrv_score" in hr_df.columns and hr_df["hrv_score"].notna().any():
+                hrv_data = hr_df["hrv_score"].dropna()
+                hr_fig.add_trace(
+                    go.Scatter(
+                        x=hrv_data.index,
+                        y=hrv_data.values,
+                        mode="lines+markers",
+                        name="HRV Score",
+                        line=dict(color="purple", width=2),
+                        marker=dict(size=8),
+                        hovertemplate="<b>%{x}</b><br>HRV Score: %{y}<extra></extra>",
+                    )
+                )
+
             hr_fig.update_layout(
-                title="Heart Rate & VO2 Max",
+                title="Heart Rate, VO2 Max & HRV",
                 xaxis_title="Date",
                 yaxis_title="Value",
                 height=400,

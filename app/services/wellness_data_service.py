@@ -196,13 +196,19 @@ class WellnessDataService:
                         existing = session.query(DailyHeartRate).filter_by(date=hr_date).first()
 
                         if existing:
-                            # Update existing record
-                            existing.resting_hr = hr_data.get("resting_hr")
-                            existing.max_hr = hr_data.get("max_hr")
-                            existing.avg_hr = hr_data.get("avg_hr")
-                            existing.hrv_score = hr_data.get("hrv_score")
-                            existing.hrv_status = hr_data.get("hrv_status")
-                            existing.vo2max = hr_data.get("vo2max")
+                            # Update existing record - only update fields that have values
+                            if hr_data.get("resting_hr") is not None:
+                                existing.resting_hr = hr_data.get("resting_hr")
+                            if hr_data.get("max_hr") is not None:
+                                existing.max_hr = hr_data.get("max_hr")
+                            if hr_data.get("avg_hr") is not None:
+                                existing.avg_hr = hr_data.get("avg_hr")
+                            if hr_data.get("hrv_score") is not None:
+                                existing.hrv_score = hr_data.get("hrv_score")
+                            if hr_data.get("hrv_status") is not None:
+                                existing.hrv_status = hr_data.get("hrv_status")
+                            if hr_data.get("vo2max") is not None:
+                                existing.vo2max = hr_data.get("vo2max")
                             existing.data_source = "garminconnect"
                             existing.retrieved_at = datetime.now(timezone.utc)
                         else:
