@@ -452,7 +452,11 @@ def update_activities_table(
                     filtered_activities.append(activity)
             activities_data = filtered_activities
 
-        if distance_range and len(distance_range) == 2 and not (distance_range[0] == 0 and distance_range[1] >= 100):
+        if (
+            distance_range
+            and len(distance_range) == 2
+            and (distance_range[0] != 0 or distance_range[1] < 100)
+        ):
             min_distance = distance_range[0]
             max_distance = distance_range[1]
             activities_data = filter_activities_by_distance(activities_data, min_distance, max_distance)
