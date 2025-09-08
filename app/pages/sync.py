@@ -26,7 +26,6 @@ _sync_progress = {"status": "idle", "message": "", "progress": 0, "details": [],
 
 def update_sync_progress(status: str, message: str, progress: int = 0, details: list = None):
     """Update global sync progress."""
-    global _sync_progress
     _sync_progress.update(
         {
             "status": status,
@@ -306,7 +305,6 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing):
                 update_sync_progress("running", "Data successfully persisted to database...", 70)
 
             # Store result in global progress
-            global _sync_progress
             _sync_progress["result"] = sync_result
 
             if sync_result.get("success"):
@@ -351,8 +349,6 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing):
 )
 def update_sync_progress_display(n_intervals):
     """Update the sync progress display in real-time."""
-    global _sync_progress
-
     if _sync_progress["status"] == "idle":
         return (
             "",
@@ -665,7 +661,6 @@ def update_wellness_charts(sync_results):
     if not sync_results:
         raise PreventUpdate
 
-    global _sync_progress
     sync_result = _sync_progress.get("result", {})
 
     logger.info(f"Chart callback triggered. Sync result keys: {list(sync_result.keys()) if sync_result else 'None'}")

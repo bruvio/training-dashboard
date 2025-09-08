@@ -49,7 +49,6 @@ def reset_client():
 
 def update_sync_progress(status: str, message: str, progress: int = 0, details: list = None):
     """Update global sync progress."""
-    global _sync_progress
     _sync_progress.update({"status": status, "message": message, "progress": progress, "details": details or []})
 
 
@@ -59,7 +58,6 @@ def update_import_progress(status: str, message: str, current: int = 0, total: i
 
     logger = logging.getLogger(__name__)
 
-    global _import_progress
     progress = int((current / total) * 100) if total > 0 else 0
     _import_progress.update(
         {"status": status, "message": message, "progress": progress, "current": current, "total": total}
@@ -99,7 +97,6 @@ def sync_with_progress(days: int, fetch_wellness: bool = True):
         activities_data = get_activities_for_date_range(start_date=start_date, end_date=end_date)
 
         # Update progress with completion and activities data
-        global _sync_progress
         _sync_progress.update(
             {
                 "status": "completed",
@@ -578,7 +575,6 @@ def register_callbacks(app):
         update_sync_progress("running", "Starting sync...", 5)
 
         def run_sync():
-            global _sync_progress
             try:
                 if is_authed:
                     summary = sync_with_progress(days=int(days or 30), fetch_wellness=True)
@@ -794,8 +790,6 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def _update_sync_progress(n_intervals):
-        global _sync_progress, _import_progress
-
         if _sync_progress["status"] == "idle":
             return "", {"display": "none"}, no_update, no_update, no_update
 
@@ -855,8 +849,6 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def _update_import_progress(n_intervals):
-        global _import_progress
-
         if _import_progress["status"] == "idle":
             return "", {"display": "none"}
 
@@ -897,8 +889,6 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def _update_import_status_completion(n_intervals):
-        global _import_progress
-
         if _import_progress["status"] == "completed":
             return dbc.Alert(f"✅ {_import_progress['message']}", color="success", className="mb-2", dismissable=True)
         elif _import_progress["status"] == "error":
