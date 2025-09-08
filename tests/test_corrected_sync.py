@@ -2,7 +2,9 @@
 """
 Test the corrected wellness sync functions.
 """
+import os
 import sys
+import pytest
 
 sys.path.append("/app")
 
@@ -12,6 +14,12 @@ from garmin_client.client import GarminConnectClient
 from garmin_client.wellness_sync import WellnessSyncManager
 
 
+def is_ci_environment():
+    """Check if running in CI environment."""
+    return os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+
+
+@pytest.mark.skipif(is_ci_environment(), reason="Garmin authentication not available in CI environment")
 def test_corrected_sync():
     """Test the corrected sync functions."""
     try:

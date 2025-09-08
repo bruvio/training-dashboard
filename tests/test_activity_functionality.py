@@ -9,6 +9,7 @@ Tests:
 4. Data availability and proper formatting
 """
 
+import os
 import sys
 import pytest
 
@@ -18,6 +19,12 @@ sys.path.append("/Users/brunoviola/WORK/fit-dashboard")
 from app.data.web_queries import get_activity_by_id, get_activity_laps, get_activity_samples
 
 
+def is_ci_environment():
+    """Check if running in CI environment."""
+    return os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+
+
+@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
 def test_data_availability():
     """Test that required data is available."""
     print("🧪 Testing data availability...")
@@ -40,6 +47,7 @@ def test_data_availability():
     return True
 
 
+@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
 def test_laps_table_callback():
     """Test the laps table callback logic by simulating the callback."""
     print("\n🧪 Testing laps table callback logic...")
@@ -84,6 +92,7 @@ def test_laps_table_callback():
     return True
 
 
+@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
 def test_lap_data_formatting():
     """Test lap data formatting and calculations."""
     print("\n🧪 Testing lap data formatting...")
@@ -120,6 +129,7 @@ def test_lap_data_formatting():
     return True
 
 
+@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
 def test_chart_metrics_data():
     """Test that chart metrics data is available."""
     print("\n🧪 Testing chart metrics data...")
@@ -154,6 +164,7 @@ def test_chart_metrics_data():
     return True
 
 
+@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
 def test_activity_page_components():
     """Test that activity page components are properly defined."""
     print("\n🧪 Testing activity page components...")

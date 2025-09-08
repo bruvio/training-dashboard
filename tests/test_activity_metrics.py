@@ -9,6 +9,16 @@ from app.data.db import session_scope
 from app.data.models import Sample
 
 
+import os
+import pytest
+
+
+def is_ci_environment():
+    """Check if running in CI environment."""
+    return os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+
+
+@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
 def test_activity_metrics():
     """Test which activities have metrics available."""
 

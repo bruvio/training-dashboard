@@ -6,6 +6,7 @@ Test the existing WellnessSync class to see what data it can retrieve.
 from datetime import date, timedelta
 import os
 import sys
+import pytest
 
 import pandas as pd
 
@@ -15,6 +16,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from garmin_client.wellness_sync import WellnessSync, get_client
 
 
+def is_ci_environment():
+    """Check if running in CI environment."""
+    return os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+
+
+@pytest.mark.skipif(is_ci_environment(), reason="Garmin authentication not available in CI environment")
 def test_wellness_sync():
     """Test the existing WellnessSync class."""
     print("🔍 Testing existing WellnessSync class...")
