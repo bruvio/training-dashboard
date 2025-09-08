@@ -55,14 +55,14 @@ try:
     logger.info("✅ All database models imported - tables will be available for creation")
 
     # Import pages to register their callbacks with the app
-    from app.pages import fit_upload, garmin_login, settings, stats
+    from app.pages import activities, fit_upload, garmin_login, settings, stats
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)
     settings.register_callbacks(app)
     fit_upload.register_callbacks(app)
     stats.register_callbacks(app)
-    # Note: sync page uses @callback decorator, so callbacks are auto-registered on import
+    # Note: sync and activities pages use @callback decorator, so callbacks are auto-registered on import
     logger.info("✅ All page modules imported successfully - callbacks registered")
 
 except ImportError as e:
@@ -152,25 +152,25 @@ app.layout = dbc.Container(
                                 dbc.Nav(
                                     [
                                         dbc.NavLink(
-                                            [html.I(className="fas fa-calendar me-1"), "Activities"],
+                                            [html.I(className="fas fa-home me-1"), "Home"],
                                             href="/",
                                             active="exact",
                                             className="text-white",
                                         ),
                                         dbc.NavLink(
-                                            [html.I(className="fas fa-chart-line me-1"), "Statistics"],
+                                            [html.I(className="fas fa-download me-1"), "Connect to Garmin"],
+                                            href="/garmin",
+                                            active="exact",
+                                            className="text-white",
+                                        ),
+                                        dbc.NavLink(
+                                            [html.I(className="fas fa-chart-line me-1"), "Stats"],
                                             href="/stats",
                                             active="exact",
                                             className="text-white",
                                         ),
                                         dbc.NavLink(
-                                            [html.I(className="fas fa-sync-alt me-1"), "Enhanced Sync"],
-                                            href="/sync",
-                                            active="exact",
-                                            className="text-white",
-                                        ),
-                                        dbc.NavLink(
-                                            [html.I(className="fas fa-file-upload me-1"), "Import Files"],
+                                            [html.I(className="fas fa-file-upload me-1"), "Import Local Fit Files"],
                                             href="/upload",
                                             active="exact",
                                             className="text-white",
@@ -178,6 +178,18 @@ app.layout = dbc.Container(
                                         dbc.NavLink(
                                             [html.I(className="fas fa-cog me-1"), "Settings"],
                                             href="/settings",
+                                            active="exact",
+                                            className="text-white",
+                                        ),
+                                        dbc.NavLink(
+                                            [html.I(className="fas fa-sync-alt me-1"), "Sync Wellness"],
+                                            href="/sync",
+                                            active="exact",
+                                            className="text-white",
+                                        ),
+                                        dbc.NavLink(
+                                            [html.I(className="fas fa-list me-1"), "Activities"],
+                                            href="/activities",
                                             active="exact",
                                             className="text-white",
                                         ),
@@ -239,7 +251,31 @@ app.layout = dbc.Container(
                                             className="text-muted small mb-0",
                                         )
                                     ],
-                                    width=6,
+                                    width=4,
+                                ),
+                                dbc.Col(
+                                    [
+                                        html.P(
+                                            [
+                                                "© 2025 ",
+                                                html.A(
+                                                    "bruvio",
+                                                    href="https://github.com/bruvio",
+                                                    target="_blank",
+                                                    className="text-decoration-none text-primary",
+                                                ),
+                                                " | ",
+                                                html.A(
+                                                    "MIT License",
+                                                    href="https://opensource.org/licenses/MIT",
+                                                    target="_blank",
+                                                    className="text-decoration-none text-primary",
+                                                ),
+                                            ],
+                                            className="text-muted small mb-0 text-center",
+                                        )
+                                    ],
+                                    width=4,
                                 ),
                                 dbc.Col(
                                     [
@@ -250,7 +286,7 @@ app.layout = dbc.Container(
                                             className="text-muted small mb-0 text-end",
                                         )
                                     ],
-                                    width=6,
+                                    width=4,
                                 ),
                             ]
                         ),
@@ -350,6 +386,17 @@ def display_page(pathname):
         except Exception as e:
             logger.error(f"Error loading enhanced sync page: {e}")
             return html.Div([html.H2(f"Error loading enhanced sync: {str(e)}")])
+
+    elif pathname == "/activities":
+        # Dedicated activities page
+        try:
+            from app.pages.activities import layout as activities_layout
+
+            logger.info("Loading activities page")
+            return activities_layout()
+        except Exception as e:
+            logger.error(f"Error loading activities page: {e}")
+            return html.Div([html.H2(f"Error loading activities: {str(e)}")])
 
     else:
         logger.info(f"Unknown pathname: {pathname}")

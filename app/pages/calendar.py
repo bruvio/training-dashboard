@@ -15,7 +15,7 @@ from app.utils import filter_activities_by_distance, parse_duration_to_seconds, 
 
 def layout():
     """
-    Main layout for the calendar/activity list page.
+    Enhanced landing page with database summary and navigation actions.
     """
     return dbc.Container(
         [
@@ -34,7 +34,28 @@ def layout():
                     )
                 ]
             ),
-            # Quick actions
+            # Database summary section
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader([
+                                        html.H5([html.I(className="fas fa-database me-2"), "Database Summary"], className="mb-0")
+                                    ]),
+                                    dbc.CardBody([
+                                        html.Div(id="database-summary-cards")
+                                    ])
+                                ],
+                                className="mb-4"
+                            )
+                        ],
+                        width=12,
+                    )
+                ]
+            ),
+            # Quick actions - Enhanced with requested buttons
             dbc.Row(
                 [
                     dbc.Col(
@@ -63,7 +84,9 @@ def layout():
                                 ]
                             )
                         ],
-                        width=4,
+                        width=6,
+                        md=4,
+                        className="mb-3",
                     ),
                     dbc.Col(
                         [
@@ -72,7 +95,37 @@ def layout():
                                     dbc.CardBody(
                                         [
                                             html.H5(
-                                                [html.I(className="fas fa-upload me-2"), "Import FIT Files"],
+                                                [html.I(className="fas fa-chart-line me-2"), "Statistics"],
+                                                className="mb-3",
+                                            ),
+                                            html.P(
+                                                "View comprehensive statistics, trends, and analytics of your fitness data.",
+                                                className="mb-3",
+                                            ),
+                                            dbc.Button(
+                                                [html.I(className="fas fa-chart-bar me-2"), "View Stats"],
+                                                href="/stats",
+                                                color="info",
+                                                size="lg",
+                                                className="w-100",
+                                            ),
+                                        ]
+                                    )
+                                ]
+                            )
+                        ],
+                        width=6,
+                        md=4,
+                        className="mb-3",
+                    ),
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H5(
+                                                [html.I(className="fas fa-upload me-2"), "Import Local FIT Files"],
                                                 className="mb-3",
                                             ),
                                             html.P(
@@ -91,7 +144,9 @@ def layout():
                                 ]
                             )
                         ],
-                        width=4,
+                        width=6,
+                        md=4,
+                        className="mb-3",
                     ),
                     dbc.Col(
                         [
@@ -100,7 +155,37 @@ def layout():
                                     dbc.CardBody(
                                         [
                                             html.H5(
-                                                [html.I(className="fas fa-sync-alt me-2"), "Sync Wellness Data"],
+                                                [html.I(className="fas fa-cog me-2"), "Settings"],
+                                                className="mb-3",
+                                            ),
+                                            html.P(
+                                                "Configure application preferences, data sources, and display options.",
+                                                className="mb-3",
+                                            ),
+                                            dbc.Button(
+                                                [html.I(className="fas fa-cogs me-2"), "Settings"],
+                                                href="/settings",
+                                                color="dark",
+                                                size="lg",
+                                                className="w-100",
+                                            ),
+                                        ]
+                                    )
+                                ]
+                            )
+                        ],
+                        width=6,
+                        md=4,
+                        className="mb-3",
+                    ),
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H5(
+                                                [html.I(className="fas fa-sync-alt me-2"), "Sync Wellness"],
                                                 className="mb-3",
                                             ),
                                             html.P(
@@ -119,492 +204,154 @@ def layout():
                                 ]
                             )
                         ],
-                        width=4,
+                        width=6,
+                        md=4,
+                        className="mb-3",
                     ),
-                ],
-                className="mb-5",
-            ),
-            # Filters section
-            dbc.Row(
-                [
                     dbc.Col(
                         [
                             dbc.Card(
                                 [
                                     dbc.CardBody(
                                         [
-                                            html.H6("Filters", className="mb-3"),
-                                            dbc.Row(
-                                                [
-                                                    # Date range filter
-                                                    dbc.Col(
-                                                        [
-                                                            dbc.Label("Date Range:", size="sm"),
-                                                            dcc.DatePickerRange(
-                                                                id="date-range-picker",
-                                                                start_date=datetime.now() - timedelta(days=30),
-                                                                end_date=datetime.now(),
-                                                                display_format="YYYY-MM-DD",
-                                                                style={"width": "100%"},
-                                                            ),
-                                                        ],
-                                                        md=3,
-                                                    ),
-                                                    # Sport filter
-                                                    dbc.Col(
-                                                        [
-                                                            dbc.Label("Sport:", size="sm"),
-                                                            dcc.Dropdown(
-                                                                id="sport-filter",
-                                                                placeholder="All Sports",
-                                                                value="all",
-                                                                clearable=False,
-                                                            ),
-                                                        ],
-                                                        md=2,
-                                                    ),
-                                                    # Duration filter
-                                                    dbc.Col(
-                                                        [
-                                                            dbc.Label("Duration (min):", size="sm"),
-                                                            dcc.RangeSlider(
-                                                                id="duration-filter",
-                                                                step=5,
-                                                                marks=None,
-                                                                tooltip={
-                                                                    "placement": "bottom",
-                                                                    "always_visible": False,
-                                                                },
-                                                            ),
-                                                        ],
-                                                        md=3,
-                                                    ),
-                                                    # Distance filter
-                                                    dbc.Col(
-                                                        [
-                                                            dbc.Label("Distance (km):", size="sm"),
-                                                            dcc.RangeSlider(
-                                                                id="distance-filter",
-                                                                step=0.5,
-                                                                marks=None,
-                                                                tooltip={
-                                                                    "placement": "bottom",
-                                                                    "always_visible": False,
-                                                                },
-                                                            ),
-                                                        ],
-                                                        md=3,
-                                                    ),
-                                                    # Sort dropdown
-                                                    dbc.Col(
-                                                        [
-                                                            dbc.Label("Sort by:", size="sm"),
-                                                            dcc.Dropdown(
-                                                                id="sort-dropdown",
-                                                                options=[
-                                                                    {"label": "Date (Newest)", "value": "date_desc"},
-                                                                    {"label": "Date (Oldest)", "value": "date_asc"},
-                                                                    {
-                                                                        "label": "Distance (High-Low)",
-                                                                        "value": "distance_desc",
-                                                                    },
-                                                                    {
-                                                                        "label": "Distance (Low-High)",
-                                                                        "value": "distance_asc",
-                                                                    },
-                                                                    {
-                                                                        "label": "Duration (Long-Short)",
-                                                                        "value": "duration_desc",
-                                                                    },
-                                                                    {
-                                                                        "label": "Duration (Short-Long)",
-                                                                        "value": "duration_asc",
-                                                                    },
-                                                                ],
-                                                                value="date_desc",
-                                                                clearable=False,
-                                                                style={"fontSize": "14px"},
-                                                            ),
-                                                        ],
-                                                        md=2,
-                                                    ),
-                                                    # Search box
-                                                    dbc.Col(
-                                                        [
-                                                            dbc.Label("Search:", size="sm"),
-                                                            dbc.Input(
-                                                                id="search-input",
-                                                                placeholder="Search activities...",
-                                                                size="sm",
-                                                                debounce=True,
-                                                            ),
-                                                        ],
-                                                        md=2,
-                                                    ),
-                                                ]
+                                            html.H5(
+                                                [html.I(className="fas fa-list me-2"), "Activities"],
+                                                className="mb-3",
+                                            ),
+                                            html.P(
+                                                "Browse and analyze all activities in your database with detailed metrics.",
+                                                className="mb-3",
+                                            ),
+                                            dbc.Button(
+                                                [html.I(className="fas fa-running me-2"), "View Activities"],
+                                                href="/activities",
+                                                color="warning",
+                                                size="lg",
+                                                className="w-100",
                                             ),
                                         ]
                                     )
-                                ],
-                                className="mb-3",
-                            )
-                        ],
-                        width=12,
-                    )
-                ]
-            ),
-            # Activity overview
-            dbc.Row([dbc.Col([html.Div(id="activity-summary-cards")], width=12)], className="mb-4"),
-            # Activity table
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardHeader(
-                                        [
-                                            dbc.Row(
-                                                [
-                                                    dbc.Col([html.H5("Your Activities", className="mb-0")], width=6),
-                                                    dbc.Col(
-                                                        [
-                                                            html.Div(
-                                                                [
-                                                                    dbc.Button(
-                                                                        [
-                                                                            html.I(className="fas fa-sync me-2"),
-                                                                            "Refresh",
-                                                                        ],
-                                                                        id="refresh-activities",
-                                                                        color="outline-primary",
-                                                                        size="sm",
-                                                                        className="float-end",
-                                                                    )
-                                                                ]
-                                                            )
-                                                        ],
-                                                        width=6,
-                                                    ),
-                                                ]
-                                            )
-                                        ]
-                                    ),
-                                    dbc.CardBody([html.Div(id="activity-table-container")]),
                                 ]
                             )
                         ],
-                        width=12,
-                    )
-                ]
+                        width=6,
+                        md=4,
+                        className="mb-3",
+                    ),
+                ],
+                className="mb-5",
             ),
         ],
         fluid=True,
     )
 
 
-# Initialize filter options
+# Database summary callback
 @callback(
-    [
-        Output("sport-filter", "options"),
-        Output("duration-filter", "min"),
-        Output("duration-filter", "max"),
-        Output("duration-filter", "value"),
-        Output("distance-filter", "min"),
-        Output("distance-filter", "max"),
-        Output("distance-filter", "value"),
-    ],
+    Output("database-summary-cards", "children"),
     Input("url", "pathname"),
 )
-def initialize_filters(pathname):
-    """Initialize filter components with data from database."""
+def update_database_summary(pathname):
+    """Load and display database summary statistics."""
     try:
-        filter_options = get_filter_options()
-
-        # Sport options
-        sport_options = [{"label": "All Sports", "value": "all"}]
-        for sport in filter_options["sports"]:
-            sport_options.append({"label": sport.title(), "value": sport})
-
-        # Duration in minutes - set reasonable defaults that don't filter out activities
-        duration_min = 0  # Start from 0
-        duration_max = max((filter_options["duration_range"]["max"] or 3600) / 60, 180)  # At least 3 hours
-        duration_value = [duration_min, duration_max]
-
-        # Distance in km - set reasonable defaults that don't filter out activities
-        distance_min = 0  # Start from 0
-        distance_max = max(filter_options["distance_range"]["max"], 100)  # At least 100km
-        distance_value = [distance_min, distance_max]
-
-        return (
-            sport_options,
-            duration_min,
-            duration_max,
-            duration_value,
-            distance_min,
-            distance_max,
-            distance_value,
-        )
-    except Exception:
-        # Fallback values
-        return (
-            [{"label": "All Sports", "value": "all"}],
-            0,
-            180,
-            [0, 180],
-            0,
-            50,
-            [0, 50],
-        )
-
-
-@callback(
-    Output("activity-summary-cards", "children"),
-    [
-        Input("date-range-picker", "start_date"),
-        Input("date-range-picker", "end_date"),
-        Input("sport-filter", "value"),
-        Input("search-input", "value"),
-    ],
-)
-def update_activity_summary(start_date, end_date, sport, search_term):
-    """Load and display activity summary statistics with filters."""
-    try:
-        from app.data.web_queries import get_activity_summary_stats
-
-        # Convert date strings to date objects
-        start_date_obj = None
-        end_date_obj = None
-        if start_date:
-            start_date_obj = datetime.fromisoformat(start_date).date()
-        if end_date:
-            end_date_obj = datetime.fromisoformat(end_date).date()
-
-        # Get filtered summary stats
-        stats = get_activity_summary_stats(
-            start_date=start_date_obj,
-            end_date=end_date_obj,
-            sport=sport,
-            search_term=search_term,
-        )
-
-        if int(stats["total_activities"]) == 0:
-            return dbc.Alert(
-                [
-                    html.I(className="fas fa-info-circle me-2"),
-                    "No activities found with the current filters. Try adjusting your search criteria.",
-                ],
-                color="info",
-                className="text-center",
-            )
-
-        return dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            [
-                                dbc.CardBody(
-                                    [
-                                        html.H3(stats["total_activities"], className="text-primary mb-1"),
-                                        html.P("Total Activities", className="mb-0 text-muted"),
-                                    ],
-                                    className="text-center",
-                                )
-                            ]
-                        )
-                    ],
-                    width=3,
-                ),
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            [
-                                dbc.CardBody(
-                                    [
-                                        html.H3(stats["total_distance"], className="text-success mb-1"),
-                                        html.P("Total Distance", className="mb-0 text-muted"),
-                                    ],
-                                    className="text-center",
-                                )
-                            ]
-                        )
-                    ],
-                    width=3,
-                ),
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            [
-                                dbc.CardBody(
-                                    [
-                                        html.H3(stats["total_time"], className="text-info mb-1"),
-                                        html.P("Total Time", className="mb-0 text-muted"),
-                                    ],
-                                    className="text-center",
-                                )
-                            ]
-                        )
-                    ],
-                    width=3,
-                ),
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            [
-                                dbc.CardBody(
-                                    [
-                                        html.H3(stats["avg_hr"], className="text-danger mb-1"),
-                                        html.P("Avg Heart Rate", className="mb-0 text-muted"),
-                                    ],
-                                    className="text-center",
-                                )
-                            ]
-                        )
-                    ],
-                    width=3,
-                ),
-            ]
-        )
-
+        from app.data.web_queries import get_activity_statistics, get_wellness_statistics
+        
+        # Get activity statistics (no date filter for overall summary)
+        activity_stats = get_activity_statistics()
+        
+        # Get wellness statistics 
+        wellness_stats = get_wellness_statistics()
+        
+        return dbc.Row([
+            # Activity Statistics
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H4([html.I(className="fas fa-running me-2"), "Activities"], className="text-primary mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.H5(str(activity_stats["total_activities"]), className="text-success mb-1"),
+                                html.P("Total Activities", className="mb-0 small text-muted"),
+                            ], width=6),
+                            dbc.Col([
+                                html.H5(f"{activity_stats['total_distance_km']:.1f} km", className="text-info mb-1"),
+                                html.P("Total Distance", className="mb-0 small text-muted"),
+                            ], width=6),
+                        ], className="mb-2"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.H5(f"{activity_stats['total_time_hours']:.1f}h", className="text-warning mb-1"),
+                                html.P("Total Time", className="mb-0 small text-muted"),
+                            ], width=6),
+                            dbc.Col([
+                                html.H5(f"{activity_stats['avg_heart_rate']:.0f} bpm" if activity_stats['avg_heart_rate'] > 0 else "N/A", className="text-danger mb-1"),
+                                html.P("Avg Heart Rate", className="mb-0 small text-muted"),
+                            ], width=6),
+                        ]),
+                    ])
+                ])
+            ], width=6, lg=4),
+            
+            # Wellness Statistics  
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H4([html.I(className="fas fa-heart me-2"), "Wellness"], className="text-danger mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.H5(str(wellness_stats["sleep"]["total_records"]), className="text-primary mb-1"),
+                                html.P("Sleep Records", className="mb-0 small text-muted"),
+                            ], width=6),
+                            dbc.Col([
+                                html.H5(f"{wellness_stats['sleep']['avg_sleep_hours']:.1f}h" if wellness_stats['sleep']['avg_sleep_hours'] > 0 else "N/A", className="text-info mb-1"),
+                                html.P("Avg Sleep", className="mb-0 small text-muted"),
+                            ], width=6),
+                        ], className="mb-2"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.H5(str(wellness_stats["stress"]["total_records"]), className="text-warning mb-1"),
+                                html.P("Stress Records", className="mb-0 small text-muted"),
+                            ], width=6),
+                            dbc.Col([
+                                html.H5(str(wellness_stats["steps"]["total_records"]), className="text-success mb-1"),
+                                html.P("Steps Records", className="mb-0 small text-muted"),
+                            ], width=6),
+                        ]),
+                    ])
+                ])
+            ], width=6, lg=4),
+            
+            # Additional Metrics
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H4([html.I(className="fas fa-chart-bar me-2"), "Metrics"], className="text-success mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.H5(str(wellness_stats["body_battery"]["total_records"]), className="text-primary mb-1"),
+                                html.P("Body Battery", className="mb-0 small text-muted"),
+                            ], width=6),
+                            dbc.Col([
+                                html.H5(str(wellness_stats["heart_rate"]["total_records"]), className="text-danger mb-1"),
+                                html.P("HR Records", className="mb-0 small text-muted"),
+                            ], width=6),
+                        ], className="mb-2"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.H5(str(wellness_stats["personal_records"]["total_records"]), className="text-warning mb-1"),
+                                html.P("Personal Records", className="mb-0 small text-muted"),
+                            ], width=6),
+                            dbc.Col([
+                                html.H5(f"{wellness_stats['max_metrics']['avg_vo2_max']:.1f}" if wellness_stats['max_metrics']['avg_vo2_max'] > 0 else "N/A", className="text-info mb-1"),
+                                html.P("Avg VO2 Max", className="mb-0 small text-muted"),
+                            ], width=6),
+                        ]),
+                    ])
+                ])
+            ], width=12, lg=4),
+        ])
+        
     except Exception as e:
-        return dbc.Alert(f"Error loading summary: {str(e)}", color="warning")
+        return dbc.Alert(f"Error loading database summary: {str(e)}", color="warning")
 
 
-@callback(
-    Output("activity-table-container", "children"),
-    [
-        Input("date-range-picker", "start_date"),
-        Input("date-range-picker", "end_date"),
-        Input("sport-filter", "value"),
-        Input("duration-filter", "value"),
-        Input("distance-filter", "value"),
-        Input("search-input", "value"),
-        Input("sort-dropdown", "value"),
-        Input("refresh-activities", "n_clicks"),
-    ],
-    prevent_initial_call=False,  # Allow initial call
-)
-def update_activity_table(start_date, end_date, sport, duration_range, distance_range, search_term, sort_by, n_clicks):
-    """Load and display activities in a filtered table format."""
-    try:
-        # Provide defaults if values are None
-        if start_date is None:
-            start_date_obj = None  # No start date filter
-        else:
-            start_date_obj = datetime.fromisoformat(start_date).date()
-
-        if end_date is None:
-            end_date_obj = None  # No end date filter
-        else:
-            end_date_obj = datetime.fromisoformat(end_date).date()
-
-        if sport is None:
-            sport = "all"
-
-        if search_term is None:
-            search_term = ""
-
-        if sort_by is None:
-            sort_by = "date_desc"
-
-        # Get filtered activities
-        activities_data = get_activities_for_date_range(
-            start_date=start_date_obj,
-            end_date=end_date_obj,
-            sport=sport,
-            search_term=search_term,
-        )
-
-        # Apply duration and distance filters if specified (and not at default range)
-        if duration_range and len(duration_range) == 2 and (duration_range[0] != 0 or duration_range[1] < 180):
-            min_duration_s = duration_range[0] * 60  # Convert minutes to seconds
-            max_duration_s = duration_range[1] * 60
-            filtered_activities = []
-            for activity in activities_data:
-                duration_str = activity.get("duration_str", "")
-                duration_s = parse_duration_to_seconds(duration_str)
-
-                if duration_s > 0 and min_duration_s <= duration_s <= max_duration_s or duration_s <= 0:
-                    filtered_activities.append(activity)
-            activities_data = filtered_activities
-
-        if distance_range and len(distance_range) == 2 and not (distance_range[0] == 0 and distance_range[1] >= 100):
-            min_distance = distance_range[0]
-            max_distance = distance_range[1]
-            activities_data = filter_activities_by_distance(activities_data, min_distance, max_distance)
-
-        if not activities_data:
-            return dbc.Alert(
-                [
-                    html.H4("No Activities Found", className="alert-heading"),
-                    html.P("No activities match your current filter criteria."),
-                    html.Hr(),
-                    html.P("Try adjusting the filters to see more activities."),
-                ],
-                color="info",
-            )
-
-        # Apply sorting using shared helper
-        activities_data = sort_activities(activities_data, sort_by)
-
-        # Create activity cards with custom names
-        activity_cards = []
-        for activity in activities_data:
-            # Use the name from the query result
-            activity_name = activity.get("name", f"Activity {activity['id']}")
-
-            card = dbc.Card(
-                [
-                    dbc.CardBody(
-                        [
-                            html.H5(activity_name, className="card-title"),
-                            html.P(
-                                [
-                                    html.Strong("Sport: "),
-                                    activity.get("sport", "Unknown"),
-                                    html.Br(),
-                                    html.Strong("Duration: "),
-                                    activity.get("duration_str", "N/A"),
-                                    html.Br(),
-                                    html.Strong("Distance: "),
-                                    f"{activity.get('distance_km', 0):.2f} km",
-                                    html.Br(),
-                                    html.Strong("Date: "),
-                                    activity.get("start_time", "Unknown"),
-                                ]
-                            ),
-                            dbc.Row(
-                                [
-                                    dbc.Col(
-                                        [
-                                            dbc.Button(
-                                                "View Details",
-                                                href=f"/activity/{activity['id']}",
-                                                color="primary",
-                                                size="sm",
-                                            ),
-                                        ],
-                                        width="auto",
-                                    ),
-                                    dbc.Col(
-                                        [
-                                            html.Small(
-                                                f"HR: {activity.get('avg_hr', 'N/A')} | Power: {activity.get('avg_power_w', 'N/A')}W | Elevation: {activity.get('elevation_gain_m', 0)}m",
-                                                className="text-muted",
-                                            )
-                                        ]
-                                    ),
-                                ]
-                            ),
-                        ]
-                    )
-                ],
-                className="mb-3",
-            )
-            activity_cards.append(card)
-
-        return html.Div(activity_cards)
-
-    except Exception as e:
-        return dbc.Alert(f"Error loading activities: {str(e)}", color="danger")

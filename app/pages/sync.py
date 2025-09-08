@@ -351,8 +351,6 @@ def start_sync_data(n_clicks, start_date, end_date, smoothing):
 )
 def update_sync_progress_display(n_intervals):
     """Update the sync progress display in real-time."""
-    global _sync_progress
-
     if _sync_progress["status"] == "idle":
         return (
             "",
@@ -665,7 +663,6 @@ def update_wellness_charts(sync_results):
     if not sync_results:
         raise PreventUpdate
 
-    global _sync_progress
     sync_result = _sync_progress.get("result", {})
 
     logger.info(f"Chart callback triggered. Sync result keys: {list(sync_result.keys()) if sync_result else 'None'}")

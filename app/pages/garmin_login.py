@@ -578,7 +578,6 @@ def register_callbacks(app):
         update_sync_progress("running", "Starting sync...", 5)
 
         def run_sync():
-            global _sync_progress
             try:
                 if is_authed:
                     summary = sync_with_progress(days=int(days or 30), fetch_wellness=True)
@@ -794,8 +793,6 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def _update_sync_progress(n_intervals):
-        global _sync_progress, _import_progress
-
         if _sync_progress["status"] == "idle":
             return "", {"display": "none"}, no_update, no_update, no_update
 
@@ -855,8 +852,6 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def _update_import_progress(n_intervals):
-        global _import_progress
-
         if _import_progress["status"] == "idle":
             return "", {"display": "none"}
 
@@ -897,8 +892,6 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def _update_import_status_completion(n_intervals):
-        global _import_progress
-
         if _import_progress["status"] == "completed":
             return dbc.Alert(f"✅ {_import_progress['message']}", color="success", className="mb-2", dismissable=True)
         elif _import_progress["status"] == "error":
