@@ -114,7 +114,7 @@ def test_database():
         # Add test route points
         route_point1 = RoutePoint(
             activity_id=activity1.id,
-            point_index=1,
+            sequence=1,
             latitude=52.5200,
             longitude=13.4050,
             altitude_m=50.0,
