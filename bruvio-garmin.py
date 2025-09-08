@@ -39,8 +39,6 @@ from typing import Any, Dict, List, Optional
 from garminconnect import (
     Garmin,
     GarminConnectAuthenticationError,
-    GarminConnectConnectionError,
-    GarminConnectTooManyRequestsError,
 )
 from garth.exc import GarthHTTPError
 import matplotlib.pyplot as plt

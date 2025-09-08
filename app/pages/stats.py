@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from dash import Input, Output, callback, dcc, html
 import dash_bootstrap_components as dbc
+import pandas as pd
 import plotly.graph_objects as go
 
 from app.data.web_queries import (
@@ -16,15 +17,12 @@ from app.data.web_queries import (
     get_max_metrics_data,
     get_personal_records_data,
     get_sleep_data,
-    get_spo2_data,
     get_steps_data,
     get_stress_data,
     get_training_readiness_data,
     get_wellness_statistics,
 )
 from app.utils import get_logger
-from garmin_client.wellness_sync import WellnessSync, get_client
-import pandas as pd
 
 logger = get_logger(__name__)
 
@@ -654,9 +652,13 @@ def register_callbacks(app):
             return dbc.Alert("Error loading wellness statistics.", color="danger")
 
     @app.callback(
-        Output("sleep-chart", "children"), 
-        [Input("sleep-tabs", "value"), Input("stats-initial-load", "n_intervals"), 
-         Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")]
+        Output("sleep-chart", "children"),
+        [
+            Input("sleep-tabs", "value"),
+            Input("stats-initial-load", "n_intervals"),
+            Input("stats-date-range", "start_date"),
+            Input("stats-date-range", "end_date"),
+        ],
     )
     def update_sleep_chart(active_tab, n_intervals, start_date, end_date):
         """Update sleep visualization based on selected tab and date range."""
@@ -665,7 +667,9 @@ def register_callbacks(app):
             if start_date and end_date:
                 start_date_obj = date.fromisoformat(start_date)
                 end_date_obj = date.fromisoformat(end_date)
-                sleep_df = get_sleep_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+                sleep_df = get_sleep_data(
+                    start_date=start_date_obj.strftime("%Y-%m-%d"), end_date=end_date_obj.strftime("%Y-%m-%d")
+                )
             else:
                 sleep_df = get_sleep_data(days=90)
 
@@ -766,8 +770,12 @@ def register_callbacks(app):
             return dbc.Alert("Error loading sleep data.", color="danger")
 
     @app.callback(
-        Output("stress-chart", "children"), 
-        [Input("stats-initial-load", "n_intervals"), Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")]
+        Output("stress-chart", "children"),
+        [
+            Input("stats-initial-load", "n_intervals"),
+            Input("stats-date-range", "start_date"),
+            Input("stats-date-range", "end_date"),
+        ],
     )
     def update_stress_chart(n_intervals, start_date, end_date):
         """Update stress visualization based on date range."""
@@ -776,7 +784,9 @@ def register_callbacks(app):
             if start_date and end_date:
                 start_date_obj = date.fromisoformat(start_date)
                 end_date_obj = date.fromisoformat(end_date)
-                stress_df = get_stress_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+                stress_df = get_stress_data(
+                    start_date=start_date_obj.strftime("%Y-%m-%d"), end_date=end_date_obj.strftime("%Y-%m-%d")
+                )
             else:
                 stress_df = get_stress_data(days=90)
 
@@ -891,7 +901,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output("hr-chart", "children"),
-        [Input("hr-tabs", "value"), Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")]
+        [Input("hr-tabs", "value"), Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")],
     )
     def update_hr_chart(active_tab, start_date, end_date):
         """Update heart rate visualization based on selected tab and date range."""
@@ -900,7 +910,9 @@ def register_callbacks(app):
             if start_date and end_date:
                 start_date_obj = date.fromisoformat(start_date)
                 end_date_obj = date.fromisoformat(end_date)
-                hr_df = get_heart_rate_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+                hr_df = get_heart_rate_data(
+                    start_date=start_date_obj.strftime("%Y-%m-%d"), end_date=end_date_obj.strftime("%Y-%m-%d")
+                )
             else:
                 hr_df = get_heart_rate_data(days=30)
 
@@ -1009,8 +1021,8 @@ def register_callbacks(app):
             return dbc.Alert("Error loading heart rate data.", color="danger")
 
     @app.callback(
-        Output("energy-chart", "children"), 
-        [Input("energy-tabs", "value"), Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")]
+        Output("energy-chart", "children"),
+        [Input("energy-tabs", "value"), Input("stats-date-range", "start_date"), Input("stats-date-range", "end_date")],
     )
     def update_energy_chart(active_tab, start_date, end_date):
         """Update energy and training visualization based on selected tab and date range."""
@@ -1020,7 +1032,9 @@ def register_callbacks(app):
                 if start_date and end_date:
                     start_date_obj = date.fromisoformat(start_date)
                     end_date_obj = date.fromisoformat(end_date)
-                    bb_df = get_body_battery_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+                    bb_df = get_body_battery_data(
+                        start_date=start_date_obj.strftime("%Y-%m-%d"), end_date=end_date_obj.strftime("%Y-%m-%d")
+                    )
                 else:
                     bb_df = get_body_battery_data(days=90)
                 if bb_df.empty:
@@ -1065,7 +1079,9 @@ def register_callbacks(app):
                 if start_date and end_date:
                     start_date_obj = date.fromisoformat(start_date)
                     end_date_obj = date.fromisoformat(end_date)
-                    tr_df = get_training_readiness_data(start_date=start_date_obj.strftime('%Y-%m-%d'), end_date=end_date_obj.strftime('%Y-%m-%d'))
+                    tr_df = get_training_readiness_data(
+                        start_date=start_date_obj.strftime("%Y-%m-%d"), end_date=end_date_obj.strftime("%Y-%m-%d")
+                    )
                 else:
                     tr_df = get_training_readiness_data(days=90)
                 if tr_df.empty:

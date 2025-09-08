@@ -870,10 +870,10 @@ def get_sleep_data(days: int = 90, start_date: Optional[str] = None, end_date: O
     """
     try:
         with session_scope() as session:
-            # Calculate date range 
+            # Calculate date range
             if start_date and end_date:
-                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+                start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
             else:
                 end_date_obj = date.today()
                 start_date_obj = end_date_obj - timedelta(days=days)
@@ -955,8 +955,8 @@ def get_stress_data(days: int = 90, start_date: Optional[str] = None, end_date: 
         with session_scope() as session:
             # Calculate date range
             if start_date and end_date:
-                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+                start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
             else:
                 end_date_obj = date.today()
                 start_date_obj = end_date_obj - timedelta(days=days)
@@ -1115,7 +1115,9 @@ def get_intensity_data(days: int = 90) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def get_heart_rate_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+def get_heart_rate_data(
+    days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None
+) -> pd.DataFrame:
     """
     Get heart rate data for visualizations.
 
@@ -1131,8 +1133,8 @@ def get_heart_rate_data(days: int = 90, start_date: Optional[str] = None, end_da
         with session_scope() as session:
             # Calculate date range
             if start_date and end_date:
-                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+                start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
             else:
                 end_date_obj = date.today()
                 start_date_obj = end_date_obj - timedelta(days=days)
@@ -1176,7 +1178,9 @@ def get_heart_rate_data(days: int = 90, start_date: Optional[str] = None, end_da
         return pd.DataFrame()
 
 
-def get_body_battery_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+def get_body_battery_data(
+    days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None
+) -> pd.DataFrame:
     """
     Get Body Battery data for visualizations.
 
@@ -1192,8 +1196,8 @@ def get_body_battery_data(days: int = 90, start_date: Optional[str] = None, end_
         with session_scope() as session:
             # Calculate date range
             if start_date and end_date:
-                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+                start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
             else:
                 end_date_obj = date.today()
                 start_date_obj = end_date_obj - timedelta(days=days)
@@ -1237,7 +1241,9 @@ def get_body_battery_data(days: int = 90, start_date: Optional[str] = None, end_
         return pd.DataFrame()
 
 
-def get_training_readiness_data(days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+def get_training_readiness_data(
+    days: int = 90, start_date: Optional[str] = None, end_date: Optional[str] = None
+) -> pd.DataFrame:
     """
     Get Training Readiness data for visualizations.
 
@@ -1253,8 +1259,8 @@ def get_training_readiness_data(days: int = 90, start_date: Optional[str] = None
         with session_scope() as session:
             # Calculate date range
             if start_date and end_date:
-                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+                start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
             else:
                 end_date_obj = date.today()
                 start_date_obj = end_date_obj - timedelta(days=days)

@@ -54,8 +54,6 @@ def _to_iso(d: Union[str, date, datetime]) -> str:
 class GarminAuthError(RuntimeError):
     """Exception raised when Garmin authentication fails."""
 
-    pass
-
 
 # ---------------- Token store utilities ----------------
 

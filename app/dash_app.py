@@ -7,8 +7,8 @@ Bootstrap theme integration and proper page container setup.
 
 import logging
 import os
-import sys
 from pathlib import Path
+import sys
 
 # Fix imports for both direct execution and package import
 # Get the project root (parent of app directory) and add to sys.path
@@ -55,7 +55,7 @@ try:
     logger.info("✅ All database models imported - tables will be available for creation")
 
     # Import pages to register their callbacks with the app
-    from app.pages import activity_detail, calendar, fit_upload, garmin_login, settings, stats, sync
+    from app.pages import fit_upload, garmin_login, settings, stats
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)

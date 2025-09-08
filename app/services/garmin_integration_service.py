@@ -5,12 +5,12 @@ This service provides wellness data synchronization using the existing garmin_cl
 with data transformation, smoothing/aggregation, and persistence to the dashboard database.
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.services.wellness_data_service import WellnessDataService
 from app.utils import get_logger
-from garmin_client.client import GarminConnectClient, GarminAuthError
+from garmin_client.client import GarminAuthError, GarminConnectClient
 from garmin_client.wellness_sync import WellnessSync
 
 logger = get_logger(__name__)

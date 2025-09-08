@@ -6,20 +6,17 @@ with calendar-based date selection and data aggregation options.
 """
 
 from datetime import date, datetime, timedelta
+import threading
 
 from dash import Input, Output, State, callback, dcc, html
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
 import pandas as pd
+import plotly.graph_objects as go
 
-from ..services.wellness_data_service import WellnessDataService
 from ..services.garmin_integration_service import GarminIntegrationService
+from ..services.wellness_data_service import WellnessDataService
 from ..utils import get_logger
-from garmin_client.wellness_sync import WellnessSync, get_client, aggregate_df
-import threading
 
 logger = get_logger(__name__)
 
@@ -677,7 +674,7 @@ def update_wellness_charts(sync_results):
 
     # Use the same database queries that the stats page uses
     try:
-        from ..data.web_queries import get_sleep_data, get_heart_rate_data, get_body_battery_data
+        from ..data.web_queries import get_body_battery_data, get_heart_rate_data, get_sleep_data
 
         charts = []
 

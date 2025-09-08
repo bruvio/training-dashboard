@@ -11,11 +11,12 @@ Notes:
 """
 from __future__ import annotations
 
-import os
 from datetime import date, datetime, timedelta
+import os
 from typing import Any, Dict, Iterable, List, Optional
 
 import pandas as pd
+
 from . import client as _client
 
 
@@ -172,6 +173,23 @@ class WellnessSync:
             return None
 
     def fetch_range(self, start: str | date, end: str | date, include_extras: bool = True) -> Dict[str, pd.DataFrame]:
+        """
+        fetch_range _summary_
+
+        Parameters
+        ----------
+        start : str | date
+            _description_
+        end : str | date
+            _description_
+        include_extras : bool, optional
+            _description_, by default True
+
+        Returns
+        -------
+        Dict[str, pd.DataFrame]
+            _description_
+        """
         s = _to_date(start)
         e = _to_date(end)
         if s > e:

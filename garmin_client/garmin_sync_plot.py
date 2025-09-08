@@ -3,13 +3,11 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from datetime import datetime, date
+from typing import Any, Dict, List, Optional
 
-import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
+import pandas as pd
 
 from . import wellness_sync as ws
 
