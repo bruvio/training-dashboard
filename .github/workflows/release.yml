@@ -117,7 +117,6 @@ jobs:
             
       - name: Install Dependencies
         run: |
-          make venv
           make bootstrap
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -129,11 +128,6 @@ jobs:
           
       - name: Run Tests with Coverage
         run: |
-          # Ensure venv exists and activate it
-          if [ ! -d "venv" ]; then
-            make venv
-          fi
-          source venv/bin/activate
           make pytest
           
       - name: Generate Coverage Badge
