@@ -19,12 +19,11 @@ def is_ci_environment():
     return os.getenv('IS_CI') == 'true' or os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def test_database():
     """Create a test database with minimal data for CI/local testing."""
-    # Create temporary database file
-    db_fd, db_path = tempfile.mkstemp(suffix='.db')
-    database_url = f"sqlite:///{db_path}"
+    # Use in-memory database to avoid file conflicts
+    database_url = "sqlite:///:memory:"
     
     # Create engine and tables
     engine = create_engine(database_url, echo=False)
@@ -133,8 +132,7 @@ def test_database():
         
     finally:
         session.close()
-        os.close(db_fd)
-        os.unlink(db_path)
+        engine.dispose()
 
 
 @pytest.fixture
