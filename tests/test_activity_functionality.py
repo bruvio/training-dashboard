@@ -26,7 +26,7 @@ def is_ci_environment():
     return os.getenv('IS_CI') == 'true' or os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
 
 
-def test_data_availability(test_database):
+def test_data_availability():
     """Test that required data is available."""
     print("🧪 Testing data availability...")
 
@@ -77,7 +77,7 @@ def test_data_availability(test_database):
         print(f"✅ Sample data available: {len(samples)} samples")
 
 
-def test_laps_table_callback(test_database):
+def test_laps_table_callback():
     """Test the laps table callback logic by simulating the callback."""
     print("\n🧪 Testing laps table callback logic...")
 
@@ -133,7 +133,7 @@ def test_laps_table_callback(test_database):
         print(f"✅ Sample row formatting: Lap 1 - {distance_str} in {time_str}")
 
 
-def test_lap_data_formatting(test_database):
+def test_lap_data_formatting():
     """Test lap data formatting and calculations."""
     print("\n🧪 Testing lap data formatting...")
 
@@ -178,7 +178,7 @@ def test_lap_data_formatting(test_database):
         print(f"✅ Pace calculation: {pace_str}")
 
 
-def test_chart_metrics_data(test_database):
+def test_chart_metrics_data():
     """Test that chart metrics data is available."""
     print("\n🧪 Testing chart metrics data...")
 
