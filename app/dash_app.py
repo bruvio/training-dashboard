@@ -55,7 +55,7 @@ try:
     logger.info("✅ All database models imported - tables will be available for creation")
 
     # Import pages to register their callbacks with the app
-    from app.pages import activities, fit_upload, garmin_login, settings, stats
+    from app.pages import fit_upload, garmin_login, settings, stats
 
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)

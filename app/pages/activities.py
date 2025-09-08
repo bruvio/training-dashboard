@@ -198,12 +198,7 @@ def layout():
                                                 [
                                                     dbc.Col([html.H5("Your Activities", className="mb-0")], width=8),
                                                     dbc.Col(
-                                                        [
-                                                            html.Div(
-                                                                id="activities-count-badge",
-                                                                className="float-end"
-                                                            )
-                                                        ],
+                                                        [html.Div(id="activities-count-badge", className="float-end")],
                                                         width=4,
                                                     ),
                                                 ]
@@ -240,7 +235,7 @@ def initialize_activities_filters(pathname):
     """Initialize filter components with data from database."""
     if pathname != "/activities":
         return [], 0, 180, [0, 180], 0, 50, [0, 50]
-        
+
     try:
         filter_options = get_filter_options()
 
@@ -411,7 +406,9 @@ def update_activities_summary(start_date, end_date, sport, search_term):
     ],
     prevent_initial_call=False,
 )
-def update_activities_table(start_date, end_date, sport, duration_range, distance_range, search_term, sort_by, n_clicks):
+def update_activities_table(
+    start_date, end_date, sport, duration_range, distance_range, search_term, sort_by, n_clicks
+):
     """Load and display activities in a filtered table format."""
     try:
         # Provide defaults if values are None
@@ -461,11 +458,7 @@ def update_activities_table(start_date, end_date, sport, duration_range, distanc
             activities_data = filter_activities_by_distance(activities_data, min_distance, max_distance)
 
         # Create count badge
-        count_badge = dbc.Badge(
-            f"{len(activities_data)} activities",
-            color="primary",
-            className="fs-6"
-        )
+        count_badge = dbc.Badge(f"{len(activities_data)} activities", color="primary", className="fs-6")
 
         if not activities_data:
             return (
@@ -478,7 +471,7 @@ def update_activities_table(start_date, end_date, sport, duration_range, distanc
                     ],
                     color="info",
                 ),
-                count_badge
+                count_badge,
             )
 
         # Apply sorting using shared helper
@@ -542,4 +535,6 @@ def update_activities_table(start_date, end_date, sport, duration_range, distanc
         return html.Div(activity_cards), count_badge
 
     except Exception as e:
-        return dbc.Alert(f"Error loading activities: {str(e)}", color="danger"), dbc.Badge("0 activities", color="danger")
+        return dbc.Alert(f"Error loading activities: {str(e)}", color="danger"), dbc.Badge(
+            "0 activities", color="danger"
+        )

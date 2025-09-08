@@ -2,13 +2,10 @@
 Calendar page - Main activity list and calendar view.
 """
 
-from datetime import datetime, timedelta
 
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, callback, html
 import dash_bootstrap_components as dbc
 
-from app.data.web_queries import get_activities_for_date_range, get_filter_options
-from app.utils import filter_activities_by_distance, parse_duration_to_seconds, sort_activities
 
 # This page uses manual routing - no registration needed
 
@@ -41,14 +38,17 @@ def layout():
                         [
                             dbc.Card(
                                 [
-                                    dbc.CardHeader([
-                                        html.H5([html.I(className="fas fa-database me-2"), "Database Summary"], className="mb-0")
-                                    ]),
-                                    dbc.CardBody([
-                                        html.Div(id="database-summary-cards")
-                                    ])
+                                    dbc.CardHeader(
+                                        [
+                                            html.H5(
+                                                [html.I(className="fas fa-database me-2"), "Database Summary"],
+                                                className="mb-0",
+                                            )
+                                        ]
+                                    ),
+                                    dbc.CardBody([html.Div(id="database-summary-cards")]),
                                 ],
-                                className="mb-4"
+                                className="mb-4",
                             )
                         ],
                         width=12,
@@ -255,103 +255,227 @@ def update_database_summary(pathname):
     """Load and display database summary statistics."""
     try:
         from app.data.web_queries import get_activity_statistics, get_wellness_statistics
-        
+
         # Get activity statistics (no date filter for overall summary)
         activity_stats = get_activity_statistics()
-        
-        # Get wellness statistics 
+
+        # Get wellness statistics
         wellness_stats = get_wellness_statistics()
-        
-        return dbc.Row([
-            # Activity Statistics
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.H4([html.I(className="fas fa-running me-2"), "Activities"], className="text-primary mb-3"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.H5(str(activity_stats["total_activities"]), className="text-success mb-1"),
-                                html.P("Total Activities", className="mb-0 small text-muted"),
-                            ], width=6),
-                            dbc.Col([
-                                html.H5(f"{activity_stats['total_distance_km']:.1f} km", className="text-info mb-1"),
-                                html.P("Total Distance", className="mb-0 small text-muted"),
-                            ], width=6),
-                        ], className="mb-2"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.H5(f"{activity_stats['total_time_hours']:.1f}h", className="text-warning mb-1"),
-                                html.P("Total Time", className="mb-0 small text-muted"),
-                            ], width=6),
-                            dbc.Col([
-                                html.H5(f"{activity_stats['avg_heart_rate']:.0f} bpm" if activity_stats['avg_heart_rate'] > 0 else "N/A", className="text-danger mb-1"),
-                                html.P("Avg Heart Rate", className="mb-0 small text-muted"),
-                            ], width=6),
-                        ]),
-                    ])
-                ])
-            ], width=6, lg=4),
-            
-            # Wellness Statistics  
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.H4([html.I(className="fas fa-heart me-2"), "Wellness"], className="text-danger mb-3"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.H5(str(wellness_stats["sleep"]["total_records"]), className="text-primary mb-1"),
-                                html.P("Sleep Records", className="mb-0 small text-muted"),
-                            ], width=6),
-                            dbc.Col([
-                                html.H5(f"{wellness_stats['sleep']['avg_sleep_hours']:.1f}h" if wellness_stats['sleep']['avg_sleep_hours'] > 0 else "N/A", className="text-info mb-1"),
-                                html.P("Avg Sleep", className="mb-0 small text-muted"),
-                            ], width=6),
-                        ], className="mb-2"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.H5(str(wellness_stats["stress"]["total_records"]), className="text-warning mb-1"),
-                                html.P("Stress Records", className="mb-0 small text-muted"),
-                            ], width=6),
-                            dbc.Col([
-                                html.H5(str(wellness_stats["steps"]["total_records"]), className="text-success mb-1"),
-                                html.P("Steps Records", className="mb-0 small text-muted"),
-                            ], width=6),
-                        ]),
-                    ])
-                ])
-            ], width=6, lg=4),
-            
-            # Additional Metrics
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.H4([html.I(className="fas fa-chart-bar me-2"), "Metrics"], className="text-success mb-3"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.H5(str(wellness_stats["body_battery"]["total_records"]), className="text-primary mb-1"),
-                                html.P("Body Battery", className="mb-0 small text-muted"),
-                            ], width=6),
-                            dbc.Col([
-                                html.H5(str(wellness_stats["heart_rate"]["total_records"]), className="text-danger mb-1"),
-                                html.P("HR Records", className="mb-0 small text-muted"),
-                            ], width=6),
-                        ], className="mb-2"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.H5(str(wellness_stats["personal_records"]["total_records"]), className="text-warning mb-1"),
-                                html.P("Personal Records", className="mb-0 small text-muted"),
-                            ], width=6),
-                            dbc.Col([
-                                html.H5(f"{wellness_stats['max_metrics']['avg_vo2_max']:.1f}" if wellness_stats['max_metrics']['avg_vo2_max'] > 0 else "N/A", className="text-info mb-1"),
-                                html.P("Avg VO2 Max", className="mb-0 small text-muted"),
-                            ], width=6),
-                        ]),
-                    ])
-                ])
-            ], width=12, lg=4),
-        ])
-        
+
+        return dbc.Row(
+            [
+                # Activity Statistics
+                dbc.Col(
+                    [
+                        dbc.Card(
+                            [
+                                dbc.CardBody(
+                                    [
+                                        html.H4(
+                                            [html.I(className="fas fa-running me-2"), "Activities"],
+                                            className="text-primary mb-3",
+                                        ),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            str(activity_stats["total_activities"]),
+                                                            className="text-success mb-1",
+                                                        ),
+                                                        html.P("Total Activities", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            f"{activity_stats['total_distance_km']:.1f} km",
+                                                            className="text-info mb-1",
+                                                        ),
+                                                        html.P("Total Distance", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                            ],
+                                            className="mb-2",
+                                        ),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            f"{activity_stats['total_time_hours']:.1f}h",
+                                                            className="text-warning mb-1",
+                                                        ),
+                                                        html.P("Total Time", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            f"{activity_stats['avg_heart_rate']:.0f} bpm"
+                                                            if activity_stats["avg_heart_rate"] > 0
+                                                            else "N/A",
+                                                            className="text-danger mb-1",
+                                                        ),
+                                                        html.P("Avg Heart Rate", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                            ]
+                                        ),
+                                    ]
+                                )
+                            ]
+                        )
+                    ],
+                    width=6,
+                    lg=4,
+                ),
+                # Wellness Statistics
+                dbc.Col(
+                    [
+                        dbc.Card(
+                            [
+                                dbc.CardBody(
+                                    [
+                                        html.H4(
+                                            [html.I(className="fas fa-heart me-2"), "Wellness"],
+                                            className="text-danger mb-3",
+                                        ),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            str(wellness_stats["sleep"]["total_records"]),
+                                                            className="text-primary mb-1",
+                                                        ),
+                                                        html.P("Sleep Records", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            f"{wellness_stats['sleep']['avg_sleep_hours']:.1f}h"
+                                                            if wellness_stats["sleep"]["avg_sleep_hours"] > 0
+                                                            else "N/A",
+                                                            className="text-info mb-1",
+                                                        ),
+                                                        html.P("Avg Sleep", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                            ],
+                                            className="mb-2",
+                                        ),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            str(wellness_stats["stress"]["total_records"]),
+                                                            className="text-warning mb-1",
+                                                        ),
+                                                        html.P("Stress Records", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            str(wellness_stats["steps"]["total_records"]),
+                                                            className="text-success mb-1",
+                                                        ),
+                                                        html.P("Steps Records", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                            ]
+                                        ),
+                                    ]
+                                )
+                            ]
+                        )
+                    ],
+                    width=6,
+                    lg=4,
+                ),
+                # Additional Metrics
+                dbc.Col(
+                    [
+                        dbc.Card(
+                            [
+                                dbc.CardBody(
+                                    [
+                                        html.H4(
+                                            [html.I(className="fas fa-chart-bar me-2"), "Metrics"],
+                                            className="text-success mb-3",
+                                        ),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            str(wellness_stats["body_battery"]["total_records"]),
+                                                            className="text-primary mb-1",
+                                                        ),
+                                                        html.P("Body Battery", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            str(wellness_stats["heart_rate"]["total_records"]),
+                                                            className="text-danger mb-1",
+                                                        ),
+                                                        html.P("HR Records", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                            ],
+                                            className="mb-2",
+                                        ),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            str(wellness_stats["personal_records"]["total_records"]),
+                                                            className="text-warning mb-1",
+                                                        ),
+                                                        html.P("Personal Records", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        html.H5(
+                                                            f"{wellness_stats['max_metrics']['avg_vo2_max']:.1f}"
+                                                            if wellness_stats["max_metrics"]["avg_vo2_max"] > 0
+                                                            else "N/A",
+                                                            className="text-info mb-1",
+                                                        ),
+                                                        html.P("Avg VO2 Max", className="mb-0 small text-muted"),
+                                                    ],
+                                                    width=6,
+                                                ),
+                                            ]
+                                        ),
+                                    ]
+                                )
+                            ]
+                        )
+                    ],
+                    width=12,
+                    lg=4,
+                ),
+            ]
+        )
+
     except Exception as e:
         return dbc.Alert(f"Error loading database summary: {str(e)}", color="warning")
-
-
