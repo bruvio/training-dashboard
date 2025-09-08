@@ -1,3 +1,17 @@
+# [1.1.0](https://github.com/bruvio/training-dashboard/compare/1.0.2...1.1.0) (2025-09-08)
+
+
+### Bug Fixes
+
+* garmin activities and wellness data sync and plot ([#6](https://github.com/bruvio/training-dashboard/issues/6)) ([2175dd8](https://github.com/bruvio/training-dashboard/commit/2175dd8fd10cf47748afae511f942caa3f9645f3))
+
+
+### Features
+
+* display feature/sport specific metrics ([#4](https://github.com/bruvio/training-dashboard/issues/4)) ([110c3cf](https://github.com/bruvio/training-dashboard/commit/110c3cfe87de0339594d4027ac70cdcfe9bbf201))
+* edit activity name ([#3](https://github.com/bruvio/training-dashboard/issues/3)) ([3060ebf](https://github.com/bruvio/training-dashboard/commit/3060ebfd022b4fc29e0c076f82e3dfff7aa50713))
+* refactor UI ([#7](https://github.com/bruvio/training-dashboard/issues/7)) ([15a8e3d](https://github.com/bruvio/training-dashboard/commit/15a8e3de835bfbd1b22fadf4c84872fc32d010e1))
+
 ## [1.0.2](https://github.com/bruvio/training-dashboard/compare/1.0.1...1.0.2) (2025-09-01)
 
 
