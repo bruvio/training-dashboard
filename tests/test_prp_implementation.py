@@ -3,7 +3,9 @@
 Test script to validate PRP implementation for fitness data visualization and sync.
 """
 
+import os
 import sys
+import pytest
 
 sys.path.append("/app")
 
@@ -14,6 +16,12 @@ from app.services.garmin_integration_service import GarminIntegrationService
 from app.services.wellness_data_service import WellnessDataService
 
 
+def is_ci_environment():
+    """Check if running in CI environment."""
+    return os.getenv('IS_CI') == 'true' or os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+
+
+@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
 def test_database_tables():
     """Test that all required database tables exist."""
     print("🔍 Testing database tables...")
@@ -50,6 +58,7 @@ def test_database_tables():
         return False
 
 
+@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
 def test_wellness_data_service():
     """Test the WellnessDataService."""
     print("🔍 Testing WellnessDataService...")
@@ -71,6 +80,7 @@ def test_wellness_data_service():
         return False
 
 
+@pytest.mark.skipif(is_ci_environment(), reason="Garmin authentication not available in CI environment")
 def test_garmin_integration_service():
     """Test the GarminIntegrationService."""
     print("🔍 Testing GarminIntegrationService...")
@@ -129,6 +139,7 @@ def test_personal_records_formatting():
         return False
 
 
+@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
 def test_date_filtering():
     """Test activity statistics with date filtering."""
     print("🔍 Testing date filtering in web queries...")

@@ -2,13 +2,20 @@
 
 from datetime import date, timedelta
 import json
+import os
 import sys
+import pytest
 
 # Add the app directory to the Python path
 sys.path.append("/app")
 
 from garmin_client.client import GarminConnectClient
 from garmin_client.wellness_sync import WellnessSyncManager
+
+
+def is_ci_environment():
+    """Check if running in CI environment."""
+    return os.getenv('IS_CI') == 'true' or os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
 
 
 def display_json(description, data):
@@ -19,6 +26,7 @@ def display_json(description, data):
     print("=" * 80)
 
 
+@pytest.mark.skipif(is_ci_environment(), reason="Garmin authentication not available in CI environment")
 def test_individual_apis():
     """Test individual API calls to see actual field structures."""
     client = GarminConnectClient()

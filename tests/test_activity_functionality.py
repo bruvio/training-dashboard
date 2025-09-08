@@ -12,6 +12,7 @@ Tests:
 import os
 import sys
 import pytest
+from unittest.mock import patch
 
 # Add app to path
 sys.path.append("/Users/brunoviola/WORK/fit-dashboard")
@@ -21,16 +22,19 @@ from app.data.web_queries import get_activity_by_id, get_activity_laps, get_acti
 
 def is_ci_environment():
     """Check if running in CI environment."""
-    return os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+    return os.getenv('IS_CI') == 'true' or os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
 
 
-@pytest.mark.skipif(is_ci_environment(), reason="Database not available in CI environment")
-def test_data_availability():
+def test_data_availability(test_database):
     """Test that required data is available."""
     print("🧪 Testing data availability...")
 
-    # Test activity data
-    activity = get_activity_by_id(1)
+    # Mock the database connection to use test database
+    with patch('app.data.web_queries.session_scope') as mock_session_scope:
+        mock_session_scope.return_value.__enter__.return_value = test_database['session']
+        
+        # Test activity data
+        activity = get_activity_by_id(1)
     assert activity is not None, "❌ Activity data not found"
     print(f"✅ Activity data available: {activity.get('name', 'Unknown')}")
 

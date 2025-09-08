@@ -129,7 +129,8 @@ jobs:
           
       - name: Run Tests with Coverage
         run: |
-          make pytest
+          # Run tests excluding auth-dependent ones in CI
+          CI=true venv/bin/pytest -vvv -rPxwef -m "not auth" --tb=short
           
       - name: Generate Coverage Badge
         if: matrix.python-version == '3.11'
