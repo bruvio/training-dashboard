@@ -448,7 +448,7 @@ def update_activities_table(
                 duration_str = activity.get("duration_str", "")
                 duration_s = parse_duration_to_seconds(duration_str)
 
-                if duration_s > 0 and min_duration_s <= duration_s <= max_duration_s or duration_s <= 0:
+                if duration_s > 0 and min_duration_s <= duration_s <= max_duration_s:
                     filtered_activities.append(activity)
             activities_data = filtered_activities
 
