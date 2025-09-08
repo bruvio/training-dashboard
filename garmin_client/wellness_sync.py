@@ -179,16 +179,13 @@ class WellnessSync:
         Parameters
         ----------
         start : str | date
-            _description_
         end : str | date
-            _description_
         include_extras : bool, optional
-            _description_, by default True
+            by default True
 
         Returns
         -------
         Dict[str, pd.DataFrame]
-            _description_
         """
         s = _to_date(start)
         e = _to_date(end)

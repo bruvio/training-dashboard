@@ -232,9 +232,9 @@ def sync_health_data(days: int, data_types: List[str] = None) -> Dict:
 
         if results["errors"]:
             results["ok"] = False
-            results[
-                "msg"
-            ] = f"Partial sync completed with {len(results['errors'])} errors. {total_records} total records."
+            results["msg"] = (
+                f"Partial sync completed with {len(results['errors'])} errors. {total_records} total records."
+            )
         else:
             results["msg"] = f"Successfully synced {total_records} health records from the last {days} days."
 

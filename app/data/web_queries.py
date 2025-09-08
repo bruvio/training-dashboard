@@ -1570,11 +1570,11 @@ def get_personal_records_data() -> List[Dict[str, Any]]:
                         "raw_value": record.record_value,
                         "record_unit": record.record_unit,
                         "activity_id": record.activity_id,
-                        "achieved_date": record.achieved_date.strftime("%Y-%m-%d")
-                        if record.achieved_date and hasattr(record.achieved_date, "strftime")
-                        else str(record.achieved_date)
-                        if record.achieved_date
-                        else "Unknown",
+                        "achieved_date": (
+                            record.achieved_date.strftime("%Y-%m-%d")
+                            if record.achieved_date and hasattr(record.achieved_date, "strftime")
+                            else str(record.achieved_date) if record.achieved_date else "Unknown"
+                        ),
                         "activity_name": record.activity_name,
                         "location": record.location,
                     }

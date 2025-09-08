@@ -369,9 +369,11 @@ def update_sync_progress_display(n_intervals):
         value=_sync_progress["progress"],
         striped=True,
         animated=_sync_progress["status"] == "running",
-        color="success"
-        if _sync_progress["status"] == "completed"
-        else ("danger" if _sync_progress["status"] == "error" else "info"),
+        color=(
+            "success"
+            if _sync_progress["status"] == "completed"
+            else ("danger" if _sync_progress["status"] == "error" else "info")
+        ),
         className="mb-2",
     )
 

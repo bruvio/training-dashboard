@@ -569,9 +569,11 @@ def register_callbacks(app):
                                     dbc.CardBody(
                                         [
                                             html.H4(
-                                                f"{int(stats['heart_rate']['avg_resting_hr'])}"
-                                                if stats["heart_rate"]["avg_resting_hr"] > 0
-                                                else "N/A",
+                                                (
+                                                    f"{int(stats['heart_rate']['avg_resting_hr'])}"
+                                                    if stats["heart_rate"]["avg_resting_hr"] > 0
+                                                    else "N/A"
+                                                ),
                                                 className="text-info mb-1",
                                             ),
                                             html.P("Avg Resting HR", className="mb-0 text-muted"),
@@ -596,9 +598,11 @@ def register_callbacks(app):
                                     dbc.CardBody(
                                         [
                                             html.H4(
-                                                f"{int(stats['body_battery']['avg_body_battery'])}"
-                                                if stats["body_battery"]["avg_body_battery"] > 0
-                                                else "N/A",
+                                                (
+                                                    f"{int(stats['body_battery']['avg_body_battery'])}"
+                                                    if stats["body_battery"]["avg_body_battery"] > 0
+                                                    else "N/A"
+                                                ),
                                                 className="text-success mb-1",
                                             ),
                                             html.P("Avg Body Battery", className="mb-0 text-muted"),
@@ -623,9 +627,11 @@ def register_callbacks(app):
                                     dbc.CardBody(
                                         [
                                             html.H4(
-                                                f"{int(stats['training_readiness']['avg_score'])}"
-                                                if stats["training_readiness"]["avg_score"] > 0
-                                                else "N/A",
+                                                (
+                                                    f"{int(stats['training_readiness']['avg_score'])}"
+                                                    if stats["training_readiness"]["avg_score"] > 0
+                                                    else "N/A"
+                                                ),
                                                 className="text-primary mb-1",
                                             ),
                                             html.P("Training Readiness", className="mb-0 text-muted"),
