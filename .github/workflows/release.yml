@@ -128,7 +128,13 @@ jobs:
           mkdir -p artifacts images
           
       - name: Run Tests with Coverage
-        run: make pytest
+        run: |
+          # Ensure venv exists and activate it
+          if [ ! -d "venv" ]; then
+            make venv
+          fi
+          source venv/bin/activate
+          make pytest
           
       - name: Generate Coverage Badge
         if: matrix.python-version == '3.11'
