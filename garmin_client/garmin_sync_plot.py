@@ -205,7 +205,7 @@ def _plot_df(df: pd.DataFrame, ycols: List[str], title: str, outdir: Path):
         plt.xlabel("Date")
         plt.ylabel(y)
         outdir.mkdir(parents=True, exist_ok=True)
-        out_path = outdir / f"{title.replace(' ','_').lower()}-{y}.png"  # noqua: E231
+        out_path = outdir / f"{title.replace(' ', '_').lower()}-{y}.png"
         plt.savefig(out_path, bbox_inches="tight")
         plt.close()
         any_saved = True

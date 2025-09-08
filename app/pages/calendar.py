@@ -6,7 +6,6 @@ Calendar page - Main activity list and calendar view.
 from dash import Input, Output, callback, html
 import dash_bootstrap_components as dbc
 
-
 # This page uses manual routing - no registration needed
 
 

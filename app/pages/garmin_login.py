@@ -49,7 +49,6 @@ def reset_client():
 
 def update_sync_progress(status: str, message: str, progress: int = 0, details: list = None):
     """Update global sync progress."""
-    global _sync_progress
     _sync_progress.update({"status": status, "message": message, "progress": progress, "details": details or []})
 
 
@@ -59,7 +58,6 @@ def update_import_progress(status: str, message: str, current: int = 0, total: i
 
     logger = logging.getLogger(__name__)
 
-    global _import_progress
     progress = int((current / total) * 100) if total > 0 else 0
     _import_progress.update(
         {"status": status, "message": message, "progress": progress, "current": current, "total": total}
@@ -99,7 +97,6 @@ def sync_with_progress(days: int, fetch_wellness: bool = True):
         activities_data = get_activities_for_date_range(start_date=start_date, end_date=end_date)
 
         # Update progress with completion and activities data
-        global _sync_progress
         _sync_progress.update(
             {
                 "status": "completed",
