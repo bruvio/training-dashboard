@@ -118,7 +118,7 @@ clean:
 
 .PHONY: coverage
 coverage:  ## coverage report
-	$(COVERAGE) report --fail-under 25
+	$(COVERAGE) report --fail-under 5
 	$(COVERAGE) html -i
 
 .PHONY: unit

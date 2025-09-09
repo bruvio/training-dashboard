@@ -5,11 +5,17 @@ Tests database integration, query optimization, and data formatting
 for web components following the enhanced PRP specifications.
 """
 
+import os
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+
+
+def is_ci_environment():
+    """Check if running in CI environment."""
+    return os.getenv('IS_CI') == 'true' or os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
 
 from app.data.db import DatabaseConfig
 from app.data.models import Activity, Sample
@@ -22,6 +28,7 @@ from app.data.web_queries import (
 )
 
 
+@pytest.mark.skipif(is_ci_environment(), reason="Database-dependent tests skip in CI environment")
 class TestWebQueries:
     """Test web-specific database query functions."""
 
