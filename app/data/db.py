@@ -110,8 +110,19 @@ class DatabaseConfig:
         # Note: garth_models has conflicting table names with garmin_models, so we skip it
 
         logger.info(f"Registered tables: {list(Base.metadata.tables.keys())}")
-        Base.metadata.create_all(self.engine)
-        logger.info("Database tables created successfully.")
+        try:
+            Base.metadata.create_all(self.engine, checkfirst=True)
+            logger.info("Database tables created successfully.")
+        except Exception as e:
+            logger.error(f"Error creating database tables: {e}")
+            # For testing, try to recreate with drop first
+            try:
+                Base.metadata.drop_all(self.engine)
+                Base.metadata.create_all(self.engine)
+                logger.info("Database tables recreated successfully after error.")
+            except Exception as recreate_error:
+                logger.error(f"Failed to recreate tables: {recreate_error}")
+                raise
 
     def drop_all_tables(self):
         """Drop all database tables (use with caution!)."""

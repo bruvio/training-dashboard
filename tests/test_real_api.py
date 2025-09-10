@@ -15,7 +15,7 @@ from garmin_client.wellness_sync import WellnessSyncManager
 
 def is_ci_environment():
     """Check if running in CI environment."""
-    return os.getenv('IS_CI') == 'true' or os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+    return os.getenv("IS_CI") == "true" or os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
 
 
 def display_json(description, data):
