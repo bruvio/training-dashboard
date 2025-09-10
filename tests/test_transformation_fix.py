@@ -16,7 +16,7 @@ from app.services.garmin_integration_service import GarminIntegrationService
 
 def is_ci_environment():
     """Check if running in CI environment."""
-    return os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+    return os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
 
 
 @pytest.mark.skipif(is_ci_environment(), reason="Garmin authentication not available in CI environment")

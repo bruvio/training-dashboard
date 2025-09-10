@@ -15,7 +15,8 @@ import pytest
 
 def is_ci_environment():
     """Check if running in CI environment."""
-    return os.getenv('IS_CI') == 'true' or os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+    return os.getenv("IS_CI") == "true" or os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
+
 
 from app.data.db import DatabaseConfig
 from app.data.models import Activity, Sample
@@ -37,6 +38,11 @@ class TestWebQueries:
         """Create in-memory database with test data."""
 
         db_config = DatabaseConfig("sqlite:///:memory:")
+        # Force clean database creation
+        try:
+            db_config.drop_all_tables()
+        except Exception:
+            pass  # Ignore if no tables exist
         db_config.create_all_tables()
 
         session = db_config.get_session()

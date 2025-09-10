@@ -23,7 +23,7 @@ sys.path.append("/Users/brunoviola/WORK/fit-dashboard")
 
 def is_ci_environment():
     """Check if running in CI environment."""
-    return os.getenv('IS_CI') == 'true' or os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+    return os.getenv("IS_CI") == "true" or os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
 
 
 def test_data_availability():
@@ -38,7 +38,7 @@ def test_data_availability():
         "distance_km": 10.0,
         "elapsed_time_s": 3600,
     }
-    
+
     mock_laps = [
         {
             "lap_index": 1,
@@ -48,19 +48,20 @@ def test_data_availability():
             "avg_hr": 148,
         }
     ]
-    
+
     mock_samples = [
         {"heart_rate_bpm": 145, "speed_mps": 2.5, "altitude_m": 50.0, "power_w": 200.0},
         {"heart_rate_bpm": 150, "speed_mps": 2.8, "altitude_m": 52.0, "power_w": 210.0},
     ]
 
-    with patch('app.data.web_queries.get_activity_by_id', return_value=mock_activity) as mock_get_activity, \
-         patch('app.data.web_queries.get_activity_laps', return_value=mock_laps) as mock_get_laps, \
-         patch('app.data.web_queries.get_activity_samples', return_value=mock_samples) as mock_get_samples:
-        
+    with patch("app.data.web_queries.get_activity_by_id", return_value=mock_activity) as mock_get_activity, patch(
+        "app.data.web_queries.get_activity_laps", return_value=mock_laps
+    ) as mock_get_laps, patch(
+        "app.data.web_queries.get_activity_samples", return_value=mock_samples
+    ) as mock_get_samples:
         # Import here to avoid model conflicts during module loading
         from app.data.web_queries import get_activity_by_id, get_activity_laps, get_activity_samples
-        
+
         # Test activity data
         activity = get_activity_by_id(1)
         assert activity is not None, "❌ Activity data not found"
@@ -92,9 +93,9 @@ def test_laps_table_callback():
         }
     ]
 
-    with patch('app.data.web_queries.get_activity_laps', return_value=mock_laps):
+    with patch("app.data.web_queries.get_activity_laps", return_value=mock_laps):
         from app.data.web_queries import get_activity_laps
-        
+
         # Test the core logic without importing the callback directly
         activity_data = {"id": 1, "name": "Test Activity"}
 
@@ -145,9 +146,9 @@ def test_lap_data_formatting():
         }
     ]
 
-    with patch('app.data.web_queries.get_activity_laps', return_value=mock_laps):
+    with patch("app.data.web_queries.get_activity_laps", return_value=mock_laps):
         from app.data.web_queries import get_activity_laps
-        
+
         laps_data = get_activity_laps(1)
         first_lap = laps_data[0]
 
@@ -188,9 +189,9 @@ def test_chart_metrics_data():
         {"heart_rate_bpm": None, "speed_mps": 3.0, "altitude_m": None, "power_w": None},
     ]
 
-    with patch('app.data.web_queries.get_activity_samples', return_value=mock_samples):
+    with patch("app.data.web_queries.get_activity_samples", return_value=mock_samples):
         from app.data.web_queries import get_activity_samples
-        
+
         samples_data = get_activity_samples(1)
 
         # Check for different metric types - handle both dict and other formats

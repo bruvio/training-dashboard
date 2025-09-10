@@ -121,6 +121,16 @@ coverage:  ## coverage report
 	$(COVERAGE) report --fail-under 5
 	$(COVERAGE) html -i
 
+.PHONY: coverage-report
+coverage-report:  ## Enhanced coverage report for 91% target
+	$(COVERAGE) report --show-missing --fail-under 91
+	$(COVERAGE) html -d htmlcov --title="Coverage Report - 91% Target"
+	$(COVERAGE) xml -o coverage.xml
+
+.PHONY: pytest-ci
+pytest-ci:  ## Run tests with coverage for CI
+	$(PYTEST) -vvv -rPxwef -m "not auth" --tb=short --cov=app --cov-report=xml --cov-report=html --cov-report=term
+
 .PHONY: unit
 unit: | pytest coverage  ## run all tests and test coverage
 
