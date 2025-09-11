@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/bruvio/training-dashboard/compare/1.1.0...1.1.1) (2025-09-11)
+
+
+### Bug Fixes
+
+* fix broken app ([2793f70](https://github.com/bruvio/training-dashboard/commit/2793f7064bc41907634d74641d5c69c09399093a))
+
 # [1.1.0](https://github.com/bruvio/training-dashboard/compare/1.0.2...1.1.0) (2025-09-08)
 
 
