@@ -29,7 +29,7 @@ services:
     environment:
       - DATABASE_URL=sqlite:////data/garmin_dashboard.db
       - GARMINTOKENS=/home/garmin/.garminconnect
-      - DASH_DEBUG=${DASH_DEBUG:-False}
+      - DASH_DEBUG=${DASH_DEBUG:-True}
       - HOST=0.0.0.0
       - PORT=8050
       - PYTHONPATH=/app

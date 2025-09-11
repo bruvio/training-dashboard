@@ -50,8 +50,8 @@ def layout():
                                                             dbc.Label("Date Range:", size="sm"),
                                                             dcc.DatePickerRange(
                                                                 id="activities-date-range-picker",
-                                                                start_date=datetime.now() - timedelta(days=30),
-                                                                end_date=datetime.now(),
+                                                                start_date=datetime.now() - timedelta(days=90),
+                                                                end_date=datetime.now() + timedelta(days=7),
                                                                 display_format="YYYY-MM-DD",
                                                                 style={"width": "100%"},
                                                             ),
@@ -230,6 +230,7 @@ def layout():
         Output("activities-distance-filter", "value"),
     ],
     Input("url", "pathname"),
+    prevent_initial_call=False,
 )
 def initialize_activities_filters(pathname):
     """Initialize filter components with data from database."""
@@ -242,37 +243,35 @@ def initialize_activities_filters(pathname):
         # Sport options
         sport_options = [{"label": "All Sports", "value": "all"}]
         for sport in filter_options["sports"]:
-            sport_options.append({"label": sport.title(), "value": sport})
+            sport_options.append({"label": sport.replace("_", " ").title(), "value": sport})
 
         # Duration in minutes - set reasonable defaults that don't filter out activities
-        duration_min = 0  # Start from 0
-        duration_max = max((filter_options["duration_range"]["max"] or 3600) / 60, 180)  # At least 3 hours
-        duration_value = [duration_min, duration_max]
+        duration_max_mins = int((filter_options["duration_range"]["max"] or 3600) / 60)
+        duration_value = [0, max(duration_max_mins, 300)]
 
         # Distance in km - set reasonable defaults that don't filter out activities
-        distance_min = 0  # Start from 0
-        distance_max = max(filter_options["distance_range"]["max"], 100)  # At least 100km
-        distance_value = [distance_min, distance_max]
+        distance_max_km = int(filter_options["distance_range"]["max"] or 100)
+        distance_value = [0, max(distance_max_km, 200)]
 
         return (
             sport_options,
-            duration_min,
-            duration_max,
+            0,
+            max(duration_max_mins, 300),
             duration_value,
-            distance_min,
-            distance_max,
+            0,
+            max(distance_max_km, 200),
             distance_value,
         )
-    except Exception:
-        # Fallback values
+    except Exception as e:
+        # Fallback values if there's an error
         return (
             [{"label": "All Sports", "value": "all"}],
             0,
-            180,
-            [0, 180],
+            300,
+            [0, 300],
             0,
-            50,
-            [0, 50],
+            200,
+            [0, 200],
         )
 
 
