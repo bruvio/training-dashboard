@@ -5,9 +5,7 @@ This test module follows the PRP Phase 1 requirements for comprehensive utility
 function testing including all edge cases, error handling, and complete coverage.
 """
 
-import pytest
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import datetime
 
 from app.utils.activity_helpers import (
     parse_duration_to_seconds,

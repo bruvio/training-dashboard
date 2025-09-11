@@ -2,7 +2,6 @@
 Unit tests for actual app utility functions.
 """
 
-import pytest
 
 from app.utils import (
     filter_activities_by_distance,

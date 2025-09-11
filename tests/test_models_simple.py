@@ -4,7 +4,6 @@ Simple unit tests for database models without schema conflicts.
 
 from datetime import datetime, timezone
 
-import pytest
 
 from app.data.db import DatabaseConfig
 from app.data.models import ActivityData, SampleData

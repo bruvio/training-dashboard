@@ -7,8 +7,7 @@ with various scenarios including error handling.
 
 import argparse
 import pytest
-from unittest.mock import Mock, patch, mock_open, call
-from pathlib import Path
+from unittest.mock import Mock, patch, mock_open
 
 from app.utils.save_activity_page import save_rendered_page, main
 

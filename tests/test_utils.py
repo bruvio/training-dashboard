@@ -2,9 +2,6 @@
 Unit tests for app utility functions.
 """
 
-from datetime import datetime, timedelta
-
-import pytest
 
 from app.utils import (
     filter_activities_by_distance,

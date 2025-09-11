@@ -9,8 +9,7 @@ import logging
 import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, call
-import sys
+from unittest.mock import Mock, patch
 
 from app.utils.logging_config import DashboardLogger, get_logger, log_function_call, log_error
 
@@ -111,7 +110,7 @@ class TestDashboardLogger:
         root_logger = logging.getLogger()
         dummy_handler = logging.StreamHandler()
         root_logger.addHandler(dummy_handler)
-        initial_count = len(root_logger.handlers)
+        len(root_logger.handlers)
 
         DashboardLogger.configure_logging()
 

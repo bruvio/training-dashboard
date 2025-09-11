@@ -4,12 +4,11 @@ Simplified database error handling tests that work reliably in CI environments.
 
 import pytest
 from unittest.mock import Mock, patch
-from sqlalchemy.exc import SQLAlchemyError, OperationalError, IntegrityError
-from sqlalchemy import text, create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
+from sqlalchemy import text
 
 from app.data.db import DatabaseConfig
-from app.data.models import Activity, Base
+from app.data.models import Activity
 
 
 class TestDatabaseErrorHandlingSimple:

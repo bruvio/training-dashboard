@@ -7,7 +7,7 @@ with complete coverage including edge cases and error handling.
 
 import logging
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from app.utils import get_logger
 

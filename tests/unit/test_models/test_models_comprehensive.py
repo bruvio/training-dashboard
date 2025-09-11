@@ -5,9 +5,7 @@ This test module follows the PRP Phase 1 requirements for model properties and m
 with complete coverage including calculated properties, edge cases, and error handling.
 """
 
-import pytest
 from datetime import datetime, timezone
-from unittest.mock import Mock
 
 from app.data.models import (
     Activity,
@@ -18,7 +16,6 @@ from app.data.models import (
     SampleData,
     LapData,
     ImportResult,
-    Base,
 )
 
 

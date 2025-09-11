@@ -5,10 +5,8 @@ Tests the SportMetricsMapper class and calculation functions
 for sport-specific metrics and visualization.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
-from unittest.mock import Mock, patch
 
 from app.utils.sport_metrics import (
     SportMetricsMapper,
@@ -291,7 +289,7 @@ class TestCalculationFunctions:
 
         # Calculate expected values
         speed_kmh = speed_series * 3.6
-        expected = 60 / speed_kmh
+        60 / speed_kmh
 
         assert abs(pace.iloc[0] - 5.0) < 0.1  # ~5 min/km
         assert abs(pace.iloc[1] - 6.0) < 0.1  # ~6 min/km

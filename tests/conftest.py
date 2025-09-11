@@ -3,7 +3,6 @@ Pytest configuration and fixtures for the Garmin Dashboard test suite.
 """
 
 import os
-import tempfile
 from datetime import datetime, timezone
 
 import pytest

@@ -4,7 +4,6 @@ Integration tests using deterministic test FIT files.
 
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import pytest
 

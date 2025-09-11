@@ -262,7 +262,7 @@ def initialize_activities_filters(pathname):
             max(distance_max_km, 200),
             distance_value,
         )
-    except Exception as e:
+    except Exception:
         # Fallback values if there's an error
         return (
             [{"label": "All Sports", "value": "all"}],
