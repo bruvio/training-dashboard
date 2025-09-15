@@ -256,13 +256,14 @@ def create_charts_section():
 
 
 # Register this page with dynamic routing (Dash 2.17+ pattern)
-dash.register_page(
-    __name__,
-    path="/activity/<activity_id>",
-    title="Activity Detail - Garmin Dashboard",
-    name="Activity Detail",
-    description="View detailed activity information with maps and charts",
-)
+# NOTE: Commented out because we use manual routing in dash_app.py
+# dash.register_page(
+#     __name__,
+#     path="/activity/<activity_id>",
+#     title="Activity Detail - Garmin Dashboard",
+#     name="Activity Detail",
+#     description="View detailed activity information with maps and charts",
+# )
 
 
 def layout(activity_id: str = None, **kwargs):

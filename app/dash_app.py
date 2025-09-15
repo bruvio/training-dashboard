@@ -57,6 +57,19 @@ try:
     # Import pages to register their callbacks with the app
     from app.pages import fit_upload, garmin_login, settings, stats
 
+    # Import activities and sync pages to register their @callback decorators
+    from app.pages import activities, sync
+
+    # Import all page layouts to avoid importing inside callbacks
+    from app.pages.calendar import layout as calendar_layout
+    from app.pages.activity_detail import layout as activity_detail_layout
+    from app.pages.garmin_login import layout as garmin_layout
+    from app.pages.fit_upload import layout as upload_layout
+    from app.pages.settings import layout as settings_layout
+    from app.pages.stats import layout as stats_layout
+    from app.pages.sync import layout as sync_layout
+    from app.pages.activities import layout as activities_layout
+
     # Register callbacks for pages that need them
     garmin_login.register_callbacks(app)
     settings.register_callbacks(app)
@@ -301,7 +314,7 @@ app.layout = dbc.Container(
 
 
 # URL routing callback
-@app.callback(Output("page-content", "children"), Input("url", "pathname"))
+@app.callback([Output("page-content", "children")], Input("url", "pathname"))
 def display_page(pathname):
     """Manual routing for pages."""
     logger.info(f"Routing to pathname: {pathname}")
@@ -309,98 +322,82 @@ def display_page(pathname):
     if pathname == "/" or pathname is None:
         # Calendar/activity list page
         try:
-            from app.pages.calendar import layout as calendar_layout
-
             logger.info("Loading calendar page")
-            return calendar_layout()
+            return [calendar_layout()]
         except Exception as e:
             logger.error(f"Error loading calendar: {e}")
-            return html.Div([html.H2(f"Error loading calendar: {str(e)}")])
+            return [html.Div([html.H2(f"Error loading calendar: {str(e)}")])]
 
     elif pathname.startswith("/activity/"):
         # Activity detail page
         try:
             activity_id = pathname.split("/activity/")[1]
             logger.info(f"Loading activity detail for ID: {activity_id}")
-            from app.pages.activity_detail import layout as activity_layout
-
-            return activity_layout(activity_id)
+            return [activity_detail_layout(activity_id)]
         except (IndexError, ValueError) as e:
             logger.error(f"Invalid activity ID: {e}")
-            return html.Div([html.H2("404 - Invalid activity ID")])
+            return [html.Div([html.H2("404 - Invalid activity ID")])]
         except Exception as e:
             logger.error(f"Error loading activity detail: {e}")
-            return html.Div([html.H2(f"Error loading activity: {str(e)}")])
+            return [html.Div([html.H2(f"Error loading activity: {str(e)}")])]
 
     elif pathname == "/garmin":
         # Garmin Connect sync page
         try:
-            from app.pages.garmin_login import layout as garmin_layout
-
             logger.info("Loading Garmin sync page")
-            return garmin_layout()
+            return [garmin_layout()]
         except Exception as e:
             logger.error(f"Error loading Garmin page: {e}")
-            return html.Div([html.H2(f"Error loading Garmin sync: {str(e)}")])
+            return [html.Div([html.H2(f"Error loading Garmin sync: {str(e)}")])]
 
     elif pathname == "/upload":
         # FIT file upload page
         try:
-            from app.pages.fit_upload import layout as upload_layout
-
             logger.info("Loading FIT upload page")
-            return upload_layout()
+            return [upload_layout()]
         except Exception as e:
             logger.error(f"Error loading upload page: {e}")
-            return html.Div([html.H2(f"Error loading upload page: {str(e)}")])
+            return [html.Div([html.H2(f"Error loading upload page: {str(e)}")])]
 
     elif pathname == "/settings":
         # Settings page
         try:
-            from app.pages.settings import layout as settings_layout
-
             logger.info("Loading settings page")
-            return settings_layout()
+            return [settings_layout()]
         except Exception as e:
             logger.error(f"Error loading settings page: {e}")
-            return html.Div([html.H2(f"Error loading settings: {str(e)}")])
+            return [html.Div([html.H2(f"Error loading settings: {str(e)}")])]
 
     elif pathname == "/stats":
         # Statistics page
         try:
-            from app.pages.stats import layout as stats_layout
-
             logger.info("Loading statistics page")
-            return stats_layout()
+            return [stats_layout()]
         except Exception as e:
             logger.error(f"Error loading statistics page: {e}")
-            return html.Div([html.H2(f"Error loading statistics: {str(e)}")])
+            return [html.Div([html.H2(f"Error loading statistics: {str(e)}")])]
 
     elif pathname == "/sync":
         # Enhanced Garmin sync page
         try:
-            from app.pages.sync import layout as sync_layout
-
             logger.info("Loading enhanced sync page")
-            return sync_layout()
+            return [sync_layout()]
         except Exception as e:
             logger.error(f"Error loading enhanced sync page: {e}")
-            return html.Div([html.H2(f"Error loading enhanced sync: {str(e)}")])
+            return [html.Div([html.H2(f"Error loading enhanced sync: {str(e)}")])]
 
     elif pathname == "/activities":
         # Dedicated activities page
         try:
-            from app.pages.activities import layout as activities_layout
-
             logger.info("Loading activities page")
-            return activities_layout()
+            return [activities_layout()]
         except Exception as e:
             logger.error(f"Error loading activities page: {e}")
-            return html.Div([html.H2(f"Error loading activities: {str(e)}")])
+            return [html.Div([html.H2(f"Error loading activities: {str(e)}")])]
 
     else:
         logger.info(f"Unknown pathname: {pathname}")
-        return html.Div([html.H2("404 - Page not found")])
+        return [html.Div([html.H2("404 - Page not found")])]
 
 
 def update_session_data(pathname, session_data):

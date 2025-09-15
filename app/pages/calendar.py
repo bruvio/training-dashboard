@@ -2,7 +2,6 @@
 Calendar page - Main activity list and calendar view.
 """
 
-
 from dash import Input, Output, callback, html
 import dash_bootstrap_components as dbc
 
@@ -314,9 +313,11 @@ def update_database_summary(pathname):
                                                 dbc.Col(
                                                     [
                                                         html.H5(
-                                                            f"{activity_stats['avg_heart_rate']:.0f} bpm"
-                                                            if activity_stats["avg_heart_rate"] > 0
-                                                            else "N/A",
+                                                            (
+                                                                f"{activity_stats['avg_heart_rate']:.0f} bpm"
+                                                                if activity_stats["avg_heart_rate"] > 0
+                                                                else "N/A"
+                                                            ),
                                                             className="text-danger mb-1",
                                                         ),
                                                         html.P("Avg Heart Rate", className="mb-0 small text-muted"),
@@ -359,9 +360,11 @@ def update_database_summary(pathname):
                                                 dbc.Col(
                                                     [
                                                         html.H5(
-                                                            f"{wellness_stats['sleep']['avg_sleep_hours']:.1f}h"
-                                                            if wellness_stats["sleep"]["avg_sleep_hours"] > 0
-                                                            else "N/A",
+                                                            (
+                                                                f"{wellness_stats['sleep']['avg_sleep_hours']:.1f}h"
+                                                                if wellness_stats["sleep"]["avg_sleep_hours"] > 0
+                                                                else "N/A"
+                                                            ),
                                                             className="text-info mb-1",
                                                         ),
                                                         html.P("Avg Sleep", className="mb-0 small text-muted"),
@@ -454,9 +457,11 @@ def update_database_summary(pathname):
                                                 dbc.Col(
                                                     [
                                                         html.H5(
-                                                            f"{wellness_stats['max_metrics']['avg_vo2_max']:.1f}"
-                                                            if wellness_stats["max_metrics"]["avg_vo2_max"] > 0
-                                                            else "N/A",
+                                                            (
+                                                                f"{wellness_stats['max_metrics']['avg_vo2_max']:.1f}"
+                                                                if wellness_stats["max_metrics"]["avg_vo2_max"] > 0
+                                                                else "N/A"
+                                                            ),
                                                             className="text-info mb-1",
                                                         ),
                                                         html.P("Avg VO2 Max", className="mb-0 small text-muted"),

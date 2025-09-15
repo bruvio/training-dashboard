@@ -2,7 +2,6 @@
 Unit tests for app utility functions.
 """
 
-
 from app.utils import (
     filter_activities_by_distance,
     parse_duration_to_seconds,
